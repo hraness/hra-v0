@@ -6,12 +6,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hraness/hra.git",
+    "url": "git+https://github.com/hraness/hra-v0.git",
     "directory": "apps/cli"
   },
-  "homepage": "https://hra.sh",
+  "homepage": "https://hra-weld.vercel.app",
   "bugs": {
-    "url": "https://github.com/hraness/hra/issues"
+    "url": "https://github.com/hraness/hra-v0/issues"
   },
   "type": "module",
   "bin": {

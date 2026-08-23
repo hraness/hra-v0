@@ -1,4 +1,4 @@
-export const HRA_SITE_URL = "https://hra.sh" as const;
+export const HRA_SITE_URL = "https://hra-weld.vercel.app" as const;
 export const HRA_SUITE_ACCOUNTS_ORIGIN =
   "https://account.hraness.com" as const;
 export const HRA_SUITE_OIDC_CLIENT_ID =

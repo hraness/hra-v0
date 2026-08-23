@@ -88,6 +88,11 @@ describe("public repository boundary", () => {
     expect(publicBoundaryErrors([
       {
         kind: "file",
+        path: "release-history.json",
+        source: ['{"repository', 'Id":', "13348", "76494}"].join(""),
+      },
+      {
+        kind: "file",
         path: "packages/ui/styles.css",
         source: ".jungle-visually-hidden { color: var(--jungle-foreground); }",
       },

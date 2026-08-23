@@ -2,7 +2,7 @@
   "entries": [
     {
       "category": "compatibility",
-      "matchingLinesSha256": "dbb6ca57d23291846906756f03ae499bc9c7d0a1a739d88d026624b71838801c",
+      "matchingLinesSha256": "859491b2204ff629f260b5c297b90d6d19e3a03f6c2f71d39382f387f8002525",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -1932,23 +1932,13 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "df639c666e11f0546c5581d47d804fa5eaecc1b9afd15c65f10512acb0aeeb40",
+      "matchingLinesSha256": "9444393a7880aa0fdfa173050cd6736cfbd2bb8197207aced374753650ab9ca6",
       "occurrences": {
-        "kitchen": 2,
+        "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 16
+        "oprte": 3
       },
       "path": "apps/web/README.md"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "036e28462b9140134091226a42d8e3eefc555af2419a8d6e8064e7db4e1e4712",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 1
-      },
-      "path": "apps/web/app/download/page.tsx"
     },
     {
       "category": "compatibility",
@@ -1969,26 +1959,6 @@
         "oprte": 1
       },
       "path": "apps/web/app/hosted-mutation-attempt-journal.ts"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "85607be23ebddd945ce36063c8da6a3a04a1c139cea1b2105604bf79d4586cb3",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 1
-      },
-      "path": "apps/web/app/landing.test.ts"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "d0a500b1c4ff0c643e1bdf2d64157390b29ef6d01774a95ba6be829c7d4ad691",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 1
-      },
-      "path": "apps/web/app/public-markdown.ts"
     },
     {
       "category": "compatibility",
@@ -2262,7 +2232,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "7015f2a93be67fcb1a49bdb14f80599645259a4f6a637210c6128f843d0fafd0",
+      "matchingLinesSha256": "7505d683b6d35e25ffe20d7985795033b8c382630fd9ca8937c8aa090a777446",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -2272,7 +2242,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "75bdff64058b8ce1ca5d348142c9e34a455d8bad89c08934bcb7bfba93dfc25f",
+      "matchingLinesSha256": "9c3380188e58d1d9c767fe244c8bdb8bc09e648cdc393f42fbfd6524f92ca178",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,

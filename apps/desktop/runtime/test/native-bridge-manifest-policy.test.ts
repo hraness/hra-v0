@@ -96,7 +96,7 @@ describe("Native transport lifecycle bridge policy", () => {
     );
     expect(updater).toContain("HRAShowManualUpdateFallbackOnMainThread();");
     expect(updater).toContain(
-      'NSURL URLWithString:@"https://hra.sh/download"',
+      'NSURL URLWithString:@"https://hra-weld.vercel.app/download"',
     );
 
     const automaticStart = updater.slice(

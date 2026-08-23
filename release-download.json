@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "repository": "https://github.com/hraness/hra",
+  "repository": "https://github.com/hraness/hra-v0",
   "release": {
     "architecture": "Apple Silicon",
     "artifacts": {

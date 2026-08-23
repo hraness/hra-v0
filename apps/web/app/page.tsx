@@ -11,7 +11,10 @@ import Link from "next/link";
 import Image from "next/image";
 
 import {
+  CURRENT_HRA_REPOSITORY,
+  CURRENT_HRA_SITE,
   HRA_BRAND_ICON_PATH,
+  HRA_V0_REPOSITORY,
   hraHomepageKeywords,
   hraSearchSite,
 } from "./site";
@@ -130,7 +133,7 @@ export default function LandingPage() {
       />
       <a className="landing-skip-link" href="#main-content">Skip to content</a>
       <header className="landing-header">
-        <Link aria-label="HRA home" className="landing-wordmark" href="/">
+        <Link aria-label="HRA v0 home" className="landing-wordmark" href="/">
           <span aria-hidden="true">
             <Image
               alt=""
@@ -140,16 +143,17 @@ export default function LandingPage() {
               width={512}
             />
           </span>
-          <strong>HRA</strong>
+          <strong>HRA v0</strong>
         </Link>
         <nav aria-label="Primary navigation" className="landing-navigation">
           <a href="#why-hra">Why HRA</a>
           <a href="#how-it-works">How it works</a>
+          <Link href="/releases">History</Link>
           <Link href="/alternatives">Compare</Link>
         </nav>
         <div className="landing-header-actions">
-          <a className="landing-text-link" href="https://github.com/hraness/hra">GitHub</a>
-          <Link className="landing-button landing-button--compact" href="/app">Open HRA</Link>
+          <a className="landing-text-link" href={HRA_V0_REPOSITORY}>v0 source</a>
+          <a className="landing-button landing-button--compact" href={CURRENT_HRA_SITE}>Open current HRA</a>
           <ThemeMenuButton />
         </div>
       </header>
@@ -157,24 +161,24 @@ export default function LandingPage() {
       <main id="main-content">
         <section aria-labelledby="landing-title" className="landing-hero">
           <div className="landing-hero-copy">
-            <p className="landing-eyebrow">A metaharness for Codex</p>
-            <h1 id="landing-title">Give Codex a team, a memory, and a budget.</h1>
+            <p className="landing-eyebrow">Archived HRA v0 · final prerelease</p>
+            <h1 id="landing-title">HRA v0 is preserved here.</h1>
             <p className="landing-hero-statement">
-              HRA turns the Codex accounts you already use into one durable system for planning work, delegating it, running it in parallel, and bringing it back for review.
+              This site and repository preserve the original HRA macOS metaharness, its source, and its final v0.1.14 prerelease.
             </p>
             <p className="landing-hero-detail">
-              It is for projects that outgrow independent sessions: work has dependencies, follow-ups need continuity, account identities stay separate, and an interrupted run needs a recoverable answer.
+              The current HRA is a separate project. New users should start at <a href={CURRENT_HRA_SITE}>hra.sh</a> or read its <a href={CURRENT_HRA_REPOSITORY}>current source</a>. Existing v0 users can keep using the archive and download below.
             </p>
             <div className="landing-actions">
-              <Link className="landing-button" href="/download">Download for macOS</Link>
-              <Link className="landing-button landing-button--outline" href="/alternatives">Compare HRA</Link>
-              <a className="landing-source-link" href="https://github.com/hraness/hra">
-                View source <span aria-hidden="true">↗</span>
+              <a className="landing-button" href={CURRENT_HRA_SITE}>Go to current HRA</a>
+              <Link className="landing-button landing-button--outline" href="/download">Download HRA v0</Link>
+              <a className="landing-source-link" href={HRA_V0_REPOSITORY}>
+                View v0 source <span aria-hidden="true">↗</span>
               </a>
             </div>
             <ul aria-label="Product facts" className="landing-proof-list">
               <li>Apple Silicon</li>
-              <li>Public prerelease</li>
+              <li>Archived prerelease</li>
               <li>Apache 2.0</li>
               <li>Local execution</li>
             </ul>
@@ -290,15 +294,15 @@ export default function LandingPage() {
             <h2 id="source-title">The harness should be inspectable.</h2>
             <p>The public repository includes the product source, security architecture, build checks, and the exact boundaries around local execution.</p>
           </div>
-          <a className="landing-button landing-button--outline" href="https://github.com/hraness/hra">
-            Open GitHub <span aria-hidden="true">↗</span>
+          <a className="landing-button landing-button--outline" href={HRA_V0_REPOSITORY}>
+            Open HRA v0 on GitHub <span aria-hidden="true">↗</span>
           </a>
         </section>
       </main>
 
       <footer className="landing-footer">
         <HranessBrand />
-        <p>A durable metaharness for Codex.</p>
+        <p>HRA v0 archive. For current HRA, visit <a href={CURRENT_HRA_SITE}>hra.sh</a>.</p>
         <details className="landing-disclosure">
           <summary>Privacy and analytics</summary>
           <p>

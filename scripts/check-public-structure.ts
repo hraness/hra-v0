@@ -3,9 +3,9 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const publicRepositoryUrl = "git+https://github.com/hraness/hra.git";
-const publicHomepage = "https://hra.sh";
-const publicBugsUrl = "https://github.com/hraness/hra/issues";
+const publicRepositoryUrl = "git+https://github.com/hraness/hra-v0.git";
+const publicHomepage = "https://hra-weld.vercel.app";
+const publicBugsUrl = "https://github.com/hraness/hra-v0/issues";
 const expectedNamedWorkspaces: ReadonlyMap<string, string> = new Map([
   ["apps/cli", "@hraness/hra-cli"],
   ["apps/desktop", "@hraness/hra"],

@@ -16,7 +16,7 @@
 - `test/image-normalizer.macos.test.ts` and `test/codex-signature-normalization.macos.test.ts` – macOS-only image-normalizer regressions and cross-host Codex signing-page determinism evidence.
 - `control-plane-maintenance.ts` – app-stopped health checks plus encrypted backup, inspection, verification, and restore.
 - `installation-handoff.ts`, `installation-path-authority.ts`, and `installation-process-authority.ts` – the fail-closed OPRTE-to-HRA application handoff, resumable committed cleanup, exact filesystem authority, ordered native-root shutdown, and unchanged-state rollback.
-- `release-download-contract.ts`, `release-provenance.ts`, and `release-download.json` at the repository root – strict candidate/publication evidence and hermetic canonical Git provenance for downloadable releases.
+- `release-download-contract.ts`, `release-history-contract.ts`, `release-provenance.ts`, and the root release manifests – immutable candidate/publication evidence, the exact v0.1.7–v0.1.14 remote compatibility ledger, the reviewed archive-repository coordinate migration, and hermetic canonical Git provenance for downloadable releases.
 - `reactive-baseline.ts` – the owned gateway, projection, SQLite, Direct bridge, React, containment, and cleanup baseline.
 - `THIRD_PARTY_NOTICES.md` and adjacent license texts – exact notices and provenance for pinned Bun, Codex, ripgrep, Git, Git LFS, Git Credential Manager, JavaScript, and asset runtimes.
 

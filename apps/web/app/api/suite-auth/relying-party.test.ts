@@ -24,7 +24,7 @@ describe("HRA suite OIDC relying party", () => {
     for (const key of ENVIRONMENT_KEYS) delete process.env[key];
 
     const response = await handleHRASuiteOidc(
-      new Request("https://hra.sh/api/suite-auth/session"),
+      new Request("https://hra-weld.vercel.app/api/suite-auth/session"),
     );
 
     expect(response.status).toBe(503);
@@ -40,12 +40,12 @@ describe("HRA suite OIDC relying party", () => {
   });
 
   test("accepts only the registered HRA origin before exact route dispatch", async () => {
-    process.env.NEXT_PUBLIC_SITE_URL = "https://hra.sh";
+    process.env.NEXT_PUBLIC_SITE_URL = "https://hra-weld.vercel.app";
     process.env.SUITE_IDENTITY_RECEIPT_KEY_VERSION = "v1";
     process.env.SUITE_OIDC_COOKIE_SECRET = "c".repeat(64);
 
     const response = await handleHRASuiteOidc(
-      new Request("https://hra.sh/api/suite-auth/not-a-route"),
+      new Request("https://hra-weld.vercel.app/api/suite-auth/not-a-route"),
     );
 
     expect(response.status).toBe(404);

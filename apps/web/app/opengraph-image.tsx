@@ -5,7 +5,7 @@ import { ImageResponse } from "next/og";
 
 import { HRA_BRAND_EMOJI } from "./site";
 
-export const alt = "HRA: a durable metaharness for Codex";
+export const alt = "HRA v0: archived Codex metaharness";
 export const contentType = "image/png";
 export const size = { height: 630, width: 1200 };
 
@@ -63,20 +63,20 @@ export default async function OpenGraphImage() {
             <img alt={HRA_BRAND_EMOJI} height={66} src={phoenixIconSource} width={66} />
           </div>
           <div style={{ display: "flex", fontSize: 30, fontWeight: 750, letterSpacing: 8 }}>
-            HRA
+            HRA v0
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 28, maxWidth: 940 }}>
           <div style={{ color: "#6d39d8", display: "flex", fontSize: 22, fontWeight: 750, letterSpacing: 4 }}>
-            A METAHARNESS FOR CODEX
+            ARCHIVED CODEX METAHARNESS
           </div>
           <div style={{ display: "flex", fontFamily: "Georgia, Times New Roman, serif", fontSize: 68, fontWeight: 600, letterSpacing: -3, lineHeight: 1.04 }}>
-            Give Codex a team, a memory, and a budget.
+            HRA v0 is preserved here.
           </div>
         </div>
         <div style={{ borderTop: "1px solid #c9c4b8", display: "flex", fontSize: 23, justifyContent: "space-between", paddingTop: 26 }}>
-          <span>Authorized accounts · Durable delegation · Recoverable work</span>
-          <span>hra.sh</span>
+          <span>Final v0.1.14 prerelease · Public source · Preserved history</span>
+          <span>hra-weld.vercel.app</span>
         </div>
       </div>
     ),

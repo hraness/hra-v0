@@ -57,8 +57,8 @@ export async function generateMetadata({ params }: ComparisonPageProps): Promise
   return createPublicSiteMetadata({
     ...hraSearchSite,
     description: comparison.description,
-    socialTitle: hraSocialPageTitle(`HRA vs ${comparison.shortName}`),
-    title: `HRA vs ${comparison.shortName}`,
+    socialTitle: hraSocialPageTitle(`HRA v0 vs ${comparison.shortName}`),
+    title: `HRA v0 vs ${comparison.shortName}`,
   }, { canonicalPath: `/alternatives/${comparison.slug}` });
 }
 
@@ -72,21 +72,21 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
       "@context": "https://schema.org",
       "@type": "WebPage",
       about: [
-        { "@type": "SoftwareApplication", name: "HRA", url: hraSearchSite.origin },
+        { "@type": "SoftwareApplication", name: "HRA v0", url: hraSearchSite.origin },
         { "@type": "SoftwareApplication", name: comparison.name },
       ],
       dateModified: COMPARISON_REVIEW_DATE,
       description: comparison.description,
-      name: `HRA vs ${comparison.shortName}`,
+      name: `HRA v0 vs ${comparison.shortName}`,
       url: comparisonUrl,
     },
     {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       itemListElement: [
-        { "@type": "ListItem", item: hraSearchSite.origin, name: "HRA", position: 1 },
+        { "@type": "ListItem", item: hraSearchSite.origin, name: "HRA v0", position: 1 },
         { "@type": "ListItem", item: `${hraSearchSite.origin}/alternatives`, name: "Alternatives", position: 2 },
-        { "@type": "ListItem", item: comparisonUrl, name: `HRA vs ${comparison.shortName}`, position: 3 },
+        { "@type": "ListItem", item: comparisonUrl, name: `HRA v0 vs ${comparison.shortName}`, position: 3 },
       ],
     },
   ];
@@ -99,11 +99,11 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
       />
       <a className="landing-skip-link" href="#main-content">Skip to content</a>
       <header className="alternatives-header">
-        <Link aria-label="HRA home" className="landing-wordmark" href="/">
+        <Link aria-label="HRA v0 home" className="landing-wordmark" href="/">
           <span aria-hidden="true">
             <Image alt="" className="brand-icon-image" height={512} src={HRA_BRAND_ICON_PATH} width={512} />
           </span>
-          <strong>HRA</strong>
+          <strong>HRA v0</strong>
         </Link>
         <div className="alternatives-header-actions">
           <nav aria-label="Comparison navigation">
@@ -116,7 +116,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
 
       <main className="alternatives-shell" id="main-content">
         <nav aria-label="Breadcrumb" className="comparison-breadcrumb">
-          <Link href="/">HRA</Link><span aria-hidden="true">/</span>
+          <Link href="/">HRA v0</Link><span aria-hidden="true">/</span>
           <Link href="/alternatives">Alternatives</Link><span aria-hidden="true">/</span>
           <span>{comparison.shortName}</span>
         </nav>
@@ -124,7 +124,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
         <article>
           <header className="comparison-hero">
             <p className="landing-eyebrow">Last verified {COMPARISON_REVIEW_LABEL}</p>
-            <h1>HRA vs {comparison.shortName}</h1>
+            <h1>HRA v0 vs {comparison.shortName}</h1>
             <p>
               {comparison.commonGround}
               <ComparisonCitations comparison={comparison} label="Common ground" sourceIds={summarySourceIds(comparison)} />
@@ -145,7 +145,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
                 </p>
               </article>
               <article>
-                <h3>Choose HRA</h3>
+                <h3>Choose HRA v0</h3>
                 <p>
                   {comparison.hraFit}
                   <ComparisonCitations comparison={comparison} label="Choose HRA" sourceIds={comparison.hraSummarySourceIds} />
@@ -170,7 +170,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
             </div>
             <div className="comparison-table-scroll">
               <table className="comparison-table">
-                <thead><tr><th scope="col">Decision</th><th scope="col">HRA</th><th scope="col">{comparison.shortName}</th></tr></thead>
+              <thead><tr><th scope="col">Decision</th><th scope="col">HRA v0</th><th scope="col">{comparison.shortName}</th></tr></thead>
                 <tbody>
                   {comparison.rows.map((row) => (
                     <tr key={row.label}>
@@ -204,8 +204,8 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
 
           <section aria-labelledby="limits-title" className="comparison-section comparison-limits">
             <div className="alternatives-section-heading">
-              <p className="landing-eyebrow">What HRA cannot do yet</p>
-              <h2 id="limits-title">Current HRA limitations.</h2>
+              <p className="landing-eyebrow">HRA v0 limits</p>
+              <h2 id="limits-title">Final archived limitations.</h2>
             </div>
             <ul>
               <li>HRA&apos;s native host currently supports Apple Silicon Macs only.</li>
@@ -225,7 +225,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
               {comparison.sources.map((source) => <li key={source.id}><a href={source.url}>{source.label} ↗</a></li>)}
             </ol>
             <p>
-              “Not documented” means only that a capability was not found in these sources on {COMPARISON_REVIEW_LABEL}. It does not prove the product lacks it. HRA is independent and unaffiliated with {comparison.name}. <a href="https://github.com/hraness/hra/issues">Report a correction.</a>
+              “Not documented” means only that a capability was not found in these sources on {COMPARISON_REVIEW_LABEL}. It does not prove the product lacks it. HRA is independent and unaffiliated with {comparison.name}. <a href="https://github.com/hraness/hra-v0/issues">Report a correction.</a>
             </p>
           </section>
 
@@ -233,7 +233,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
             <p>More comparisons</p>
             <div>
               {hraComparisons.filter((candidate) => candidate.slug !== comparison.slug).slice(0, 3).map((candidate) => (
-                <Link href={`/alternatives/${candidate.slug}`} key={candidate.slug}>HRA vs {candidate.shortName} →</Link>
+                <Link href={`/alternatives/${candidate.slug}`} key={candidate.slug}>HRA v0 vs {candidate.shortName} →</Link>
               ))}
             </div>
           </nav>
@@ -242,7 +242,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
 
       <footer className="alternatives-footer">
         <HranessBrand />
-        <Link href="/alternatives">All HRA comparisons</Link>
+        <Link href="/alternatives">All HRA v0 comparisons</Link>
       </footer>
     </div>
   );

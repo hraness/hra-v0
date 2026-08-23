@@ -117,6 +117,9 @@ const legacyExcludedPaths = new Set([
   "scripts/check-public-boundary.ts",
   "scripts/public-tree.manifest.json",
 ]);
+const reviewedPublicRepositoryIdentifierPaths = new Set([
+  "release-history.json",
+]);
 
 export type PublicEntryKind = "directory" | "file" | "special" | "symlink";
 
@@ -222,7 +225,10 @@ function sourceErrors(path: string, source: string): readonly string[] {
     errors.push(`${path}: contains a provider deployment identifier`);
   }
   numericRepositoryIdentifierPattern.lastIndex = 0;
-  if (numericRepositoryIdentifierPattern.test(source)) {
+  if (
+    numericRepositoryIdentifierPattern.test(source)
+    && !reviewedPublicRepositoryIdentifierPaths.has(path)
+  ) {
     errors.push(`${path}: contains a numeric repository identifier`);
   }
   forbiddenCredentialPattern.lastIndex = 0;

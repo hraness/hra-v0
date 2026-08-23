@@ -95,7 +95,7 @@ export function withHraProductionIconBoundary<T extends HraWebpackConfig>(config
   };
   return config;
 }
-export const hraVercelProjectName = "hra";
+export const hraVercelProjectName = "hra-v0";
 
 export function createHraNextConfig(
   environment: ProductionDeliveryProofEnvironment = process.env,

@@ -13,6 +13,18 @@ import {
 } from "./alternatives/comparisons";
 import { isHraPublicComparisonPath } from "./alternatives/slugs";
 import {
+  HRA_DEPLOYMENT_IDENTITY_PATH,
+} from "./deployment-identity";
+import {
+  HRA_RELEASE_HISTORY,
+  hraCommitUrl,
+  hraReleaseAssetUrl,
+  hraReleaseTagUrl,
+  hraTagObjectUrl,
+} from "./release-history";
+import {
+  CURRENT_HRA_REPOSITORY,
+  CURRENT_HRA_SITE,
   HRA_RELEASE,
   HRA_RELEASE_CHECKSUM_URL,
   HRA_RELEASE_MANIFEST_URL,
@@ -56,6 +68,7 @@ export function isPublicHtmlDocumentPath(pathname: string): boolean {
   if (canonicalPath === null) return false;
   return canonicalPath === "/"
     || canonicalPath === "/download"
+    || canonicalPath === "/releases"
     || isHraPublicComparisonPath(canonicalPath);
 }
 
@@ -91,22 +104,23 @@ export function pathLooksLikeStaticAsset(pathname: string): boolean {
 
 export function createHraLlmsTxt(): string {
   const pages = [
-    `- [HRA home](${absoluteUrl("/")}): Product overview, fit, and limits`,
-    `- [Download for macOS](${absoluteUrl("/download")}): Apple Silicon prerelease status and source-build guidance`,
-    `- [HRA alternatives](${absoluteUrl("/alternatives")}): First-party-sourced comparisons`,
+    `- [HRA v0 archive](${absoluteUrl("/")}): Archive status, current-HRA handoff, and original product overview`,
+    `- [HRA v0 download](${absoluteUrl("/download")}): Final Apple Silicon prerelease and source-build guidance`,
+    `- [HRA v0 release history](${absoluteUrl("/releases")}): Exact tags, commits, releases, assets, sizes, checksums, and download links`,
+    `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
     ...hraComparisons.map((comparison) =>
       `- [HRA vs ${comparison.shortName}](${absoluteUrl(`/alternatives/${comparison.slug}`)}): ${comparison.description}`),
   ];
   return [
-    "# HRA",
+    "# HRA v0 archive",
     "",
     `> ${hraSearchSite.description}`,
     "",
-    "When to use this: reach for HRA when one project needs several coordinated Codex sessions, you have separate authorized Codex accounts to keep isolated, child work must rejoin a durable parent task, or restarts and ambiguous effects need explicit recovery.",
+    `This is the maintained archive for HRA v0. New users should start with [current HRA](${CURRENT_HRA_SITE}) and its [current source](${CURRENT_HRA_REPOSITORY}). Use this site for the final v0.1.14 macOS prerelease, historical source, and v0 documentation.`,
     "",
     "Choose something simpler when you want the first-party Codex experience for a few independent sessions, your team needs one desktop for many model providers, the main problem is remote access from a phone, or a worktree launcher and diff viewer already solve the job.",
     "",
-    "How an agent should call HRA: request `Accept: text/markdown` on the public pages below, or start from this file. Point humans at the website for product decisions, `/download` for the Mac app, and `/app` for the hosted control plane. Do not treat hra.sh as an execution, OAuth, GraphQL, MCP, or commerce API. Provider credentials, repositories, commands, and raw transcripts stay on the paired Mac. The public source is https://github.com/hraness/hra.",
+    "How an agent should use this archive: request `Accept: text/markdown` on the public pages below, or start from this file. Point new users at https://hra.sh. Point v0 users at `/download` and https://github.com/hraness/hra-v0. Do not treat hra-weld.vercel.app as an execution, OAuth, GraphQL, MCP, or commerce API.",
     "",
     "## Pages",
     "",
@@ -117,8 +131,10 @@ export function createHraLlmsTxt(): string {
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)}): This file`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")}): Indexable public HTML pages`,
     `- [Robots](${absoluteUrl("/robots.txt")}): Crawler allow and deny rules`,
-    "- [Public source](https://github.com/hraness/hra): Product source, security architecture, and build checks",
-    "- [Hosted control plane](https://hra.sh/app): Authenticated human supervision; not a public API",
+    `- [Deployment identity](${absoluteUrl(HRA_DEPLOYMENT_IDENTITY_PATH)}): Stable generation and publication marker for cutover checks`,
+    "- [HRA v0 source](https://github.com/hraness/hra-v0): Archived product source, security architecture, and build checks",
+    `- [Current HRA](${CURRENT_HRA_SITE}): Current product and documentation`,
+    `- [Current HRA source](${CURRENT_HRA_REPOSITORY}): Current repository`,
     "",
   ].join("\n");
 }
@@ -127,13 +143,13 @@ export const HRA_LLMS_TXT = createHraLlmsTxt();
 
 export function createLandingMarkdown(): string {
   return [
-    "# Give Codex a team, a memory, and a budget.",
+    "# HRA v0 is preserved here.",
     "",
     hraSearchSite.description,
     "",
-    "HRA turns the Codex accounts you already use into one durable system for planning work, delegating it, running it in parallel, and bringing it back for review.",
+    "This site and repository preserve the original HRA macOS metaharness, its source, and its final v0.1.14 prerelease.",
     "",
-    "It is for projects that outgrow independent sessions: work has dependencies, follow-ups need continuity, account identities stay separate, and an interrupted run needs a recoverable answer.",
+    `New users should start with [current HRA](${CURRENT_HRA_SITE}) or its [current source](${CURRENT_HRA_REPOSITORY}). Existing v0 users can use this archive and its final download.`,
     "",
     "## When to use HRA",
     "",
@@ -190,49 +206,38 @@ export function createLandingMarkdown(): string {
     "## Public pages",
     "",
     `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Compare HRA](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
-    "- [Public source](https://github.com/hraness/hra)",
+    "- [HRA v0 source](https://github.com/hraness/hra-v0)",
+    `- [Current HRA](${CURRENT_HRA_SITE})`,
     "",
   ].join("\n");
 }
 
 export function createDownloadMarkdown(): string {
-  const published = HRA_RELEASE_URL !== null
-    && HRA_RELEASE_CHECKSUM_URL !== null
-    && HRA_RELEASE_MANIFEST_URL !== null;
-  const statusLines = published
-    ? [
-        `Download the DMG: ${HRA_RELEASE_URL}`,
-        `SHA-256 file: ${HRA_RELEASE_CHECKSUM_URL}`,
-        `Release manifest: ${HRA_RELEASE_MANIFEST_URL}`,
-        "",
-        "Unknown developer. This candidate uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.",
-        "",
-        "## Install the prerelease",
-        "",
-        `1. Download both files. Save the DMG and its SHA-256 file in the same folder.`,
-        `2. Check the bytes. In Terminal, run \`shasum -a 256 -c ${HRA_RELEASE.asset}.sha256\`. Continue only when it prints \`OK\`.`,
-        "3. Copy HRA to Applications. Open the DMG and drag HRA into the Applications folder.",
-        "4. Approve the unknown developer. Control-click HRA in Finder and choose Open. If macOS still blocks it, use System Settings → Privacy & Security → Open Anyway.",
-      ]
-    : [
-        "Candidate verification in progress. Do not install an unpublished draft asset.",
-        "",
-        "Unknown developer. This candidate uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. Its release commit, tag, manifest, and artifact hashes are still awaiting publication.",
-        "",
-        `HRA ${HRA_RELEASE.version} (${HRA_RELEASE.build}) is a checked source candidate. Do not drag a second app beside an installed OPRTE predecessor, and do not install an unpublished draft asset.`,
-        "",
-        `You can inspect or build the candidate from ${HRA_RELEASE.repository} while release evidence is completed.`,
-      ];
+  const statusLines = [
+    `Download the DMG: ${HRA_RELEASE_URL}`,
+    `SHA-256 file: ${HRA_RELEASE_CHECKSUM_URL}`,
+    `Release manifest: ${HRA_RELEASE_MANIFEST_URL}`,
+    "",
+    "Unknown developer. This archived release uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.",
+    "",
+    "## Install the prerelease",
+    "",
+    `1. Download both files. Save the DMG and its SHA-256 file in the same folder.`,
+    `2. Check the bytes. In Terminal, run \`shasum -a 256 -c ${HRA_RELEASE.asset}.sha256\`. Continue only when it prints \`OK\`.`,
+    "3. Copy HRA to Applications. Open the DMG and drag HRA into the Applications folder.",
+    "4. Approve the unknown developer. Control-click HRA in Finder and choose Open. If macOS still blocks it, use System Settings → Privacy & Security → Open Anyway.",
+  ];
 
   return [
-    "# Download HRA for your Mac.",
+    "# Download HRA v0 for your Mac.",
     "",
-    `The native prerelease bundles HRA, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer.`,
+    `This is the final archived v0.1.14 prerelease. It bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`,
     "",
-    `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · ${published ? "Published prerelease" : "Candidate"} · Ad-hoc · not notarized.`,
+    `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · Published prerelease · Ad-hoc · not notarized.`,
     "",
     ...statusLines,
     "",
@@ -240,15 +245,62 @@ export function createDownloadMarkdown(): string {
     "",
     "## Build it yourself",
     "",
-    "The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the ad-hoc release boundary is not right for you: https://github.com/hraness/hra#develop-hra",
+    "The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the ad-hoc release boundary is not right for you: https://github.com/hraness/hra-v0#develop-hra",
     "",
-    "Developer ID signing is not available yet. A later release needs a Developer ID certificate and Apple notarization before normal double-click installation can replace the unknown-developer flow. Automatic updates remain disabled until HRA owns a signed update channel.",
+    `HRA v0 is archived and will not gain a new update channel. The current HRA continues separately at ${CURRENT_HRA_SITE}.`,
     "",
     "## Public pages",
     "",
-    `- [HRA home](${absoluteUrl("/")})`,
+    `- [HRA v0 archive](${absoluteUrl("/")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
+    `- [Current HRA](${CURRENT_HRA_SITE})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
+    "",
+  ].join("\n");
+}
+
+export function createReleaseHistoryMarkdown(): string {
+  const entries = HRA_RELEASE_HISTORY.tags.toReversed().flatMap((entry) => {
+    const identity = [
+      `## ${entry.tag} (build ${entry.build})`,
+      "",
+      `- Tag object: annotated [\`${entry.tagObject}\`](${hraTagObjectUrl(entry)})`,
+      `- Peeled commit: [\`${entry.commit}\`](${hraCommitUrl(entry)})`,
+    ];
+    if (entry.release === null) {
+      return [
+        ...identity,
+        "- Publication: tag only; no GitHub release or downloadable assets",
+        "",
+        "v0.1.11 was a tagged candidate only. It is not prior installed authority.",
+        "",
+      ];
+    }
+    return [
+      ...identity,
+      `- Publication: [immutable GitHub prerelease #${entry.release.id}](${hraReleaseTagUrl(entry)})`,
+      `- Published: ${entry.release.publishedAt}`,
+      "",
+      "### Assets",
+      "",
+      ...entry.release.assets.map((asset) =>
+        `- [${asset.name}](${hraReleaseAssetUrl(entry, asset)}); ${asset.bytes} bytes; SHA-256 \`${asset.sha256}\``),
+      "",
+    ];
+  });
+  return [
+    "# HRA v0 release history",
+    "",
+    "This checked compatibility ledger records every HRA v0 tag from v0.1.7 through v0.1.14, every GitHub release that exists, and all attached assets. v0.1.14 is the final archived prerelease.",
+    "",
+    ...entries,
+    "## Public pages",
+    "",
+    `- [HRA v0 archive](${absoluteUrl("/")})`,
+    `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
+    `- [Deployment identity](${absoluteUrl(HRA_DEPLOYMENT_IDENTITY_PATH)})`,
     "",
   ].join("\n");
 }
@@ -282,6 +334,7 @@ export function createAlternativesIndexMarkdown(): string {
     "",
     `- [HRA home](${absoluteUrl("/")})`,
     `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
     "",
@@ -305,7 +358,7 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
       `- [HRA vs ${candidate.shortName}](${absoluteUrl(`/alternatives/${candidate.slug}`)})`);
 
   return [
-    `# HRA vs ${comparison.shortName}`,
+    `# HRA v0 vs ${comparison.shortName}`,
     "",
     `Last verified ${COMPARISON_REVIEW_LABEL}.`,
     "",
@@ -346,7 +399,7 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
     "",
     ...sources,
     "",
-    `“Not documented” means only that a capability was not found in these sources on ${COMPARISON_REVIEW_LABEL}. It does not prove the product lacks it. HRA is independent and unaffiliated with ${comparison.name}. Report a correction: https://github.com/hraness/hra/issues`,
+    `“Not documented” means only that a capability was not found in these sources on ${COMPARISON_REVIEW_LABEL}. It does not prove the product lacks it. HRA is independent and unaffiliated with ${comparison.name}. Report a correction: https://github.com/hraness/hra-v0/issues`,
     "",
     "## More comparisons",
     "",
@@ -369,6 +422,7 @@ export function createNotFoundMarkdown(): string {
     "",
     `- [HRA home](${absoluteUrl("/")})`,
     `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Comparisons](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
@@ -381,6 +435,7 @@ export function publicDocumentMarkdown(pathname: string): string | null {
   if (canonicalPath === null) return null;
   if (canonicalPath === "/") return createLandingMarkdown();
   if (canonicalPath === "/download") return createDownloadMarkdown();
+  if (canonicalPath === "/releases") return createReleaseHistoryMarkdown();
   if (canonicalPath === "/alternatives") return createAlternativesIndexMarkdown();
   if (canonicalPath.startsWith("/alternatives/")) {
     const comparison = comparisonForSlug(canonicalPath.slice("/alternatives/".length));

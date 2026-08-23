@@ -17,6 +17,11 @@ export default function sitemap() {
     },
     {
       changeFrequency: "monthly",
+      path: "/releases",
+      priority: 0.8,
+    },
+    {
+      changeFrequency: "monthly",
       path: "/alternatives",
       priority: 0.8,
     },

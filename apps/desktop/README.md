@@ -1,6 +1,12 @@
-# HRA for macOS
+# HRA v0 for macOS
 
-HRA is a local-first macOS interface for long-running, parallel Codex work. Panes are repository-bound chats that can run independently. Settings manages local Codex subscriptions. HRA keeps the pane grid unavailable until at least one subscription is signed in.
+This directory preserves the archived HRA v0 macOS application and its final
+v0.1.14 prerelease. The current HRA is at [hra.sh](https://hra.sh) in the
+[current repository](https://github.com/hraness/hra). HRA v0 is a local-first
+interface for long-running, parallel Codex work. Panes are repository-bound
+chats that can run independently. Settings manages local Codex subscriptions.
+HRA keeps the pane grid unavailable until at least one subscription is signed
+in.
 
 HRA does not require a separate HRA account for local use. It routes each prompt to a bounded model, reasoning, and service-tier profile, then exposes that read-only decision with the pane's current activity and latest assistant response. The gateway admits work only to an eligible signed-in subscription. A provider usage limit stops the affected work; HRA does not move that work to another subscription or use multiple subscriptions to circumvent provider limits.
 
@@ -147,7 +153,7 @@ Turn off every scheduled chat before creating or restoring a portable backup. A 
 
 HRA keeps the bundle identifier `kitchen.hraness` and the state root `~/Library/Application Support/OPRTE` as compatibility custody. The supported handoff changes the visible application authority from `/Applications/OPRTE.app` to `/Applications/HRA.app`; it does not rename or copy live state into a new product root.
 
-Run the handoff only after Suite Accounts v0.3.0 is the deployed account authority, the Accounts registry recognizes `hraness:hra:production:v1`, and `release-download.json` contains published v0.1.14 build 15 evidence. The command verifies that published source, the candidate bundle, full state and Keychain continuity, both installed bundle archives, updater quiescence, and ordered AppKit shutdown before committing HRA as the sole visible application:
+Run the handoff only after Suite Accounts v0.3.0 is the deployed account authority, the Accounts registry recognizes `hraness:hra:production:v1`, and `release-download.json` contains published v0.1.14 build 15 evidence. The command verifies that published source, the selected installation bundle, full state and Keychain continuity, both installed bundle archives, updater quiescence, and ordered AppKit shutdown before committing HRA as the sole visible application:
 
 ```sh
 bun run installation:handoff \
@@ -158,13 +164,13 @@ bun run installation:handoff \
 
 An existing `/Applications/HRA.app` is accepted only when it is the exact v0.1.7 build 8, immutable v0.1.8 build 9, immutable v0.1.9 build 10, immutable v0.1.10 build 11, immutable v0.1.12 build 13, or current published v0.1.13 build 14 release. The handoff archives that prior app and can restore it through the bounded rollback path.
 
-The exact OPRTE v0.1.4 build 5 predecessor uses the historical self-managed OPRTE Preview certificate chain, which current macOS can report as untrusted even when its signature bytes are unchanged. The handoff accepts that trust result only for the frozen predecessor tree, designated requirement, CodeDirectory, detached CMS signature, certificate fingerprints and chain, signed CMS time within the exact encoded leaf-certificate validity interval, root metadata, and extended-attribute inventory. Preview signing requested no secure timestamp. The pinned executable hash freezes the exact CMS bytes, and the verifier pins the signed time instead of making receipt-bound rollback depend on the current wall clock. The v0.1.14 candidate, every supported prior HRA, and every other bundle remain subject to strict system code-signature verification. The receipt preserves the selected policy so archive, restart, rollback, and staging deletion checks cannot infer the exception from a bundle name or error message.
+The exact OPRTE v0.1.4 build 5 predecessor uses the historical self-managed OPRTE Preview certificate chain, which current macOS can report as untrusted even when its signature bytes are unchanged. The handoff accepts that trust result only for the frozen predecessor tree, designated requirement, CodeDirectory, detached CMS signature, certificate fingerprints and chain, signed CMS time within the exact encoded leaf-certificate validity interval, root metadata, and extended-attribute inventory. Preview signing requested no secure timestamp. The pinned executable hash freezes the exact CMS bytes, and the verifier pins the signed time instead of making receipt-bound rollback depend on the current wall clock. The published v0.1.14 bundle, every supported prior HRA, and every other bundle remain subject to strict system code-signature verification. The receipt preserves the selected policy so archive, restart, rollback, and staging deletion checks cannot infer the exception from a bundle name or error message.
 
 The retired annotated `v0.1.11` tag object `e4c171e33e414d74a36791fc8577cbfbcef8e52e` points directly to candidate commit `5a2a9842cacc75fee42ab8e23ca8c215a643e21e`. GitHub has no release or assets for that tag. HRA v0.1.11 build 12 is tagged-only historical evidence, never installed-app or rollback authority, and the tag must not be moved or reused.
 
 HRA v0.1.12 build 13 remains published prior installed-app and rollback authority. Its direct annotated tag object `626be494d24733d12e53d09932cb5cc6218bc2fe` points to candidate commit `9ab991d08d1507fd73c9e7ef5fb4a37baee9c014`, and immutable GitHub prerelease `374867227` carries its exact seven assets. Publication commit `bfb60415c3eea7bc1021db8e8cc92f3e95800a46` records the release evidence. Its source `installation:handoff` must not initiate cutover because it self-detects the descriptor intentionally retained by the handoff process.
 
-The current published predecessor is HRA v0.1.13 build 14. Its direct annotated tag object `44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3` points to candidate commit `9ba06a441c9b12b448cfe34784432592dbeccb19`, and immutable GitHub prerelease `374920071` carries its exact seven assets. Publication commit `7825cb231890aa971f965412c31dfa2cb7796561` records the release evidence. It remains valid prior installed-app and rollback authority. Its source `installation:handoff` must not initiate cutover because it copies the candidate to a path ending in `.bundle`, which its strict packaged-app verifier rejects before installation. HRA v0.1.14 is the first corrected operator.
+The immediate published predecessor is HRA v0.1.13 build 14. Its direct annotated tag object `44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3` points to candidate commit `9ba06a441c9b12b448cfe34784432592dbeccb19`, and immutable GitHub prerelease `374920071` carries its exact seven assets. Publication commit `7825cb231890aa971f965412c31dfa2cb7796561` records the release evidence. It remains valid prior installed-app and rollback authority. Its source `installation:handoff` must not initiate cutover because it copies the candidate to a path ending in `.bundle`, which its strict packaged-app verifier rejects before installation. HRA v0.1.14 is the first corrected operator.
 
 The backup directory must not exist. The operation creates it with user-only permissions and writes durable phase receipts. It rejects symbolic-link, case, Unicode-normalization, inode, process-birth, AppKit launch-identity, open-file, updater, receipt, custody, bundle, and Git-provenance ambiguity. A pre-commit interruption restores both original applications. An interruption after the committed receipt preserves HRA authority. Resume only its bounded, idempotent staging cleanup with the committed receipt:
 
@@ -234,72 +240,73 @@ zig-out/release/macos/arm64/
 
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access and a clean source tree. CI uses `package:macos:adhoc` to verify the same compiler, runtime, and license pins, app, DMG, and checksum without downloading the large source archives.
 
-The root `release-download.json` file is the strict download and publication contract. HRA 0.1.14 build 15 remains `candidate` while its source and artifact evidence are unknown. In that state every commit, tag-object, runtime-tree, byte-count, and SHA-256 field is `null`, and the website exposes no direct asset URL. The candidate contract does not change v0.1.13's status as the current published predecessor.
+The root `release-download.json` is the maintained archive contract for the
+published HRA v0.1.14 build 15 prerelease. It names
+`https://github.com/hraness/hra-v0` and records the fixed source commit, tag
+object, runtime-tree digest, artifact byte counts, and SHA-256 digests used by
+the download page.
 
-Publication uses two commits so no Git commit must contain its own object ID. The clean candidate commit C retains the null candidate contract; packaging, the annotated `v0.1.14` tag, manifest, app, DMG, and checksum all name C. After those immutable values exist, publication commit P changes only `release-download.json` to the complete `published` evidence for C. P must have C as its only direct parent. The verifier rejects another changed path, another parent, a skipped or follow-up commit, a candidate-contract drift, a tag not peeled to C, or an artifact/app that does not embed C and its runtime-tree digest. The installation handoff runs only from clean P.
+The root `release-history.json` is the checked compatibility ledger for tags
+v0.1.7 through v0.1.14. It records each annotated tag object and peeled commit,
+the seven GitHub release IDs, all 49 asset IDs, byte counts, and SHA-256
+digests, and the v0.1.11 tag-only state. The public `/releases` page and remote
+gate consume this one ledger.
 
-The immutable published HRA v0.1.8 build 9, v0.1.9 build 10, v0.1.10 build 11, v0.1.12 build 13, and v0.1.13 build 14 prereleases remain historical evidence. Do not replace their tags, releases, or assets. HRA v0.1.13 is the latest published predecessor and remains accepted as prior installed authority. The retired tagged-only v0.1.11 build 12 candidate also remains immutable, but it is not a published release and must never be accepted as prior installed authority. Do not reuse any of those versions or builds for the new candidate.
+The immutable publication history remains separate from that maintained
+repository coordinate:
 
-`bun run check:release-source` is the artifact-independent gate used by CI and desktop builds. Candidate C validates the null contract. Published P additionally requires the full clean C-to-P Git transition and direct annotated tag. Vercel's shallow checkout uses a separate provider binding documented in the web runbook; it cannot substitute for the full Required CI gate.
+- Candidate C is `7b39c459827b2acf45aa2d911c94fdb5d4f37860`.
+- Publication P is `6221f79b745f154882080936b961ff431569f33e`.
+- Annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3`
+  points directly to C.
 
-Release provenance comes from the checkout, never a caller-supplied commit. Packaging and candidate verification require the canonical repository top-level with a real `.git` directory, a clean tree, no submodules, alternates, grafts, replacement refs, shallow history, or included local Git configuration. They reject inherited `GIT_*` variables, run `/usr/bin/git` with explicit Git and work-tree paths, and disable global and system configuration. Use a primary standalone checkout rather than a linked worktree for release work.
+C contains the historical candidate contract. P is C's sole child and changes
+only `release-download.json` from that candidate state to the complete
+published evidence. Both commits record the repository's name at publication,
+`https://github.com/hraness/hra`. The GitHub repository rename moves the same
+tag, immutable release, and seven assets to `hraness/hra-v0`; it does not
+recreate or republish them.
 
-Verify the checked contract or a complete local candidate with:
+The archive surface performs one reviewed navigation migration in
+`release-download.json`: only the repository coordinate changes from
+`hraness/hra` to `hraness/hra-v0`. Every release, source, and artifact value,
+and every other contract byte, remains equal to P. The source gate proves the
+exact C-to-P transition and tag, requires the checked archive surface to
+descend from P, and requires exactly one single-parent contract change with
+that exact historical-to-archive byte replacement. Another path at P, another
+parent, another contract edit, a rewrite and restore, tag drift, or artifact
+drift fails closed.
+
+Run the archive checks from a clean standalone checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
-bun run --cwd apps/desktop verify:release-candidate
-```
-
-The candidate command verifies clean C, an optional collision-free annotated tag, packaged DMG, checksum, manifest commit, and runtime tree. It emits the exact evidence for P. `verify:published-release` then verifies the strict C-to-P transition and the same local assets. Historical tags and releases are immutable inputs; creating a new candidate never rewrites v0.1.7 through v0.1.13.
-
-Publish v0.1.14 from the root of the clean standalone C checkout only after the
-full package and candidate verifier pass. Create and push a new direct
-annotated tag for C, then create the non-draft prerelease with the exact seven
-package outputs. Do not use `--clobber`, a glob, or an existing release:
-
-```sh
-git tag -a v0.1.14 -m "HRA v0.1.14" HEAD
-git push origin refs/tags/v0.1.14
-gh release create v0.1.14 \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.14-15-macos-arm64.dmg \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.14-15-macos-arm64.dmg.sha256 \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.14-15-release-manifest.json \
-  apps/desktop/zig-out/release/macos/arm64/bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz \
-  apps/desktop/zig-out/release/macos/arm64/bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz \
-  apps/desktop/zig-out/release/macos/arm64/git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz \
-  apps/desktop/zig-out/release/macos/arm64/dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz \
-  --repo hraness/hra \
-  --verify-tag \
-  --prerelease \
-  --latest=false \
-  --title "HRA v0.1.14" \
-  --notes-from-tag
-```
-
-GitHub creates the release as a draft while it uploads and publishes it only
-after every upload succeeds. Repository release immutability must then report
-the release immutable. Fill the working-tree `release-download.json` with the
-candidate verifier's exact commit, direct tag-object, runtime-tree, byte-count,
-and SHA-256 evidence, without changing another file, and run:
-
-```sh
+bun run check:release-source
 bun run verify:remote-release
 ```
 
-The remote gate requires one immutable, non-draft v0.1.14 prerelease with the
-exact seven assets in `uploaded` state. It checks every name, byte count,
-canonical download URL, and GitHub SHA-256 digest against the publication
-contract and the downloaded release manifest. It also downloads and hashes the
-checksum and manifest, binds the checksum to the DMG, and binds all four
-corresponding-source archives to the manifest. It does not redownload the
-multi-gigabyte immutable assets. A mutable, incomplete, additional, or
-different remote release fails before P is committed.
+Release provenance comes from the checkout, never a caller-supplied commit.
+The gate requires the canonical repository top-level with a real `.git`
+directory, a clean tree, no submodules, alternates, grafts, replacement refs,
+shallow history, or included local Git configuration. It rejects inherited
+`GIT_*` variables, runs `/usr/bin/git` with explicit Git and work-tree paths,
+and disables global and system configuration.
 
-Commit P with only `release-download.json` changed. From clean P run
-`check:release-source`, `verify:published-release`, and
-`verify:remote-release`; Required CI repeats the source and remote gates. The
-web runbook controls the later Vercel allowlist and exact-P redeployment.
+The remote gate reads the renamed `hraness/hra-v0` repository. It checks the
+exact eight-tag set and annotated tag objects, their peeled commits, the exact
+seven-release and 49-asset set, upload state, canonical URLs, byte counts, and
+GitHub SHA-256 digests. It requires v0.1.11 to remain tag-only. For v0.1.14 it
+also verifies the checksum-to-DMG binding, release manifest, and all four
+corresponding-source records. It does not redownload the multi-gigabyte
+immutable assets. A moved tag, new or missing release, mutable release, or
+asset difference fails closed.
+
+The immutable published HRA v0.1.7 build 8, v0.1.8 build 9, v0.1.9 build 10,
+v0.1.10 build 11, v0.1.12 build 13, and v0.1.13 build 14 prereleases remain
+historical evidence.
+The retired tagged-only v0.1.11 build 12 candidate is not a published release
+and must never be accepted as prior installed authority. Do not replace or
+reuse any historical tag, release, version, build, or asset.
 
 The ad-hoc package proves bundle integrity but does not identify a registered Apple developer. macOS may require **Privacy & Security → Open Anyway** after download. It is not notarized, and automatic updates remain disabled. Developer ID signing, notarization, and publication require separately provisioned release credentials.
 

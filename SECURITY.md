@@ -1,9 +1,9 @@
-# Security policy
+# HRA v0 security policy
 
 ## Report a vulnerability
 
 Report suspected vulnerabilities through [GitHub private vulnerability
-reporting](https://github.com/hraness/hra/security/advisories/new). Do not put
+reporting](https://github.com/hraness/hra-v0/security/advisories/new). Do not put
 an exploit, secret, personal data, or other sensitive detail in a public issue
 or discussion.
 
@@ -18,9 +18,11 @@ vulnerability details in that issue.
 
 ## Supported versions
 
-Security fixes target the current `main` branch. When a published release is
-affected, its advisory states which release versions receive a fix. Older
-commits and unreleased development snapshots are not supported separately.
+HRA v0 is archived at v0.1.14. Maintainers assess reports against the archived
+`main` branch and state any available mitigation in the advisory. No new
+feature release or automatic update channel is promised. Reports about the
+current HRA belong in the separate
+[current repository](https://github.com/hraness/hra).
 
 ## Disclosure
 

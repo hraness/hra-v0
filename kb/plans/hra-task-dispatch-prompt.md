@@ -16,6 +16,9 @@ repository_scopes:
 
 # One workflow prompt for local and cloud task dispatch
 
+> Archived HRA v0 plan. Current HRA development continues in
+> <https://github.com/hraness/hra>.
+
 ## Outcome
 
 Every local and cloud task dispatch starts from the same deterministic,
@@ -224,7 +227,7 @@ bundled-Git cases and one session-sync case. Their untouched files passed
 build passed for desktop, CLI, and web.
 
 GitHub Actions run
-[`32422524366`](https://github.com/hraness/hra/actions/runs/32422524366)
+[`32422524366`](https://github.com/hraness/hra-v0/actions/runs/32422524366)
 then passed the full source, test, production-build, native macOS test, ad-hoc
 package, macOS 26 Codex signature, and aggregate `Required` gates on
 implementation commit `319fca3698eff1e1959bd5e20f9ca359003efe3d`. The
@@ -288,7 +291,7 @@ The proposal, implementation, and public boundary each received an independent
 review. Their findings are resolved. A final complete-diff review found no
 actionable correctness, parity, durability, privacy, ownership, attribution,
 or test-coverage issue. Pull request
-[`#23`](https://github.com/hraness/hra/pull/23) is the delivery boundary; its
+[`#23`](https://github.com/hraness/hra-v0/pull/23) is the delivery boundary; its
 terminalizing commit must retain a clean diff, a passing current-head
 `Required` check, no unresolved review thread, and mergeability before merge.
 

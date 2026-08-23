@@ -20,10 +20,10 @@ describe("HRA analytics route boundary", () => {
   test("classifies only canonical public routes", () => {
     expect(classifyHraAnalyticsRoute("/")).toEqual({
       analytics_schema_version: 1,
-      canonical_domain: "hra.sh",
+      canonical_domain: "hra-weld.vercel.app",
       canonical_path: "/",
       page_kind: "landing",
-      site_id: "hra",
+      site_id: "hra-v0",
     });
     expect(classifyHraAnalyticsRoute("/download/")?.canonical_path).toBe("/download");
     expect(classifyHraAnalyticsRoute("/alternatives/codex-app/")).toMatchObject({
@@ -38,6 +38,8 @@ describe("HRA analytics route boundary", () => {
       "/api/suite-auth/session",
       "/design",
       "/download/private",
+      "/releases",
+      "/.well-known/hra.json",
       "//",
       "///",
       "/download//",
@@ -58,7 +60,7 @@ describe("HRA analytics route boundary", () => {
       "phc_publicproject",
     )).toBeTrue();
     expect(isHraAnalyticsBrowserEligible(
-      { ...productionLanding, origin: "https://www.hra.sh" },
+      { ...productionLanding, origin: "https://www.hra-weld.vercel.app" },
       "phc_publicproject",
     )).toBeFalse();
     expect(isHraAnalyticsBrowserEligible(
@@ -98,7 +100,7 @@ describe("HRA PostHog pageviews", () => {
         $lib: "web",
         $lib_version: "test",
         $session_id: "session-id",
-        $current_url: "https://hra.sh/alternatives/codex-app?token=sensitive#private",
+        $current_url: "https://hra-weld.vercel.app/alternatives/codex-app?token=sensitive#private",
         $pathname: "/app",
         $referrer: "https://mail.example/private",
         $title: "Private task title",
@@ -116,16 +118,16 @@ describe("HRA PostHog pageviews", () => {
         token: "phc_publicproject",
         distinct_id: "$posthog_cookieless",
         $cookieless_mode: true,
-        $current_url: "https://hra.sh/alternatives/codex-app",
-        $host: "hra.sh",
+        $current_url: "https://hra-weld.vercel.app/alternatives/codex-app",
+        $host: "hra-weld.vercel.app",
         $pathname: "/alternatives/codex-app",
         $process_person_profile: false,
         analytics_schema_version: 1,
-        canonical_domain: "hra.sh",
+        canonical_domain: "hra-weld.vercel.app",
         canonical_path: "/alternatives/codex-app",
         content_slug: "codex-app",
         page_kind: "alternative",
-        site_id: "hra",
+        site_id: "hra-v0",
       },
       uuid: "00000000-0000-4000-8000-000000000000",
     });
@@ -143,7 +145,7 @@ describe("HRA PostHog pageviews", () => {
     };
     for (const evidence of [
       { ...productionLanding, pathname: "/app" },
-      { ...productionLanding, origin: "https://www.hra.sh" },
+      { ...productionLanding, origin: "https://www.hra-weld.vercel.app" },
       { ...productionLanding, production: false },
     ]) {
       expect(createHraPageviewFilter(() => evidence)(event)).toBeNull();

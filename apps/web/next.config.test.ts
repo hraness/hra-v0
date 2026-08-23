@@ -18,7 +18,7 @@ import nextConfig, {
 const deliveryIdentity = {
   deploymentId: ["dpl", "HraDeliveryProof123"].join("_"),
   projectId: ["prj", "HraProject123"].join("_"),
-  projectName: "hra",
+  projectName: "hra-v0",
   sha: "1234567890abcdef1234567890abcdef12345678",
 } as const;
 
@@ -72,7 +72,7 @@ describe("HRA response security headers", () => {
   });
 
   test("adds source-bound delivery proof after every existing HRA header rule", async () => {
-    expect(hraVercelProjectName).toBe("hra");
+    expect(hraVercelProjectName).toBe("hra-v0");
     const config = createHraNextConfig({
       VERCEL: "1",
       VERCEL_DEPLOYMENT_ID: deliveryIdentity.deploymentId,

@@ -7,6 +7,7 @@ import {
   createDownloadMarkdown,
   createLandingMarkdown,
   createNotFoundMarkdown,
+  createReleaseHistoryMarkdown,
   HRA_LLMS_TXT,
   HRA_LLMS_TXT_PATH,
   isAuthProtectedTree,
@@ -18,45 +19,45 @@ import { HRA_RELEASE, hraSearchSite } from "./site";
 
 describe("HRA public markdown representations", () => {
   test("publishes an llms.txt with when-to-use guidance and public page lists", () => {
-    expect(HRA_LLMS_TXT.startsWith("# HRA\n")).toBeTrue();
+    expect(HRA_LLMS_TXT.startsWith("# HRA v0 archive\n")).toBeTrue();
     expect(HRA_LLMS_TXT).toContain(`> ${hraSearchSite.description}`);
-    expect(HRA_LLMS_TXT).toContain("When to use this:");
-    expect(HRA_LLMS_TXT).toContain("several coordinated Codex sessions");
-    expect(HRA_LLMS_TXT).toContain("How an agent should call HRA:");
+    expect(HRA_LLMS_TXT).toContain("maintained archive for HRA v0");
+    expect(HRA_LLMS_TXT).toContain("final v0.1.14 macOS prerelease");
+    expect(HRA_LLMS_TXT).toContain("How an agent should use this archive:");
     expect(HRA_LLMS_TXT).toContain("Accept: text/markdown");
     expect(HRA_LLMS_TXT).not.toContain("OAuth client");
-    expect(HRA_LLMS_TXT).toContain("https://hra.sh/");
-    expect(HRA_LLMS_TXT).toContain("https://hra.sh/download");
-    expect(HRA_LLMS_TXT).toContain("https://hra.sh/alternatives");
-    expect(HRA_LLMS_TXT).toContain("https://hra.sh/llms.txt");
-    expect(HRA_LLMS_TXT).toContain("https://hra.sh/sitemap.xml");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/download");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/releases");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/hra.json");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/alternatives");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/llms.txt");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/sitemap.xml");
     for (const comparison of hraComparisons) {
-      expect(HRA_LLMS_TXT).toContain(`https://hra.sh/alternatives/${comparison.slug}`);
+      expect(HRA_LLMS_TXT).toContain(`https://hra-weld.vercel.app/alternatives/${comparison.slug}`);
     }
     expect(HRA_LLMS_TXT_PATH).toBe("/llms.txt");
   });
 
   test("keeps landing markdown aligned with the public product copy", () => {
     const markdown = createLandingMarkdown();
-    expect(markdown).toContain("# Give Codex a team, a memory, and a budget.");
+    expect(markdown).toContain("# HRA v0 is preserved here.");
     expect(markdown).toContain("## When to use HRA");
     expect(markdown).toContain("Delegate work with structure");
     expect(markdown).toContain("A provider limit ends the affected turn.");
-    expect(markdown).toContain("https://hra.sh/llms.txt");
-    expect(markdown).toContain("https://hra.sh/sitemap.xml");
+    expect(markdown).toContain("https://hra-weld.vercel.app/llms.txt");
+    expect(markdown).toContain("https://hra-weld.vercel.app/sitemap.xml");
   });
 
   test("keeps download markdown honest about the current release contract", () => {
     const markdown = createDownloadMarkdown();
-    expect(markdown).toContain("# Download HRA for your Mac.");
+    expect(markdown).toContain("# Download HRA v0 for your Mac.");
     expect(markdown).toContain(`macOS ${HRA_RELEASE.minimumMacOS}`);
     expect(markdown).toContain("not Developer ID signed or notarized");
-    expect(markdown).toContain("https://hra.sh/llms.txt");
-    if (HRA_RELEASE.availability === "candidate") {
-      expect(markdown).toContain("Do not install an unpublished draft asset.");
-    } else {
-      expect(markdown).toContain(HRA_RELEASE.asset);
-    }
+    expect(markdown).toContain("https://hra-weld.vercel.app/llms.txt");
+    expect(HRA_RELEASE.availability).toBe("published");
+    expect(markdown).toContain(HRA_RELEASE.asset);
+    expect(markdown).not.toContain("Do not install an unpublished draft asset.");
   });
 
   test("renders every comparison from the existing first-party rows", () => {
@@ -65,18 +66,26 @@ describe("HRA public markdown representations", () => {
     );
     for (const comparison of hraComparisons) {
       const markdown = publicDocumentMarkdown(`/alternatives/${comparison.slug}`);
-      expect(markdown, comparison.slug).toContain(`# HRA vs ${comparison.shortName}`);
+      expect(markdown, comparison.slug).toContain(`# HRA v0 vs ${comparison.shortName}`);
       expect(markdown, comparison.slug).toContain(comparison.meaningfulDifference);
       expect(markdown, comparison.slug).toContain(comparison.rows[0]?.hra ?? "");
     }
   });
 
+  test("serves the checked compatibility ledger as Markdown", () => {
+    const markdown = createReleaseHistoryMarkdown();
+    expect(markdown).toContain("# HRA v0 release history");
+    expect(markdown).toContain("v0.1.11 was a tagged candidate only");
+    expect(markdown).toContain(HRA_RELEASE.source.tagObject);
+    expect(publicDocumentMarkdown("/releases")).toBe(markdown);
+  });
+
   test("gives unmatched public paths a markdown 404 with recovery links", () => {
     const markdown = createNotFoundMarkdown();
     expect(markdown).toContain("# Not found");
-    expect(markdown).toContain("https://hra.sh/sitemap.xml");
-    expect(markdown).toContain("https://hra.sh/llms.txt");
-    expect(markdown).toContain("https://hra.sh/");
+    expect(markdown).toContain("https://hra-weld.vercel.app/sitemap.xml");
+    expect(markdown).toContain("https://hra-weld.vercel.app/llms.txt");
+    expect(markdown).toContain("https://hra-weld.vercel.app/");
   });
 });
 
@@ -84,6 +93,7 @@ describe("HRA public discovery decisions", () => {
   test("classifies only the existing public HTML documents", () => {
     expect(isPublicHtmlDocumentPath("/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/download/")).toBeTrue();
+    expect(isPublicHtmlDocumentPath("/releases")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/codex-app")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/missing")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/app")).toBeFalse();
@@ -105,7 +115,7 @@ describe("HRA public discovery decisions", () => {
       status: 200,
     });
     if (home.action === "markdown") {
-      expect(home.body).toContain("Give Codex a team, a memory, and a budget.");
+      expect(home.body).toContain("HRA v0 is preserved here.");
     }
   });
 
@@ -133,7 +143,7 @@ describe("HRA public discovery decisions", () => {
     });
     expect(missing).toMatchObject({ action: "markdown", status: 404 });
     if (missing.action === "markdown") {
-      expect(missing.body).toContain("https://hra.sh/sitemap.xml");
+      expect(missing.body).toContain("https://hra-weld.vercel.app/sitemap.xml");
     }
   });
 
@@ -146,6 +156,7 @@ describe("HRA public discovery decisions", () => {
       ["/robots.txt", "text/markdown"],
       ["/sitemap.xml", "text/markdown"],
       ["/llms.txt", "text/markdown"],
+      ["/.well-known/hra.json", "text/markdown"],
       ["/icon.png", "text/markdown"],
     ] as const) {
       expect(resolvePublicDiscovery({

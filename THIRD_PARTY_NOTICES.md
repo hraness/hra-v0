@@ -1,6 +1,6 @@
-# Third-party notices
+# HRA v0 third-party notices
 
-HRA includes and builds on third-party software and assets. Their license terms
+The archived HRA v0 source and final prerelease include and build on third-party software and assets. Their license terms
 apply to those components. This summary is informational and does not replace
 the license and notice files distributed with each component.
 
@@ -56,7 +56,7 @@ and resolved commits are recorded in `package.json` and `bun.lock`.
 
 ## PostHog browser SDK
 
-The public `hra.sh` site bundles `posthog-js` 1.412.1 under its declared Apache
+The public `hra-weld.vercel.app` site bundles `posthog-js` 1.412.1 under its declared Apache
 License 2.0 and MIT terms. Copyright 2020 Posthog / Hiberly, Inc., and copyright
 2015 Mixpanel, Inc. The upstream package retains its complete `LICENSE`; the
 exact version is recorded in `package.json` and `bun.lock`.

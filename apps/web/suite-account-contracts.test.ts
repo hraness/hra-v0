@@ -108,11 +108,11 @@ describe("HRA-owned suite account contracts", () => {
   });
 
   test("pins only HRA's public site and canonical Accounts origin", () => {
-    expect(HRA_SITE_URL).toBe("https://hra.sh");
+    expect(HRA_SITE_URL).toBe("https://hra-weld.vercel.app");
     expect(HRA_SUITE_ACCOUNTS_ORIGIN).toBe("https://account.hraness.com");
     expect(HRA_SUITE_OIDC_CLIENT_ID).toBe("hraness:hra:production:v1");
     expect(HRA_SUITE_OIDC_CALLBACK_URL).toBe(
-      "https://hra.sh/api/suite-auth/callback",
+      "https://hra-weld.vercel.app/api/suite-auth/callback",
     );
     expect(HRA_SUITE_OIDC_PROVIDER.issuer).toBe(HRA_SUITE_ACCOUNTS_ORIGIN);
     expect(hraSuiteAccountUrl("account")).toBe(
