@@ -203,40 +203,27 @@ export function createLandingMarkdown(): string {
 }
 
 export function createDownloadMarkdown(): string {
-  const published = HRA_RELEASE_URL !== null
-    && HRA_RELEASE_CHECKSUM_URL !== null
-    && HRA_RELEASE_MANIFEST_URL !== null;
-  const statusLines = published
-    ? [
-        `Download the DMG: ${HRA_RELEASE_URL}`,
-        `SHA-256 file: ${HRA_RELEASE_CHECKSUM_URL}`,
-        `Release manifest: ${HRA_RELEASE_MANIFEST_URL}`,
-        "",
-        "Unknown developer. This candidate uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.",
-        "",
-        "## Install the prerelease",
-        "",
-        `1. Download both files. Save the DMG and its SHA-256 file in the same folder.`,
-        `2. Check the bytes. In Terminal, run \`shasum -a 256 -c ${HRA_RELEASE.asset}.sha256\`. Continue only when it prints \`OK\`.`,
-        "3. Copy HRA to Applications. Open the DMG and drag HRA into the Applications folder.",
-        "4. Approve the unknown developer. Control-click HRA in Finder and choose Open. If macOS still blocks it, use System Settings → Privacy & Security → Open Anyway.",
-      ]
-    : [
-        "Candidate verification in progress. Do not install an unpublished draft asset.",
-        "",
-        "Unknown developer. This candidate uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. Its release commit, tag, manifest, and artifact hashes are still awaiting publication.",
-        "",
-        `HRA ${HRA_RELEASE.version} (${HRA_RELEASE.build}) is a checked source candidate. Do not drag a second app beside an installed OPRTE predecessor, and do not install an unpublished draft asset.`,
-        "",
-        `You can inspect or build the candidate from ${HRA_RELEASE.repository} while release evidence is completed.`,
-      ];
+  const statusLines = [
+    `Download the DMG: ${HRA_RELEASE_URL}`,
+    `SHA-256 file: ${HRA_RELEASE_CHECKSUM_URL}`,
+    `Release manifest: ${HRA_RELEASE_MANIFEST_URL}`,
+    "",
+    "Unknown developer. This archived release uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.",
+    "",
+    "## Install the prerelease",
+    "",
+    `1. Download both files. Save the DMG and its SHA-256 file in the same folder.`,
+    `2. Check the bytes. In Terminal, run \`shasum -a 256 -c ${HRA_RELEASE.asset}.sha256\`. Continue only when it prints \`OK\`.`,
+    "3. Copy HRA to Applications. Open the DMG and drag HRA into the Applications folder.",
+    "4. Approve the unknown developer. Control-click HRA in Finder and choose Open. If macOS still blocks it, use System Settings → Privacy & Security → Open Anyway.",
+  ];
 
   return [
     "# Download HRA v0 for your Mac.",
     "",
     `This is the final archived v0.1.14 prerelease. It bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`,
     "",
-    `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · ${published ? "Published prerelease" : "Candidate"} · Ad-hoc · not notarized.`,
+    `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · Published prerelease · Ad-hoc · not notarized.`,
     "",
     ...statusLines,
     "",

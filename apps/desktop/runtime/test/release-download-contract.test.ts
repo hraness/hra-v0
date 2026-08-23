@@ -6,13 +6,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  parseHistoricalReleaseCandidateContract,
   parseReleaseDownloadContract,
   readReleaseDownloadContract,
   requirePublishedReleaseSource,
   verifyReleaseDownloadContract,
   verifyLocalReleaseCandidate,
   verifyPublishedReleaseArtifacts,
-  verifyPublishedReleaseCandidate,
   verifyArchivedReleaseSourceEvidence,
   verifyPublishedReleaseSourceEvidence,
   verifyReleaseSourceGate,
@@ -21,6 +21,7 @@ import {
   releasePublicationCommitAllowlistEnvironmentVariable,
   releaseSurfaceCommitAllowlistEnvironmentVariable,
   verifyVercelReleaseSourceState,
+  type HistoricalCandidateReleaseDownloadContract,
   type PublishedReleaseDownloadContract,
   type ReleaseDownloadContract,
   type ReleaseHttpFetcher,
@@ -40,7 +41,10 @@ const setupEnvironment = Object.freeze({
   LC_ALL: "C",
   PATH: "/usr/bin:/bin",
 });
-const candidateContractFixture = parseReleaseDownloadContract({
+const currentRepository = "https://github.com/hraness/hra-v0" as const;
+const historicalPublicationRepository =
+  "https://github.com/hraness/hra" as const;
+const candidateContractFixture = parseHistoricalReleaseCandidateContract({
   release: {
     architecture: "Apple Silicon",
     artifacts: {
@@ -71,7 +75,7 @@ const candidateContractFixture = parseReleaseDownloadContract({
     tag: "v0.1.14",
     version: "0.1.14",
   },
-  repository: "https://github.com/hraness/hra",
+  repository: historicalPublicationRepository,
   schemaVersion: 1,
 });
 
@@ -84,43 +88,42 @@ afterEach(async () => {
 });
 
 describe("release and download convergence", () => {
-  test("verifies the v0.1.14 build 15 repository contract in either protocol state", async () => {
+  test("verifies the published-only v0.1.14 build 15 archive contract", async () => {
     const contract = await readReleaseDownloadContract();
     expectReleaseIdentity(contract);
     expect(await verifyReleaseDownloadContract()).toEqual(contract);
     const source = await verifyReleaseSourceGate();
-    if (contract.release.availability === "candidate") {
-      expect(contract).toEqual(candidateContractFixture);
-      expect(source).toMatchObject({
-        availability: "candidate",
-        contract,
-        status: "valid_candidate_contract",
-      });
-      await expectRejection(requirePublishedReleaseSource(), "not published");
-      await expectRejection(
-        verifyPublishedReleaseCandidate("/Applications/HRA.app"),
-        "not published",
-      );
-    } else {
-      expect(source).toMatchObject({
-        availability: "published",
-        contract,
-        status: "verified_published_source",
-      });
-      expect(await requirePublishedReleaseSource()).toMatchObject({ contract });
-    }
+    expect(source).toMatchObject({
+      availability: "published",
+      contract,
+      status: "verified_published_source",
+    });
+    expect(await requirePublishedReleaseSource()).toMatchObject({ contract });
   });
 
-  test("keeps candidate-only fixtures independent from repository publication state", async () => {
-    const contract = candidateContractFixture;
+  test("keeps candidate parsing historical and rejects it at every maintained gate", async () => {
+    const historicalCandidate = candidateContractFixture;
+    const maintainedCandidate = {
+      ...historicalCandidate,
+      repository: currentRepository,
+    };
+    expect(() => parseReleaseDownloadContract(maintainedCandidate)).toThrow();
+    expect(
+      parseHistoricalReleaseCandidateContract(historicalCandidate),
+    ).toEqual(historicalCandidate);
+    expect(() =>
+      parseHistoricalReleaseCandidateContract(maintainedCandidate)
+    ).toThrow();
+
+    const unsafeCandidate = maintainedCandidate as unknown as ReleaseDownloadContract;
     let remoteRequests = 0;
-    expect(await verifyRemoteReleaseState(contract, () => {
-      remoteRequests += 1;
-      return Promise.reject(new Error("candidate must not use the network"));
-    })).toMatchObject({
-      availability: "candidate",
-      status: "candidate_has_no_remote_release",
-    });
+    await expectRejection(
+      verifyRemoteReleaseState(unsafeCandidate, () => {
+        remoteRequests += 1;
+        return Promise.reject(new Error("candidate must not use the network"));
+      }),
+      "must be published",
+    );
     expect(remoteRequests).toBe(0);
     const candidateVercelEnvironment = {
       VERCEL: "1",
@@ -132,37 +135,16 @@ describe("release and download convergence", () => {
       VERCEL_GIT_REPO_SLUG: "hra-v0",
       VERCEL_TARGET_ENV: "preview",
     } as const;
-    expect(await verifyVercelReleaseSourceState(
-      contract,
-      candidateVercelEnvironment,
-    )).toMatchObject({
-      availability: "candidate",
-      contract,
-      status: "valid_candidate_contract",
-    });
-    for (const environment of [
-      { ...candidateVercelEnvironment, VERCEL: "0" },
-      { ...candidateVercelEnvironment, VERCEL_GIT_REPO_OWNER: "attacker" },
-      {
-        ...candidateVercelEnvironment,
-        VERCEL_ENV: "production",
-        VERCEL_GIT_COMMIT_REF: "feature",
-        VERCEL_TARGET_ENV: "production",
-      },
-    ] as const) {
-      await expectRejection(
-        verifyVercelReleaseSourceState(contract, environment),
-        environment.VERCEL_GIT_COMMIT_REF === "feature"
-          ? "deployed from main"
-          : "canonical Vercel Git repository identity",
-      );
-    }
     await expectRejection(
-      verifyVercelReleaseSourceState(contract, {
-        ...candidateVercelEnvironment,
-        VERCEL_GIT_COMMIT_SHA: "short",
-      }),
-      "one full SHA-1 object ID",
+      verifyVercelReleaseSourceState(
+        unsafeCandidate,
+        candidateVercelEnvironment,
+      ),
+      "must be published",
+    );
+    await expectRejection(
+      verifyReleaseSourceState(unsafeCandidate),
+      "must be published",
     );
   });
 
@@ -170,6 +152,7 @@ describe("release and download convergence", () => {
     const candidate = candidateContractFixture;
     const published = {
       ...candidate,
+      repository: currentRepository,
       release: {
         ...candidate.release,
         artifacts: {
@@ -186,6 +169,11 @@ describe("release and download convergence", () => {
       },
     };
     expect(parseReleaseDownloadContract(published).release.availability).toBe("published");
+
+    expect(() => parseReleaseDownloadContract({
+      ...candidate,
+      repository: currentRepository,
+    })).toThrow();
 
     expect(() => parseReleaseDownloadContract({
       ...published,
@@ -257,18 +245,23 @@ describe("release and download convergence", () => {
   });
 
   test("rejects alternate repositories, extra fields, and mismatched tags", () => {
-    const candidate = candidateContractFixture;
+    const contract = createRemoteReleaseFixture(candidateContractFixture).contract;
+    for (const repository of [
+      historicalPublicationRepository,
+      "https://github.com/attacker/hra",
+    ] as const) {
+      expect(() => parseReleaseDownloadContract({
+        ...contract,
+        repository,
+      })).toThrow();
+    }
     expect(() => parseReleaseDownloadContract({
-      ...candidate,
-      repository: "https://github.com/attacker/hra",
-    })).toThrow();
-    expect(() => parseReleaseDownloadContract({
-      ...candidate,
+      ...contract,
       callerCommit: "0".repeat(40),
     })).toThrow();
     expect(() => parseReleaseDownloadContract({
-      ...candidate,
-      release: { ...candidate.release, tag: "v0.1.7" },
+      ...contract,
+      release: { ...contract.release, tag: "v0.1.7" },
     })).toThrow();
   });
 
@@ -350,6 +343,7 @@ describe("release and download convergence", () => {
 
   test("keeps the full release suite valid across a synthetic contract-only publication P", async () => {
     const candidate = candidateContractFixture;
+    const historicalCandidate = candidate;
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-publication-protocol-")),
     );
@@ -367,7 +361,7 @@ describe("release and download convergence", () => {
     ]);
     await writeFile(
       join(repositoryRoot, "release-download.json"),
-      `${JSON.stringify(candidate, null, 2)}\n`,
+      `${JSON.stringify(historicalCandidate, null, 2)}\n`,
     );
     await writeFile(join(repositoryRoot, "source.txt"), "candidate\n");
     await runSetupGit(repositoryRoot, ["add", "release-download.json", "source.txt"]);
@@ -390,6 +384,7 @@ describe("release and download convergence", () => {
     ).trim();
     const published = parseReleaseDownloadContract({
       ...candidate,
+      repository: currentRepository,
       release: {
         ...candidate.release,
         artifacts: {
@@ -417,9 +412,6 @@ describe("release and download convergence", () => {
         },
       },
     });
-    if (published.release.availability !== "published") {
-      throw new Error("Expected a published fixture.");
-    }
     const publishedContract: PublishedReleaseDownloadContract = {
       release: published.release,
       repository: published.repository,
@@ -428,15 +420,21 @@ describe("release and download convergence", () => {
     expectReleaseIdentity(publishedContract);
     await writeFile(
       join(repositoryRoot, "release-download.json"),
-      `${JSON.stringify(publishedContract, null, 2)}\n`,
+      `${JSON.stringify(historicalContract(publishedContract), null, 2)}\n`,
     );
     await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
     const publicationCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
-    await writeFile(join(repositoryRoot, "archive.md"), "HRA v0 archive\n");
-    await runSetupGit(repositoryRoot, ["add", "archive.md"]);
+    await Promise.all([
+      writeFile(join(repositoryRoot, "archive.md"), "HRA v0 archive\n"),
+      writeFile(
+        join(repositoryRoot, "release-download.json"),
+        `${JSON.stringify(publishedContract, null, 2)}\n`,
+      ),
+    ]);
+    await runSetupGit(repositoryRoot, ["add", "archive.md", "release-download.json"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "archive surface Q"]);
     const surfaceCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
@@ -457,6 +455,7 @@ describe("release and download convergence", () => {
     });
     expect(verified.surface).toEqual({
       publicationCommit,
+      repositoryMigrationCommit: surfaceCommit,
       status: "verified_descendant_archive_surface",
       surfaceCommit,
     });
@@ -495,9 +494,35 @@ describe("release and download convergence", () => {
     }))).toMatchObject({
       availability: "published",
       publicationCommit,
+      repositoryMigrationCommit: surfaceCommit,
       status: "verified_vercel_archive_surface_binding",
       surfaceCommit,
     });
+
+    await runSetupGit(repositoryRoot, [
+      "switch",
+      "-c",
+      "invalid-current-coordinate-publication",
+      candidateCommit,
+    ]);
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      `${JSON.stringify(publishedContract, null, 2)}\n`,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "invalid publication coordinate"]);
+    const invalidPublicationRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    await expectRejection(
+      verifyPublishedReleaseSourceEvidence(
+        publishedContract,
+        invalidPublicationRepository,
+      ),
+      historicalPublicationRepository,
+    );
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
 
     await writeFile(join(repositoryRoot, "source.txt"), "follow-up\n");
     await runSetupGit(repositoryRoot, ["add", "source.txt"]);
@@ -534,12 +559,32 @@ describe("release and download convergence", () => {
         rewrittenRepository,
         publicationCommit,
       ),
-      "preserve release-download.json byte-for-byte",
+      "may change only the reviewed release repository coordinate",
+    );
+
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      `${JSON.stringify(publishedContract, null, 2)}\n`,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "hide contract rewrite"]);
+    const restoredRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    await expectRejection(
+      verifyArchivedReleaseSourceEvidence(
+        publishedContract,
+        restoredRepository,
+        publicationCommit,
+      ),
+      "must preserve exact historical H or archive A release contract bytes",
     );
   });
 
   test("rejects a schema-valid publication with forged tag evidence", async () => {
     const candidate = candidateContractFixture;
+    const historicalCandidate = candidate;
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-bogus-publication-")),
     );
@@ -557,7 +602,7 @@ describe("release and download convergence", () => {
     ]);
     await writeFile(
       join(repositoryRoot, "release-download.json"),
-      `${JSON.stringify(candidate, null, 2)}\n`,
+      `${JSON.stringify(historicalCandidate, null, 2)}\n`,
     );
     await writeFile(join(repositoryRoot, "source.txt"), "candidate\n");
     await runSetupGit(repositoryRoot, ["add", "release-download.json", "source.txt"]);
@@ -583,6 +628,7 @@ describe("release and download convergence", () => {
       : "f".repeat(40);
     const bogusPublished = parseReleaseDownloadContract({
       ...candidate,
+      repository: currentRepository,
       release: {
         ...candidate.release,
         artifacts: {
@@ -612,15 +658,21 @@ describe("release and download convergence", () => {
     });
     await writeFile(
       join(repositoryRoot, "release-download.json"),
-      `${JSON.stringify(bogusPublished, null, 2)}\n`,
+      `${JSON.stringify(historicalContract(bogusPublished), null, 2)}\n`,
     );
     await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "bogus publication P"]);
     const bogusPublicationCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
-    await writeFile(join(repositoryRoot, "archive.md"), "HRA v0 archive\n");
-    await runSetupGit(repositoryRoot, ["add", "archive.md"]);
+    await Promise.all([
+      writeFile(join(repositoryRoot, "archive.md"), "HRA v0 archive\n"),
+      writeFile(
+        join(repositoryRoot, "release-download.json"),
+        `${JSON.stringify(bogusPublished, null, 2)}\n`,
+      ),
+    ]);
+    await runSetupGit(repositoryRoot, ["add", "archive.md", "release-download.json"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "archive surface Q"]);
     const surfaceCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
@@ -665,6 +717,7 @@ describe("release and download convergence", () => {
         ...bogusObjectStore,
         surface: {
           publicationCommit: bogusPublicationCommit,
+          repositoryMigrationCommit: surfaceCommit,
           status: "verified_descendant_archive_surface" as const,
           surfaceCommit,
         },
@@ -686,6 +739,17 @@ describe("release and download convergence", () => {
   });
 });
 
+function historicalContract(
+  contract: ReleaseDownloadContract,
+): Omit<ReleaseDownloadContract, "repository"> & Readonly<{
+  repository: typeof historicalPublicationRepository;
+}> {
+  return {
+    ...contract,
+    repository: historicalPublicationRepository,
+  };
+}
+
 function expectReleaseIdentity(contract: ReleaseDownloadContract): void {
   expect(contract).toMatchObject({
     release: {
@@ -700,13 +764,9 @@ function expectReleaseIdentity(contract: ReleaseDownloadContract): void {
       tag: "v0.1.14",
       version: "0.1.14",
     },
-    repository: "https://github.com/hraness/hra",
+    repository: currentRepository,
     schemaVersion: 1,
   });
-  if (contract.release.availability === "candidate") {
-    expect(contract).toEqual(candidateContractFixture);
-    return;
-  }
   for (const artifact of Object.values(contract.release.artifacts)) {
     expect(artifact.bytes).toBeGreaterThan(0);
     expect(artifact.sha256).toMatch(/^[0-9a-f]{64}$/u);
@@ -717,12 +777,9 @@ function expectReleaseIdentity(contract: ReleaseDownloadContract): void {
 }
 
 function createRemoteReleaseFixture(
-  candidate: ReleaseDownloadContract,
+  candidate: HistoricalCandidateReleaseDownloadContract,
   options: Readonly<{ manifestCommit?: string }> = {},
 ) {
-  if (candidate.release.availability !== "candidate") {
-    throw new Error("Remote fixture requires a candidate contract.");
-  }
   const encoder = new TextEncoder();
   const commit = "c".repeat(40);
   const runtimeTreeSha256 = "d".repeat(64);
@@ -768,6 +825,7 @@ function createRemoteReleaseFixture(
   }, null, 2)}\n`);
   const contract = parseReleaseDownloadContract({
     ...candidate,
+    repository: currentRepository,
     release: {
       ...candidate.release,
       artifacts: {
@@ -795,9 +853,6 @@ function createRemoteReleaseFixture(
       },
     },
   });
-  if (contract.release.availability !== "published") {
-    throw new Error("Expected a published remote fixture.");
-  }
   const metadataUrl =
     `https://api.github.com/repos/hraness/hra-v0/releases/tags/${contract.release.tag}`;
   const metadataAssets = [

@@ -52,11 +52,9 @@ describe("HRA public markdown representations", () => {
     expect(markdown).toContain(`macOS ${HRA_RELEASE.minimumMacOS}`);
     expect(markdown).toContain("not Developer ID signed or notarized");
     expect(markdown).toContain("https://hra-weld.vercel.app/llms.txt");
-    if (HRA_RELEASE.availability === "candidate") {
-      expect(markdown).toContain("Do not install an unpublished draft asset.");
-    } else {
-      expect(markdown).toContain(HRA_RELEASE.asset);
-    }
+    expect(HRA_RELEASE.availability).toBe("published");
+    expect(markdown).toContain(HRA_RELEASE.asset);
+    expect(markdown).not.toContain("Do not install an unpublished draft asset.");
   });
 
   test("renders every comparison from the existing first-party rows", () => {

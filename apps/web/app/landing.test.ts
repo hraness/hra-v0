@@ -90,33 +90,22 @@ describe("HRA public landing", () => {
       tag: "v0.1.14",
       version: "0.1.14",
     });
-    if (HRA_RELEASE.availability === "candidate") {
-      expect(HRA_RELEASE.source).toEqual({
-        commit: null,
-        runtimeTreeSha256: null,
-        tagObject: null,
-      });
-      expect(HRA_RELEASE_URL).toBeNull();
-      expect(HRA_RELEASE_CHECKSUM_URL).toBeNull();
-      expect(HRA_RELEASE_MANIFEST_URL).toBeNull();
-    } else {
-      expect(HRA_RELEASE.source.commit).toMatch(/^[0-9a-f]{40}$/u);
-      expect(HRA_RELEASE.source.runtimeTreeSha256).toMatch(/^[0-9a-f]{64}$/u);
-      expect(HRA_RELEASE.source.tagObject).toMatch(/^[0-9a-f]{40}$/u);
-      expect(HRA_RELEASE_URL).toBe(
-        "https://github.com/hraness/hra-v0/releases/download/v0.1.14/HRA-0.1.14-15-macos-arm64.dmg",
-      );
-      expect(HRA_RELEASE_CHECKSUM_URL).toBe(`${HRA_RELEASE_URL}.sha256`);
-      expect(HRA_RELEASE_MANIFEST_URL).toBe(
-        "https://github.com/hraness/hra-v0/releases/download/v0.1.14/HRA-0.1.14-15-release-manifest.json",
-      );
-    }
+    expect(HRA_RELEASE.availability).toBe("published");
+    expect(HRA_RELEASE.source.commit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(HRA_RELEASE.source.runtimeTreeSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(HRA_RELEASE.source.tagObject).toMatch(/^[0-9a-f]{40}$/u);
+    expect(HRA_RELEASE_URL).toBe(
+      "https://github.com/hraness/hra-v0/releases/download/v0.1.14/HRA-0.1.14-15-macos-arm64.dmg",
+    );
+    expect(HRA_RELEASE_CHECKSUM_URL).toBe(`${HRA_RELEASE_URL}.sha256`);
+    expect(HRA_RELEASE_MANIFEST_URL).toBe(
+      "https://github.com/hraness/hra-v0/releases/download/v0.1.14/HRA-0.1.14-15-release-manifest.json",
+    );
     expect(download).toContain("Unknown developer.");
     expect(download).toContain("not Developer ID signed or notarized");
     expect(download).toContain("HRA_RELEASE_MANIFEST_URL");
-    expect(download).toContain("Candidate verification in progress.");
-    expect(download).toContain("Do not install an unpublished draft asset.");
-    expect(download).toContain("Do not drag a second app beside an installed OPRTE predecessor");
+    expect(download).not.toContain("Candidate verification in progress.");
+    expect(download).not.toContain("Do not install an unpublished draft asset.");
   });
 
   test("keeps navigation, sections, disclosure, and structured data semantic", async () => {

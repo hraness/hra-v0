@@ -27,16 +27,11 @@ export const metadata = createPublicSiteMetadata({
 }, { canonicalPath: "/download" }) satisfies Metadata;
 
 export default function DownloadPage() {
-  const publishedUrls = HRA_RELEASE_URL !== null
-    && HRA_RELEASE_CHECKSUM_URL !== null
-    && HRA_RELEASE_MANIFEST_URL !== null
-    ? {
-        checksum: HRA_RELEASE_CHECKSUM_URL,
-        dmg: HRA_RELEASE_URL,
-        manifest: HRA_RELEASE_MANIFEST_URL,
-      }
-    : null;
-  const published = publishedUrls !== null;
+  const publishedUrls = {
+    checksum: HRA_RELEASE_CHECKSUM_URL,
+    dmg: HRA_RELEASE_URL,
+    manifest: HRA_RELEASE_MANIFEST_URL,
+  } as const;
   return (
     <div className="download-page">
       <a className="landing-skip-link" href="#main-content">Skip to content</a>
@@ -74,26 +69,16 @@ export default function DownloadPage() {
               This is the final archived v0.1.14 prerelease. It bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS {HRA_RELEASE.minimumMacOS} or newer. New users should start with <a href={CURRENT_HRA_SITE}>the current HRA</a>.
             </p>
             <p className="download-trust-callout">
-              <strong>Unknown developer.</strong> This candidate uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. {published
-                ? "The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually."
-                : "Its release commit, tag, manifest, and artifact hashes are still awaiting publication."}
+              <strong>Unknown developer.</strong> This archived release uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.
             </p>
             <div className="download-primary-action">
-              {publishedUrls !== null
-                ? (
-                    <LinkButton
-                      href={publishedUrls.dmg}
-                      size="large"
-                      variant="primary"
-                    >
-                      Download the DMG <span aria-hidden="true">↓</span>
-                    </LinkButton>
-                  )
-                : (
-                    <p>
-                      <strong>Candidate verification in progress.</strong> Do not install an unpublished draft asset.
-                    </p>
-                  )}
+              <LinkButton
+                href={publishedUrls.dmg}
+                size="large"
+                variant="primary"
+              >
+                Download the DMG <span aria-hidden="true">↓</span>
+              </LinkButton>
               <p>Version {HRA_RELEASE.version} ({HRA_RELEASE.build}) · Apple Silicon · macOS {HRA_RELEASE.minimumMacOS}+</p>
             </div>
           </div>
@@ -101,8 +86,8 @@ export default function DownloadPage() {
           <aside className="download-release-card" aria-label="HRA v0 prerelease details">
             <div className="download-release-card__topline">
               <span>macOS {HRA_RELEASE.version}</span>
-              <span className="download-release-state download-release-state--pending">
-                {published ? "Published prerelease" : "Candidate"}
+              <span className="download-release-state">
+                Published prerelease
               </span>
             </div>
             <div className="download-app-tile" aria-hidden="true">
@@ -129,13 +114,11 @@ export default function DownloadPage() {
               </div>
               <div>
                 <dt>Distribution</dt>
-                <dd>{published ? "GitHub prerelease" : "Not published"}</dd>
+                <dd>GitHub prerelease</dd>
               </div>
             </dl>
             <p className="download-release-disclosure">
-              {publishedUrls !== null
-                ? <>The exact source, runtime pins, corresponding-source archives, <a href={publishedUrls.manifest}>release manifest</a>, and checksum are public.</>
-                : <>The repository records the candidate identity. Direct downloads remain disabled until the exact source, annotated tag, manifest, checksum, and artifact hashes are published.</>} This is an early testing build, not a normal Apple-trusted release.
+              The exact source, runtime pins, corresponding-source archives, <a href={publishedUrls.manifest}>release manifest</a>, and checksum are public. This is an early testing build, not a normal Apple-trusted release.
             </p>
           </aside>
           </section>
@@ -145,7 +128,7 @@ export default function DownloadPage() {
             <p className="eyebrow">Install the prerelease</p>
             <h2 id="install-title">Verify it before you open it.</h2>
           </div>
-          {publishedUrls !== null ? <ol className="download-steps" role="list">
+          <ol className="download-steps" role="list">
             <li>
               <span aria-hidden="true">01</span>
               <div>
@@ -174,16 +157,7 @@ export default function DownloadPage() {
                 <p>Control-click HRA in Finder and choose <strong>Open</strong>. If macOS still blocks it, use <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</p>
               </div>
             </li>
-          </ol> : (
-            <div className="download-steps">
-              <p>
-                HRA {HRA_RELEASE.version} ({HRA_RELEASE.build}) is a checked source candidate. Do not drag a second app beside an installed OPRTE predecessor, and do not install an unpublished draft asset.
-              </p>
-              <p>
-                You can inspect or build the candidate from <a href={HRA_RELEASE.repository}>the canonical HRA repository</a> while release evidence is completed.
-              </p>
-            </div>
-          )}
+          </ol>
           <p className="download-security-note">
             HRA can run coding agents with local filesystem and process authority. Pair only repositories and Codex accounts you intend it to use.
           </p>
@@ -199,8 +173,8 @@ export default function DownloadPage() {
             <a href="https://github.com/hraness/hra-v0#develop-hra">Read the build instructions →</a>
           </article>
           <article>
-            <p className="eyebrow">What remains</p>
-            <h2>Developer ID signing is not available yet.</h2>
+            <p className="eyebrow">Distribution boundary</p>
+            <h2>Developer ID signing is not available for HRA v0.</h2>
             <p>
               HRA v0 is archived and will not gain a new update channel. The current HRA continues separately at <a href={CURRENT_HRA_SITE}>hra.sh</a>.
             </p>

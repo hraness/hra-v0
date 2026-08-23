@@ -18,11 +18,13 @@ export const HRA_V0_CURRENT_REPOSITORY =
 export const HRA_HISTORICAL_PUBLICATION_REPOSITORY =
   "https://github.com/hraness/hra" as const;
 
-/** Compatibility name for the immutable release-contract repository field. */
+/** Canonical repository recorded by the maintained archive contract. */
 export const HRA_CANONICAL_REPOSITORY =
-  HRA_HISTORICAL_PUBLICATION_REPOSITORY;
+  HRA_V0_CURRENT_REPOSITORY;
 
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
+const archiveHistoryCommitLimit = 1_024;
+const releaseContractByteLimit = 32_768;
 const productionRepositoryRoot = resolve(import.meta.dir, "../../..");
 const canonicalGitRepository = `${HRA_V0_CURRENT_REPOSITORY}.git` as const;
 const hermeticGitEnvironment = Object.freeze({
@@ -69,6 +71,7 @@ export interface CanonicalReleasePublicationEvidence {
 
 export interface ArchiveReleaseSurfaceEvidence {
   readonly publicationCommit: string;
+  readonly repositoryMigrationCommit: string;
   readonly status: "verified_descendant_archive_surface";
   readonly surfaceCommit: string;
 }
@@ -306,8 +309,9 @@ export async function inspectReleasePublicationAtCommit(
 }
 
 /**
- * Bind a maintained archive surface to the immutable publication without
- * allowing a descendant to rewrite release-download.json.
+ * Bind a maintained archive surface to the immutable publication while
+ * allowing exactly one reviewed repository-coordinate migration. Every other
+ * byte of release-download.json remains fixed at P.
  */
 export async function inspectArchiveReleaseSurface(
   repository: ReleaseRepositoryEvidence,
@@ -351,16 +355,214 @@ async function inspectArchiveReleaseSurfaceWithRunner(
     runner.run(["show", `${publicationCommit}:release-download.json`]),
     runner.run(["show", `${surfaceCommit}:release-download.json`]),
   ]);
-  if (surfaceContract !== publicationContract) {
+  const historicalCoordinate =
+    `"repository": "${HRA_HISTORICAL_PUBLICATION_REPOSITORY}"`;
+  const currentCoordinate =
+    `"repository": "${HRA_V0_CURRENT_REPOSITORY}"`;
+  if (
+    publicationContract.split(historicalCoordinate).length !== 2
+    || publicationContract.includes(currentCoordinate)
+  ) {
     throw new Error(
-      "The HRA v0 archive surface must preserve release-download.json byte-for-byte.",
+      "The immutable publication must contain exactly one historical repository coordinate.",
+    );
+  }
+  const expectedSurfaceContract = publicationContract.replace(
+    historicalCoordinate,
+    currentCoordinate,
+  );
+  if (surfaceContract !== expectedSurfaceContract) {
+    throw new Error(
+      "The HRA v0 archive surface may change only the reviewed release repository coordinate.",
+    );
+  }
+  for (const [label, value] of [
+    ["publication", publicationContract],
+    ["surface", surfaceContract],
+  ] as const) {
+    if (new TextEncoder().encode(value).byteLength > releaseContractByteLimit) {
+      throw new Error(`The archive ${label} release contract is oversized.`);
+    }
+  }
+
+  // Do not add a pathspec here. Git history simplification may hide a rewrite
+  // followed by a restore on a merged side branch. The bounded, unpruned DAG
+  // is the evidence: every commit and every direct parent visible from P..S
+  // must carry exactly historical H or archive A bytes.
+  const historyOutput = (await runner.run([
+    "rev-list",
+    "--full-history",
+    "--topo-order",
+    "--parents",
+    `--max-count=${String(archiveHistoryCommitLimit + 1)}`,
+    `${publicationCommit}..${surfaceCommit}`,
+  ])).trim();
+  const historyLines = historyOutput.length === 0
+    ? []
+    : historyOutput.split("\n");
+  if (historyLines.length > archiveHistoryCommitLimit) {
+    throw new Error(
+      `The HRA v0 archive history exceeds ${String(archiveHistoryCommitLimit)} commits.`,
+    );
+  }
+  if (historyLines.length === 0) {
+    throw new Error(
+      "The HRA v0 archive history contains no descendant commits.",
+    );
+  }
+
+  const history = historyLines.map((line, index) => {
+    const objectIds = line.trim().split(/\s+/u);
+    const commit = requireObjectId(
+      objectIds[0] ?? "",
+      `Archive history commit ${String(index)}`,
+    );
+    const parents = objectIds.slice(1).map((value, parentIndex) =>
+      requireObjectId(
+        value,
+        `Archive history commit ${String(index)} parent ${String(parentIndex)}`,
+      )
+    );
+    if (parents.length === 0) {
+      throw new Error("Every HRA v0 archive commit must have a direct parent.");
+    }
+    return Object.freeze({ commit, parents });
+  });
+  if (new Set(history.map(({ commit }) => commit)).size !== history.length) {
+    throw new Error("The HRA v0 archive history contains a duplicate commit.");
+  }
+
+  type ArchiveContractState = "archive" | "historical";
+  const contracts = new Map<string, string>([
+    [publicationCommit, publicationContract],
+    [surfaceCommit, surfaceContract],
+  ]);
+  const relevantCommits = new Set<string>([publicationCommit]);
+  for (const { commit, parents } of history) {
+    relevantCommits.add(commit);
+    for (const parent of parents) relevantCommits.add(parent);
+  }
+  for (const commit of relevantCommits) {
+    if (contracts.has(commit)) continue;
+    contracts.set(
+      commit,
+      await readBoundedReleaseContractAtCommit(runner, commit),
+    );
+  }
+  const states = new Map<string, ArchiveContractState>();
+  for (const [commit, contract] of contracts) {
+    const state = contract === publicationContract
+      ? "historical"
+      : contract === expectedSurfaceContract
+        ? "archive"
+        : null;
+    if (state === null) {
+      throw new Error(
+        `Every HRA v0 archive commit and parent must preserve exact historical H or archive A release contract bytes; ${commit} does not.`,
+      );
+    }
+    states.set(commit, state);
+  }
+
+  const frontierCommits: string[] = [];
+  for (const { commit, parents } of history) {
+    const state = states.get(commit);
+    if (state === undefined) {
+      throw new Error("Archive release contract state is incomplete.");
+    }
+    const parentStates = parents.map((parent) => {
+      const parentState = states.get(parent);
+      if (parentState === undefined) {
+        throw new Error("Archive parent release contract state is incomplete.");
+      }
+      return parentState;
+    });
+    if (
+      state === "historical"
+      && parentStates.some((parentState) => parentState === "archive")
+    ) {
+      throw new Error(
+        "The HRA v0 archive history may not contain an archive A to historical H edge.",
+      );
+    }
+    if (
+      state === "archive"
+      && !parentStates.some((parentState) => parentState === "archive")
+    ) {
+      if (parents.length !== 1 || parentStates[0] !== "historical") {
+        throw new Error(
+          "A merge commit may not invent archive A without an archive A parent.",
+        );
+      }
+      frontierCommits.push(commit);
+    }
+  }
+  if (frontierCommits.length !== 1) {
+    throw new Error(
+      "The HRA v0 archive history must contain exactly one single-parent historical H to archive A frontier.",
+    );
+  }
+  const repositoryMigrationCommit = requireObjectId(
+    frontierCommits[0] ?? "",
+    "Archive repository migration commit",
+  );
+  const migrationParent = history.find(
+    ({ commit }) => commit === repositoryMigrationCommit,
+  )?.parents[0];
+  if (migrationParent === undefined) {
+    throw new Error("The archive repository migration parent is missing.");
+  }
+  const migrationChangedPath = await runner.run([
+    "diff-tree",
+    "--no-commit-id",
+    "--name-status",
+    "-r",
+    "-z",
+    "--no-renames",
+    migrationParent,
+    repositoryMigrationCommit,
+    "--",
+    "release-download.json",
+  ]);
+  if (
+    contracts.get(migrationParent) !== publicationContract
+    || contracts.get(repositoryMigrationCommit) !== expectedSurfaceContract
+    || migrationChangedPath !== "M\0release-download.json\0"
+  ) {
+    throw new Error(
+      "The reviewed release repository migration must be the exact historical-to-archive coordinate change.",
     );
   }
   return Object.freeze({
     publicationCommit,
+    repositoryMigrationCommit,
     status: "verified_descendant_archive_surface",
     surfaceCommit,
   });
+}
+
+async function readBoundedReleaseContractAtCommit(
+  runner: ReleaseGitRunner,
+  commit: string,
+): Promise<string> {
+  const object = `${commit}:release-download.json`;
+  const sizeText = (await runner.run(["cat-file", "-s", object])).trim();
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(sizeText)) {
+    throw new Error("Git reported an invalid archive release contract size.");
+  }
+  const size = Number(sizeText);
+  if (
+    !Number.isSafeInteger(size)
+    || size <= 0
+    || size > releaseContractByteLimit
+  ) {
+    throw new Error("An archive release contract is empty or oversized.");
+  }
+  const contract = await runner.run(["cat-file", "-p", object]);
+  if (new TextEncoder().encode(contract).byteLength !== size) {
+    throw new Error("Git emitted inconsistent archive release contract bytes.");
+  }
+  return contract;
 }
 
 async function inspectReleasePublicationWithRunner(
@@ -536,8 +738,9 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
 
 /**
  * Fetch and verify both immutable release history and an allowlisted archive
- * surface from the maintained HRA v0 repository. The historical repository
- * spelling remains inside release-download.json only.
+ * surface from the maintained HRA v0 repository. P retains the historical
+ * repository spelling; the archive surface contains its one reviewed
+ * coordinate migration.
  */
 export async function inspectCanonicalArchiveRelease(options: Readonly<{
   candidateCommit: string;

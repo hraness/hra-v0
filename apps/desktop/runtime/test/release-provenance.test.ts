@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 
 import {
   HRA_V0_CURRENT_REPOSITORY,
+  inspectArchiveReleaseSurface,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
@@ -345,6 +346,195 @@ describe("hermetic release provenance", () => {
     await expectRejection(
       inspectReleasePublicationTransition(repository, candidateCommit),
       "only direct parent",
+    );
+  });
+
+  test("accepts one single-parent migration followed by a normal H/A to A merge", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      '{\n  "repository": "https://github.com/hraness/hra"\n}\n',
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "archive-pr"]);
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      '{\n  "repository": "https://github.com/hraness/hra-v0"\n}\n',
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "migrate archive coordinate"]);
+    const repositoryMigrationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "side.txt"), "archive branch\n");
+    await runSetupGit(repositoryRoot, ["add", "side.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "archive branch work"]);
+
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await writeFile(join(repositoryRoot, "main.txt"), "main branch\n");
+    await runSetupGit(repositoryRoot, ["add", "main.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "main archive work"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "archive-pr",
+      "-m",
+      "merge archive PR",
+    ]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    expect(
+      await inspectArchiveReleaseSurface(repository, publicationCommit),
+    ).toEqual({
+      publicationCommit,
+      repositoryMigrationCommit,
+      status: "verified_descendant_archive_surface",
+      surfaceCommit: repository.commit,
+    });
+  });
+
+  test("rejects a repository-coordinate migration made by a merge commit", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      '{\n  "repository": "https://github.com/hraness/hra"\n}\n',
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "migration-side"]);
+    await writeFile(join(repositoryRoot, "side.txt"), "side\n");
+    await runSetupGit(repositoryRoot, ["add", "side.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "side archive work"]);
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await writeFile(join(repositoryRoot, "main.txt"), "main\n");
+    await runSetupGit(repositoryRoot, ["add", "main.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "main archive work"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "--no-commit",
+      "migration-side",
+    ]);
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      '{\n  "repository": "https://github.com/hraness/hra-v0"\n}\n',
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "merge migration"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectArchiveReleaseSurface(repository, publicationCommit),
+      "may not invent archive A without an archive A parent",
+    );
+  });
+
+  test("rejects a rewrite and restore hidden on a merged side branch", async () => {
+    const repositoryRoot = await createRepository();
+    const historicalContract =
+      '{\n  "repository": "https://github.com/hraness/hra"\n}\n';
+    const archiveContract =
+      '{\n  "repository": "https://github.com/hraness/hra-v0"\n}\n';
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      historicalContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "rewrite-side"]);
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      '{\n  "repository": "https://github.com/attacker/hra"\n}\n',
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "rewrite contract"]);
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      historicalContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "restore contract"]);
+
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      archiveContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "migrate archive coordinate"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "rewrite-side",
+      "-m",
+      "merge restored side branch",
+    ]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectArchiveReleaseSurface(repository, publicationCommit),
+      "must preserve exact historical H or archive A release contract bytes",
+    );
+  });
+
+  test("rejects every archive A to historical H edge", async () => {
+    const repositoryRoot = await createRepository();
+    const historicalContract =
+      '{\n  "repository": "https://github.com/hraness/hra"\n}\n';
+    const archiveContract =
+      '{\n  "repository": "https://github.com/hraness/hra-v0"\n}\n';
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      historicalContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    for (const [contract, message] of [
+      [archiveContract, "migrate archive coordinate"],
+      [historicalContract, "downgrade archive coordinate"],
+      [archiveContract, "restore archive coordinate"],
+    ] as const) {
+      await writeFile(
+        join(repositoryRoot, "release-download.json"),
+        contract,
+      );
+      await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+      await runSetupGit(repositoryRoot, ["commit", "-m", message]);
+    }
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectArchiveReleaseSurface(repository, publicationCommit),
+      "may not contain an archive A to historical H edge",
     );
   });
 });

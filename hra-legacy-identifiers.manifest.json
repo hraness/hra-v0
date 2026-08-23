@@ -2,7 +2,7 @@
   "entries": [
     {
       "category": "compatibility",
-      "matchingLinesSha256": "874256da6774d864ac0f8b81cf52030c3caeedcccf40a23a71a7fe9893af33f7",
+      "matchingLinesSha256": "859491b2204ff629f260b5c297b90d6d19e3a03f6c2f71d39382f387f8002525",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -1932,23 +1932,13 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "eaddfd8356ab4ae3b1ae51c46c5d4fe79c292e4eb4fcc23fc9e09f2bcc149fbb",
+      "matchingLinesSha256": "bee57dac2ce9986fb282e7567f0e2f2a3f21b588b7ffae3085d3a89010a1f4ed",
       "occurrences": {
-        "kitchen": 2,
+        "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 16
+        "oprte": 3
       },
       "path": "apps/web/README.md"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "0b8132f84ed0e97fec13a86b8ab66a1a4a5c71b7a627e9dc42f715936f040331",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 1
-      },
-      "path": "apps/web/app/download/page.tsx"
     },
     {
       "category": "compatibility",
@@ -1969,26 +1959,6 @@
         "oprte": 1
       },
       "path": "apps/web/app/hosted-mutation-attempt-journal.ts"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "86c8579862e7a2d5f7b0d53427135d13ae89cb150deafbf901065bcf84774340",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 1
-      },
-      "path": "apps/web/app/landing.test.ts"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "6be9dcea18b2f95a634602ed9c0c03f470d2480e1d78168cc89f78311e329790",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 1
-      },
-      "path": "apps/web/app/public-markdown.ts"
     },
     {
       "category": "compatibility",

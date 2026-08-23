@@ -8,11 +8,6 @@ import type { Metadata } from "next";
 
 import releaseDownload from "../../../release-download.json";
 
-const emptyArtifactSchema = z.object({
-  bytes: z.null(),
-  name: z.string().min(1),
-  sha256: z.null(),
-}).strict();
 const publishedArtifactSchema = z.object({
   bytes: z.number().int().positive().safe(),
   name: z.string().min(1),
@@ -26,37 +21,21 @@ const commonReleaseShape = {
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/u),
 } as const;
 const releaseDownloadSchema = z.object({
-  release: z.discriminatedUnion("availability", [
-    z.object({
-      ...commonReleaseShape,
-      artifacts: z.object({
-        checksum: emptyArtifactSchema,
-        dmg: emptyArtifactSchema,
-        manifest: emptyArtifactSchema,
-      }).strict(),
-      availability: z.literal("candidate"),
-      source: z.object({
-        commit: z.null(),
-        runtimeTreeSha256: z.null(),
-        tagObject: z.null(),
-      }).strict(),
+  release: z.object({
+    ...commonReleaseShape,
+    artifacts: z.object({
+      checksum: publishedArtifactSchema,
+      dmg: publishedArtifactSchema,
+      manifest: publishedArtifactSchema,
     }).strict(),
-    z.object({
-      ...commonReleaseShape,
-      artifacts: z.object({
-        checksum: publishedArtifactSchema,
-        dmg: publishedArtifactSchema,
-        manifest: publishedArtifactSchema,
-      }).strict(),
-      availability: z.literal("published"),
-      source: z.object({
-        commit: z.string().regex(/^[0-9a-f]{40}$/u),
-        runtimeTreeSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-        tagObject: z.string().regex(/^[0-9a-f]{40}$/u),
-      }).strict(),
+    availability: z.literal("published"),
+    source: z.object({
+      commit: z.string().regex(/^[0-9a-f]{40}$/u),
+      runtimeTreeSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      tagObject: z.string().regex(/^[0-9a-f]{40}$/u),
     }).strict(),
-  ]),
-  repository: z.literal("https://github.com/hraness/hra"),
+  }).strict(),
+  repository: z.literal("https://github.com/hraness/hra-v0"),
   schemaVersion: z.literal(1),
 }).strict().superRefine((contract, context) => {
   const { release } = contract;
@@ -79,6 +58,8 @@ export const HRA_BRAND_EMOJI = "🐦‍🔥" as const;
 export const HRA_BRAND_ICON_PATH = "/icon.png" as const;
 export const HRA_V0_REPOSITORY =
   "https://github.com/hraness/hra-v0" as const;
+export const HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY =
+  "https://github.com/hraness/hra" as const;
 export const CURRENT_HRA_REPOSITORY =
   "https://github.com/hraness/hra" as const;
 export const CURRENT_HRA_SITE = "https://hra.sh" as const;
@@ -91,21 +72,18 @@ export const HRA_RELEASE = Object.freeze({
   checksumAsset: releaseContract.release.artifacts.checksum.name,
   manifestAsset: releaseContract.release.artifacts.manifest.name,
   minimumMacOS: releaseContract.release.minimumMacOS,
-  historicalPublicationRepository: releaseContract.repository,
-  repository: HRA_V0_REPOSITORY,
+  historicalPublicationRepository: HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY,
+  repository: releaseContract.repository,
   source: releaseContract.release.source,
   tag: releaseContract.release.tag,
   version: releaseContract.release.version,
 });
-export const HRA_RELEASE_URL = HRA_RELEASE.availability === "published"
-  ? `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.asset}`
-  : null;
-export const HRA_RELEASE_CHECKSUM_URL = HRA_RELEASE_URL === null
-  ? null
-  : `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.checksumAsset}`;
-export const HRA_RELEASE_MANIFEST_URL = HRA_RELEASE_URL === null
-  ? null
-  : `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.manifestAsset}`;
+export const HRA_RELEASE_URL =
+  `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.asset}`;
+export const HRA_RELEASE_CHECKSUM_URL =
+  `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.checksumAsset}`;
+export const HRA_RELEASE_MANIFEST_URL =
+  `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.manifestAsset}`;
 
 export const hraSearchSite = {
   description:

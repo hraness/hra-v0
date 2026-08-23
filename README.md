@@ -82,10 +82,11 @@ and data boundary.
 ## Install the prerelease
 
 The native app targets Apple Silicon and macOS 13 or newer. The
-[download page](https://hra-weld.vercel.app/download) exposes no draft asset while the
-checked release contract is a candidate. After publication, download the DMG
-and checksum from that page, verify the SHA-256, and follow the
-unknown-developer instructions. You can build the candidate source locally.
+[download page](https://hra-weld.vercel.app/download) exposes the immutable
+v0.1.14 build 15 prerelease from the HRA v0 archive. Download the DMG and
+checksum there, verify the SHA-256, and follow the unknown-developer
+instructions. The tagged candidate source and complete corresponding-source
+archives remain attached to that release.
 
 ## Develop HRA v0
 

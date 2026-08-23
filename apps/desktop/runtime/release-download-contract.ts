@@ -9,6 +9,7 @@ import { correspondingSourceSpecs } from "./corresponding-sources";
 import { macosPackage } from "./macos-package-config";
 import {
   HRA_CANONICAL_REPOSITORY,
+  HRA_HISTORICAL_PUBLICATION_REPOSITORY,
   HRA_V0_CURRENT_REPOSITORY,
   inspectArchiveReleaseSurface,
   inspectCanonicalArchiveRelease,
@@ -77,14 +78,13 @@ const publishedReleaseSchema = z.object({
     tagObject: objectIdSchema,
   }).strict(),
 }).strict();
-const releaseDownloadContractSchema = z.object({
-  release: z.discriminatedUnion("availability", [
-    candidateReleaseSchema,
-    publishedReleaseSchema,
-  ]),
-  repository: z.literal(HRA_CANONICAL_REPOSITORY),
-  schemaVersion: z.literal(1),
-}).strict().superRefine((contract, context) => {
+function refineReleaseDownloadContract(
+  contract: Readonly<{
+    release: z.infer<typeof candidateReleaseSchema>
+      | z.infer<typeof publishedReleaseSchema>;
+  }>,
+  context: z.RefinementCtx,
+): void {
   const { release } = contract;
   const dmg = `HRA-${release.version}-${release.build}-macos-arm64.dmg`;
   if (
@@ -99,9 +99,30 @@ const releaseDownloadContractSchema = z.object({
       message: "Release tag and artifact names must derive from version and build.",
     });
   }
-});
+}
+
+const releaseDownloadContractSchema = z.object({
+  release: publishedReleaseSchema,
+  repository: z.literal(HRA_CANONICAL_REPOSITORY),
+  schemaVersion: z.literal(1),
+}).strict().superRefine(refineReleaseDownloadContract);
+
+const historicalCandidateReleaseDownloadContractSchema = z.object({
+  release: candidateReleaseSchema,
+  repository: z.literal(HRA_HISTORICAL_PUBLICATION_REPOSITORY),
+  schemaVersion: z.literal(1),
+}).strict().superRefine(refineReleaseDownloadContract);
+
+const historicalPublishedReleaseDownloadContractSchema = z.object({
+  release: publishedReleaseSchema,
+  repository: z.literal(HRA_HISTORICAL_PUBLICATION_REPOSITORY),
+  schemaVersion: z.literal(1),
+}).strict().superRefine(refineReleaseDownloadContract);
 
 export type ReleaseDownloadContract = z.infer<typeof releaseDownloadContractSchema>;
+export type HistoricalCandidateReleaseDownloadContract = z.infer<
+  typeof historicalCandidateReleaseDownloadContractSchema
+>;
 export type PublishedReleaseDownloadContract = Readonly<{
   release: z.infer<typeof publishedReleaseSchema>;
   repository: typeof HRA_CANONICAL_REPOSITORY;
@@ -138,16 +159,12 @@ export interface PublishedReleaseSourceEvidence {
   readonly tag: ReleaseTagEvidence;
 }
 
-export type ReleaseSourceGateEvidence =
-  | Readonly<{
-      availability: "candidate";
-      contract: ReleaseDownloadContract;
-      status: "valid_candidate_contract";
-    }>
-  | Readonly<PublishedReleaseSourceEvidence & {
-      availability: "published";
-      status: "verified_published_source";
-    }>;
+export type ReleaseSourceGateEvidence = Readonly<
+  PublishedReleaseSourceEvidence & {
+    availability: "published";
+    status: "verified_published_source";
+  }
+>;
 
 export const releasePublicationCommitAllowlistEnvironmentVariable =
   "HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST" as const;
@@ -156,35 +173,28 @@ export const releaseSurfaceCommitAllowlistEnvironmentVariable =
 export const HRA_V0_RELEASE_PUBLICATION_COMMIT =
   "6221f79b745f154882080936b961ff431569f33e" as const;
 
-export type VercelReleaseSourceGateEvidence =
-  | Extract<ReleaseSourceGateEvidence, { availability: "candidate" }>
-  | Readonly<{
-      availability: "published";
-      contract: PublishedReleaseDownloadContract;
-      publicationCommit: string;
-      status: "verified_vercel_archive_surface_binding";
-      surfaceCommit: string;
-    }>;
+export type VercelReleaseSourceGateEvidence = Readonly<{
+  availability: "published";
+  contract: PublishedReleaseDownloadContract;
+  publicationCommit: string;
+  repositoryMigrationCommit: string;
+  status: "verified_vercel_archive_surface_binding";
+  surfaceCommit: string;
+}>;
 
 export type ReleaseHttpFetcher = (
   url: string,
   init: RequestInit,
 ) => Promise<Response>;
 
-export type RemoteReleaseGateEvidence =
-  | Readonly<{
-      availability: "candidate";
-      contract: ReleaseDownloadContract;
-      status: "candidate_has_no_remote_release";
-    }>
-  | Readonly<{
-      assets: LocalReleaseCandidateEvidence["artifacts"];
-      availability: "published";
-      contract: PublishedReleaseDownloadContract;
-      immutable: true;
-      releaseId: number;
-      status: "verified_immutable_remote_release";
-    }>;
+export type RemoteReleaseGateEvidence = Readonly<{
+  assets: LocalReleaseCandidateEvidence["artifacts"];
+  availability: "published";
+  contract: PublishedReleaseDownloadContract;
+  immutable: true;
+  releaseId: number;
+  status: "verified_immutable_remote_release";
+}>;
 
 type ReleaseSourceStateOptions = Readonly<{
   environment?: Readonly<Record<string, string | undefined>>;
@@ -218,6 +228,12 @@ export function parseReleaseDownloadContract(value: unknown): ReleaseDownloadCon
   return releaseDownloadContractSchema.parse(value);
 }
 
+export function parseHistoricalReleaseCandidateContract(
+  value: unknown,
+): HistoricalCandidateReleaseDownloadContract {
+  return historicalCandidateReleaseDownloadContractSchema.parse(value);
+}
+
 export async function readReleaseDownloadContract(): Promise<ReleaseDownloadContract> {
   return parseReleaseDownloadContract(
     JSON.parse(await readFile(releaseDownloadPath, "utf8")) as unknown,
@@ -246,20 +262,19 @@ export async function verifyReleaseDownloadContract(): Promise<ReleaseDownloadCo
 }
 
 /**
- * Candidate source only needs the checked release contract. A published
- * contract additionally has authority to expose downloads, so it must be the
- * clean, exact C-to-P publication checkout and carry the direct annotated tag.
- * This gate deliberately does not read or require packaged artifacts.
+ * The maintained archive contract is published-only. It has authority to
+ * expose downloads only after proving immutable C-to-P publication, the direct
+ * annotated tag, and the exact repository-coordinate migration on a clean
+ * descendant surface. This gate does not read or require packaged artifacts.
  */
 export async function verifyReleaseSourceGate(): Promise<ReleaseSourceGateEvidence> {
   return await verifyReleaseSourceState(await verifyReleaseDownloadContract());
 }
 
 /**
- * Read back the immutable GitHub prerelease before a publication commit is
- * authorized for Vercel. GitHub's immutable asset digest binds the large DMG;
- * the small checksum and manifest are additionally downloaded and parsed.
- * Candidate contracts perform no network requests.
+ * Read back the immutable GitHub prerelease from the maintained archive.
+ * GitHub's immutable asset digest binds the large DMG; the small checksum and
+ * manifest are additionally downloaded and parsed.
  */
 export async function verifyRemoteReleaseGate(
   fetcher: ReleaseHttpFetcher = defaultReleaseFetcher,
@@ -274,13 +289,6 @@ export async function verifyRemoteReleaseState(
   contract: ReleaseDownloadContract,
   fetcher: ReleaseHttpFetcher,
 ): Promise<RemoteReleaseGateEvidence> {
-  if (contract.release.availability === "candidate") {
-    return Object.freeze({
-      availability: "candidate",
-      contract,
-      status: "candidate_has_no_remote_release",
-    });
-  }
   const publishedContract = asPublishedContract(contract);
   const metadataUrl =
     `https://api.github.com/repos/hraness/hra-v0/releases/tags/${publishedContract.release.tag}`;
@@ -397,10 +405,10 @@ export async function verifyRemoteReleaseState(
 }
 
 /**
- * Vercel Git builds are intentionally shallow, so the provider consumes an
- * exact publication-commit allowlist only after CI has verified the full
- * C-to-P transition. The Vercel-owned Git identity binds that immutable commit
- * to the canonical repository without trusting a shallow local .git directory.
+ * Vercel Git builds are intentionally shallow. The provider binds immutable P
+ * and one allowlisted archive surface, then fetches canonical history to prove
+ * C-to-P, the tag, and the one-field repository migration without trusting the
+ * ambient shallow .git directory.
  */
 export async function verifyVercelReleaseSourceGate(
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -422,6 +430,7 @@ export async function verifyVercelReleaseSourceState(
   }>) => Promise<CanonicalArchiveReleaseEvidence> =
     inspectCanonicalArchiveRelease,
 ): Promise<VercelReleaseSourceGateEvidence> {
+  const publishedContract = asPublishedContract(contract);
   if (
     environment.VERCEL !== "1"
     || environment.VERCEL_GIT_PROVIDER !== "github"
@@ -451,13 +460,6 @@ export async function verifyVercelReleaseSourceState(
     environment.VERCEL_GIT_COMMIT_SHA,
     "Vercel source commit",
   );
-  if (contract.release.availability === "candidate") {
-    return Object.freeze({
-      availability: "candidate",
-      contract,
-      status: "valid_candidate_contract",
-    });
-  }
   const publicationCommit = requireObjectId(
     environment[releasePublicationCommitAllowlistEnvironmentVariable],
     "Trusted Vercel publication commit allowlist",
@@ -471,7 +473,6 @@ export async function verifyVercelReleaseSourceState(
       "The Vercel Git commit is not an allowlisted HRA v0 archive surface.",
     );
   }
-  const publishedContract = asPublishedContract(contract);
   const canonical = await inspectCanonical({
     candidateCommit: publishedContract.release.source.commit,
     publicationCommit,
@@ -499,10 +500,15 @@ export async function verifyVercelReleaseSourceState(
       "The canonical HRA v0 archive surface differs from provider source.",
     );
   }
+  const repositoryMigrationCommit = requireObjectId(
+    canonical.surface.repositoryMigrationCommit,
+    "Canonical archive repository migration commit",
+  );
   return Object.freeze({
     availability: "published",
     contract: publishedContract,
     publicationCommit,
+    repositoryMigrationCommit,
     status: "verified_vercel_archive_surface_binding",
     surfaceCommit,
   });
@@ -517,13 +523,6 @@ export async function verifyReleaseSourceState(
   contract: ReleaseDownloadContract,
   options: ReleaseSourceStateOptions = {},
 ): Promise<ReleaseSourceGateEvidence> {
-  if (contract.release.availability === "candidate") {
-    return Object.freeze({
-      availability: "candidate",
-      contract,
-      status: "valid_candidate_contract",
-    });
-  }
   const publishedContract = asPublishedContract(contract);
   const repository = await inspectReleaseSourceRepository(options);
   const published = await verifyArchivedReleaseSourceEvidence(
@@ -541,31 +540,12 @@ export async function verifyReleaseSourceState(
 export async function verifyLocalReleaseCandidate(
   releaseDirectoryValue: string,
 ): Promise<LocalReleaseCandidateEvidence> {
-  const releaseDirectory = await requireCanonicalReleaseDirectory(
+  await requireCanonicalReleaseDirectory(
     releaseDirectoryValue,
   );
-  const contract = await verifyReleaseDownloadContract();
-  if (contract.release.availability !== "candidate") {
-    throw new Error("Local candidate verification requires a candidate download contract.");
-  }
-  const repository = await inspectReleaseSourceRepository();
-  const evidence = await inspectReleaseArtifactSet(releaseDirectory, contract);
-  if (evidence.commit !== repository.commit) {
-    throw new Error("The release manifest commit differs from the clean source commit.");
-  }
-  const tag = await inspectReleaseTag(repository, contract.release.tag);
-  if (tag !== null && tag.commit !== repository.commit) {
-    throw new Error("The release tag already points to another commit.");
-  }
-  return Object.freeze({
-    artifacts: evidence.artifacts,
-    commit: repository.commit,
-    releaseDirectory,
-    repository: HRA_CANONICAL_REPOSITORY,
-    runtimeTreeSha256: evidence.runtimeTreeSha256,
-    status: "verified_local_candidate",
-    tag: tag ?? "absent",
-  });
+  throw new Error(
+    "The maintained HRA v0 archive has no candidate release state.",
+  );
 }
 
 export async function requirePublishedReleaseSource(): Promise<
@@ -629,23 +609,25 @@ function verifyPublicationContractTransition(
   contract: PublishedReleaseDownloadContract,
   publication: ReleasePublicationEvidence,
 ): void {
-  const published = parseContractText(
+  const published = parseHistoricalPublishedContractText(
     publication.publicationContract,
     "The publication release contract is not JSON.",
   );
-  if (!isDeepStrictEqual(published, contract)) {
+  const expectedArchiveContract: PublishedReleaseDownloadContract = {
+    release: published.release,
+    repository: HRA_CANONICAL_REPOSITORY,
+    schemaVersion: published.schemaVersion,
+  };
+  if (!isDeepStrictEqual(expectedArchiveContract, contract)) {
     throw new Error(
-      "The canonical publication contract differs from the provider source.",
+      "The archive contract is not the exact repository-coordinate migration from publication P.",
     );
   }
-  const candidate = parseContractText(
+  const candidate = parseHistoricalCandidateContractText(
     publication.candidateContract,
     "The tagged candidate release contract is not JSON.",
   );
-  if (candidate.release.availability !== "candidate") {
-    throw new Error("The tagged source must contain the candidate release contract.");
-  }
-  const expectedCandidate: ReleaseDownloadContract = {
+  const expectedCandidate: HistoricalCandidateReleaseDownloadContract = {
     release: {
       architecture: contract.release.architecture,
       artifacts: {
@@ -676,8 +658,8 @@ function verifyPublicationContractTransition(
       tag: contract.release.tag,
       version: contract.release.version,
     },
-    repository: contract.repository,
-    schemaVersion: contract.schemaVersion,
+    repository: HRA_HISTORICAL_PUBLICATION_REPOSITORY,
+    schemaVersion: published.schemaVersion,
   };
   if (!isDeepStrictEqual(candidate, expectedCandidate)) {
     throw new Error(
@@ -686,17 +668,30 @@ function verifyPublicationContractTransition(
   }
 }
 
-function parseContractText(
+function parseHistoricalCandidateContractText(
   value: string,
   invalidJsonMessage: string,
-): ReleaseDownloadContract {
+): HistoricalCandidateReleaseDownloadContract {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value) as unknown;
   } catch {
     throw new Error(invalidJsonMessage);
   }
-  return parseReleaseDownloadContract(parsed);
+  return parseHistoricalReleaseCandidateContract(parsed);
+}
+
+function parseHistoricalPublishedContractText(
+  value: string,
+  invalidJsonMessage: string,
+): z.infer<typeof historicalPublishedReleaseDownloadContractSchema> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error(invalidJsonMessage);
+  }
+  return historicalPublishedReleaseDownloadContractSchema.parse(parsed);
 }
 
 export async function verifyPublishedReleaseCandidate(
@@ -743,19 +738,22 @@ export async function verifyPublishedReleaseArtifacts(
 }
 
 async function requirePublishedContract(): Promise<PublishedReleaseDownloadContract> {
-  return asPublishedContract(await verifyReleaseDownloadContract());
+  return await verifyReleaseDownloadContract();
 }
 
 function asPublishedContract(
-  contract: ReleaseDownloadContract,
+  contract: unknown,
 ): PublishedReleaseDownloadContract {
-  if (contract.release.availability !== "published") {
-    throw new Error("The HRA release-download contract is not published.");
+  const parsed = releaseDownloadContractSchema.safeParse(contract);
+  if (!parsed.success) {
+    throw new Error(
+      "The maintained HRA v0 release-download contract must be published.",
+    );
   }
   return Object.freeze({
-    release: contract.release,
-    repository: contract.repository,
-    schemaVersion: contract.schemaVersion,
+    release: parsed.data.release,
+    repository: parsed.data.repository,
+    schemaVersion: parsed.data.schemaVersion,
   });
 }
 
