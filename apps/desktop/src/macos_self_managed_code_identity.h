@@ -11,6 +11,7 @@
 #define HRA_MACOS_SHA256_LENGTH 32
 
 #define HRA_MACOS_CODE_DIRECTORY_RUNTIME 0x00010000u
+#define HRA_MACOS_CODE_DIRECTORY_ADHOC 0x00000002u
 #define HRA_MACOS_CODE_DIRECTORY_HASH_SHA1 1u
 #define HRA_MACOS_CODE_DIRECTORY_HASH_SHA256 2u
 #define HRA_MACOS_CODE_DIRECTORY_HASH_SHA256_TRUNCATED 3u
@@ -102,6 +103,23 @@ bool hra_macos_verify_self_managed_code_identity(
 /// identity and stable filesystem identity to equal a previous sample.
 bool hra_macos_reverify_self_managed_code_identity(
     const HRAMacOSSelfManagedCodeExpectation *expectation,
+    const HRAMacOSSelfManagedCodeIdentity *expected_identity);
+
+/// Verifies an ad-hoc signed executable using the caller's already-opened
+/// no-follow descriptor. CodeDirectory page and special-slot hashes, the
+/// empty ad-hoc CMS wrapper, the canonical pathname, and the descriptor vnode
+/// are one proof. This is the descriptor-to-Security.framework binding used by
+/// HRA's packaged ad-hoc parent/gateway authorization path.
+bool hra_macos_verify_adhoc_code_identity_at_descriptor(
+    const HRAMacOSSelfManagedCodeExpectation *expectation,
+    int descriptor,
+    HRAMacOSSelfManagedCodeIdentity *out_identity);
+
+/// Repeats the complete ad-hoc descriptor proof and requires the identity to
+/// equal the earlier sample.
+bool hra_macos_reverify_adhoc_code_identity_at_descriptor(
+    const HRAMacOSSelfManagedCodeExpectation *expectation,
+    int descriptor,
     const HRAMacOSSelfManagedCodeIdentity *expected_identity);
 
 /// Strictly checks one relevant CodeResources files/files2 entry. The caller

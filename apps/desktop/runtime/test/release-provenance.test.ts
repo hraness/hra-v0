@@ -12,7 +12,9 @@ import { dirname, join } from "node:path";
 
 import {
   HRA_V0_CURRENT_REPOSITORY,
+  HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
+  inspectReleaseCandidateLineage,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
@@ -271,6 +273,108 @@ describe("hermetic release provenance", () => {
       tag: "v9.8.7",
     });
     expect(tag?.object).toMatch(/^[0-9a-f]{40}$/u);
+  });
+
+  test("binds C15 to exact Q14 as its sole direct parent", async () => {
+    expect(HRA_V0_Q14_SURFACE_COMMIT).toBe(
+      "ceb647f7a4a68546fc68ce5e70e770b73c8863eb",
+    );
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    expect(await inspectReleaseCandidateLineage(repository, {
+      expectedParentCommit: q14Commit,
+    })).toEqual({
+      candidateCommit: repository.commit,
+      parentCommit: q14Commit,
+      status: "exact_q14_candidate_child",
+    });
+  });
+
+  test("rejects a C15 candidate with the wrong direct parent", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedParentCommit: "a".repeat(40),
+      }),
+      "exact Q14 as its only direct parent",
+    );
+  });
+
+  test("rejects a merge commit as C15", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await runSetupGit(repositoryRoot, ["switch", "-c", "candidate-side"]);
+    await writeFile(join(repositoryRoot, "candidate.txt"), "side\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate side"]);
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "candidate-side",
+      "-m",
+      "merge candidate C15",
+    ]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedParentCommit: q14Commit,
+      }),
+      "exact Q14 as its only direct parent",
+    );
+  });
+
+  test("rejects a multi-commit Q14-to-C15 range", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    for (const [path, message] of [
+      ["intermediate.txt", "intermediate"],
+      ["candidate.txt", "candidate C15"],
+    ] as const) {
+      await writeFile(join(repositoryRoot, path), `${message}\n`);
+      await runSetupGit(repositoryRoot, ["add", path]);
+      await runSetupGit(repositoryRoot, ["commit", "-m", message]);
+    }
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedParentCommit: q14Commit,
+      }),
+      "exact Q14 as its only direct parent",
+    );
   });
 
   test("rejects an annotated release tag that targets another tag object", async () => {

@@ -19,7 +19,22 @@ diff --git a/src/platform/macos/appkit_host.m b/src/platform/macos/appkit_host.m
 index caf9770..8efa673 100644
 --- a/src/platform/macos/appkit_host.m
 +++ b/src/platform/macos/appkit_host.m
-@@ -747,10 +747,12 @@ @interface NativeSdkAppKitHost : NSObject <WKNavigationDelegate>
+@@ -24,6 +24,14 @@
+ #include <stdlib.h>
+ #include <string.h>
+
++extern bool native_sdk_appkit_asset_bytes_are_authorized(
++    const char *root_path,
++    size_t root_path_length,
++    const char *relative_path,
++    size_t relative_path_length,
++    const uint8_t *bytes,
++    size_t byte_length) __attribute__((weak_import));
++
+ @class NativeSdkAppKitHost;
+
+ static const NSUInteger NativeSdkMaxChildWebViews = 16;
+@@ -747,10 +755,12 @@ @interface NativeSdkAppKitHost : NSObject <WKNavigationDelegate>
  /* app.zon description, the About panel credits line; empty when
   * undeclared. */
  @property(nonatomic, strong) NSString *aboutDescription;
@@ -35,7 +50,7 @@ index caf9770..8efa673 100644
  /* The decoded manifest icon (nil until the async decode lands, or when
   * the file is missing). The About panel needs it passed explicitly:
   * unbundled dev binaries have no bundle icon for the standard panel to
-@@ -777,7 +779,7 @@ @interface NativeSdkAppKitHost : NSObject <WKNavigationDelegate>
+@@ -777,7 +787,7 @@ @interface NativeSdkAppKitHost : NSObject <WKNavigationDelegate>
  @property(nonatomic, strong) NSArray<NSString *> *allowedNavigationOrigins;
  @property(nonatomic, strong) NSArray<NSString *> *allowedExternalURLs;
  @property(nonatomic, assign) NSInteger externalLinkAction;
@@ -44,7 +59,45 @@ index caf9770..8efa673 100644
  - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSString *)label x:(double)x y:(double)y width:(double)width height:(double)height restoreFrame:(BOOL)restoreFrame resizable:(BOOL)resizable titlebarStyle:(int)titlebarStyle showPolicy:(int)showPolicy makeMain:(BOOL)makeMain;
  - (void)showDeferredWindowIfPending:(uint64_t)windowId reason:(const char *)reason;
  - (void)applyWindowClearColor:(uint64_t)windowId red:(uint8_t)red green:(uint8_t)green blue:(uint8_t)blue alpha:(uint8_t)alpha;
-@@ -6379,7 +6381,7 @@ @implementation NativeSdkShortcut
+@@ -6343,11 +6353,13 @@ - (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)url
+         return;
+     }
+
+-    NSString *filePath = [self.rootPath stringByAppendingPathComponent:relativePath];
++    NSString *servedRelativePath = relativePath;
++    NSString *filePath = [self.rootPath stringByAppendingPathComponent:servedRelativePath];
+     BOOL isDirectory = NO;
+     if (![[NSFileManager defaultManager] fileExistsAtPath:filePath isDirectory:&isDirectory] || isDirectory) {
+         if (self.spaFallback) {
+-            filePath = [self.rootPath stringByAppendingPathComponent:self.entryPath];
++            servedRelativePath = self.entryPath;
++            filePath = [self.rootPath stringByAppendingPathComponent:servedRelativePath];
+         }
+     }
+
+@@ -6357,6 +6369,21 @@ - (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)url
+         [urlSchemeTask didFailWithError:error];
+         return;
+     }
++    const char *rootBytes = self.rootPath.fileSystemRepresentation;
++    const char *relativeBytes = servedRelativePath.UTF8String;
++    if (native_sdk_appkit_asset_bytes_are_authorized != NULL &&
++        (rootBytes == NULL || relativeBytes == NULL ||
++         !native_sdk_appkit_asset_bytes_are_authorized(
++             rootBytes,
++             strlen(rootBytes),
++             relativeBytes,
++             [servedRelativePath lengthOfBytesUsingEncoding:NSUTF8StringEncoding],
++             data.bytes,
++             data.length))) {
++        NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:nil];
++        [urlSchemeTask didFailWithError:error];
++        return;
++    }
+
+     NSURLResponse *response = [[NSURLResponse alloc] initWithURL:urlSchemeTask.request.URL
+                                                         MIMEType:NativeSdkMimeTypeForPath(filePath)
+@@ -6379,7 +6406,7 @@ @implementation NativeSdkShortcut
 
  @implementation NativeSdkAppKitHost
 
@@ -53,7 +106,7 @@ index caf9770..8efa673 100644
      self = [super init];
      if (!self) {
          return nil;
-@@ -6387,7 +6389,9 @@ - (instancetype)initWithAppName:(NSString *)appName displayName:(NSString *)disp
+@@ -6387,7 +6414,9 @@ - (instancetype)initWithAppName:(NSString *)appName displayName:(NSString *)disp
 
      NativeSdkLaunchLap("host_init");
      [NSApplication sharedApplication];
@@ -64,7 +117,7 @@ index caf9770..8efa673 100644
      NativeSdkLaunchLap("nsapp_ready");
      NativeSdkRegisterBundledFonts();
      NativeSdkLaunchLap("fonts_registered");
-@@ -6396,6 +6400,7 @@ - (instancetype)initWithAppName:(NSString *)appName displayName:(NSString *)disp
+@@ -6396,6 +6425,7 @@ - (instancetype)initWithAppName:(NSString *)appName displayName:(NSString *)disp
      self.appVersion = version ?: @"";
      self.aboutDescription = aboutDescription ?: @"";
      self.hasWebContent = hasWebContent;
@@ -72,7 +125,7 @@ index caf9770..8efa673 100644
      self.bundleIdentifier = bundleIdentifier.length > 0 ? bundleIdentifier : @"dev.native_sdk.app";
      self.iconPath = iconPath ?: @"";
      self.windowLabel = windowLabel.length > 0 ? windowLabel : @"main";
-@@ -6772,7 +6777,7 @@ - (WKWebView *)ensureMainWebViewForWindowId:(uint64_t)windowId {
+@@ -6772,7 +6802,7 @@ - (WKWebView *)ensureMainWebViewForWindowId:(uint64_t)windowId {
                                                       forMainFrameOnly:YES];
      [userContentController addUserScript:bridgeScript];
      configuration.userContentController = userContentController;
@@ -81,7 +134,7 @@ index caf9770..8efa673 100644
          [configuration.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
      }
      WKWebView *webView = [[NativeSdkWebView alloc] initWithFrame:container.bounds configuration:configuration];
-@@ -6783,7 +6788,7 @@ - (WKWebView *)ensureMainWebViewForWindowId:(uint64_t)windowId {
+@@ -6783,7 +6813,7 @@ - (WKWebView *)ensureMainWebViewForWindowId:(uint64_t)windowId {
      webView.layer.zPosition = 0;
      webView.layer.backgroundColor = NSColor.clearColor.CGColor;
      [webView setValue:@NO forKey:@"drawsBackground"];
@@ -90,7 +143,7 @@ index caf9770..8efa673 100644
          [webView setValue:@YES forKey:@"inspectable"];
      }
      webView.navigationDelegate = self;
-@@ -7453,7 +7458,7 @@ - (BOOL)createWebViewInWindow:(uint64_t)windowId label:(NSString *)label url:(NS
+@@ -7453,7 +7483,7 @@ - (BOOL)createWebViewInWindow:(uint64_t)windowId label:(NSString *)label url:(NS
          [controller addUserScript:[[WKUserScript alloc] initWithSource:NativeSdkAppKitBridgeScript() injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
          configuration.userContentController = controller;
      }
@@ -99,7 +152,7 @@ index caf9770..8efa673 100644
          [configuration.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
      }
 
-@@ -7467,7 +7472,7 @@ - (BOOL)createWebViewInWindow:(uint64_t)windowId label:(NSString *)label url:(NS
+@@ -7467,7 +7497,7 @@ - (BOOL)createWebViewInWindow:(uint64_t)windowId label:(NSString *)label url:(NS
          webview.layer.backgroundColor = NSColor.clearColor.CGColor;
          [webview setValue:@NO forKey:@"drawsBackground"];
      }
@@ -108,7 +161,7 @@ index caf9770..8efa673 100644
          [webview setValue:@YES forKey:@"inspectable"];
      }
      webview.navigationDelegate = self;
-@@ -8113,7 +8118,11 @@ - (void)buildMenuBar {
+@@ -8113,7 +8143,11 @@ - (void)buildMenuBar {
      [viewMenuItem setSubmenu:viewMenu];
      if (self.hasWebContent) {
          [viewMenu addItem:[self menuItem:@"Reload" action:@selector(reload:) key:@"r" modifiers:NSEventModifierFlagCommand]];
@@ -120,7 +173,7 @@ index caf9770..8efa673 100644
          [viewMenu addItem:[NSMenuItem separatorItem]];
      }
      [viewMenu addItem:[self menuItem:@"Enter Full Screen" action:@selector(toggleFullScreen:) key:@"f" modifiers:(NSEventModifierFlagCommand | NSEventModifierFlagControl)]];
-@@ -9621,6 +9630,7 @@ - (void)reload:(id)sender {
+@@ -9621,6 +9655,7 @@ - (void)reload:(id)sender {
 
  - (void)toggleWebInspector:(id)sender {
      (void)sender;
@@ -128,7 +181,7 @@ index caf9770..8efa673 100644
      WKWebView *webView = [self mainWebViewForWindow:NSApp.keyWindow];
      if (!webView) return;
      SEL selector = NSSelectorFromString(@"_showInspector");
-@@ -9756,7 +9766,7 @@ static BOOL NativeSdkPolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -9756,7 +9791,7 @@ static BOOL NativeSdkPolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      return NO;
  }
 
@@ -137,7 +190,7 @@ index caf9770..8efa673 100644
      @autoreleasepool {
          NSString *appNameString = [[NSString alloc] initWithBytes:app_name length:app_name_len encoding:NSUTF8StringEncoding] ?: @"native-sdk";
          NSString *displayNameString = [[NSString alloc] initWithBytes:display_name length:display_name_len encoding:NSUTF8StringEncoding] ?: @"";
-@@ -9766,7 +9776,7 @@ static BOOL NativeSdkPolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -9766,7 +9801,7 @@ static BOOL NativeSdkPolicyListMatches(NSArray<NSString *> *values, NSURL *url)
          NSString *bundleIdString = [[NSString alloc] initWithBytes:bundle_id length:bundle_id_len encoding:NSUTF8StringEncoding] ?: @"dev.native_sdk.app";
          NSString *iconPathString = [[NSString alloc] initWithBytes:icon_path length:icon_path_len encoding:NSUTF8StringEncoding] ?: @"";
          NSString *windowLabelString = [[NSString alloc] initWithBytes:window_label length:window_label_len encoding:NSUTF8StringEncoding] ?: @"main";

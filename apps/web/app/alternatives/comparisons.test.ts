@@ -32,18 +32,20 @@ describe("HRA comparison registry", () => {
 
   test("binds every HRA and alternative claim to current HTTPS sources", () => {
     const hraSourceIds = new Set<string>(hraComparisonSources.map(({ id }) => id));
-    const repositoryCitationVersion = "0.1.14";
+    const repositoryCitationVersion = HRA_RELEASE.availability === "published"
+      ? "0.1.15"
+      : "0.1.14";
     const versionedHraPrefix =
       `https://github.com/hraness/hra-v0/blob/v${repositoryCitationVersion}/` as const;
 
     expect(hraComparisonCitationVersion({
       availability: "candidate",
-      version: "0.1.14",
-    })).toBe("0.1.13");
+      version: "0.1.15",
+    })).toBe("0.1.14");
     expect(hraComparisonCitationVersion({
       availability: "published",
-      version: "0.1.14",
-    })).toBe("0.1.14");
+      version: "0.1.15",
+    })).toBe("0.1.15");
     expect(hraComparisonCitationVersion(HRA_RELEASE))
       .toBe(repositoryCitationVersion);
 

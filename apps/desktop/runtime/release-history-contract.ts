@@ -78,14 +78,60 @@ const releaseHistorySchema = z.object({
 
 export type ReleaseHistoryContract = z.infer<typeof releaseHistorySchema>;
 export type ReleaseHistoryFetcher = (url: string, init: RequestInit) => Promise<Response>;
-export type RemoteReleaseHistoryEvidence = Readonly<{
+export type FrozenRemoteReleaseHistoryEvidence = Readonly<{
   assetCount: 49;
   releaseCount: 7;
   repository: typeof repository;
-  status: "verified_exact_remote_release_history";
+  status: "verified_exact_candidate_remote_release_history";
   tagCount: 8;
   tagOnly: readonly ["v0.1.11"];
 }>;
+export type PublishedRemoteReleaseHistoryEvidence = Readonly<{
+  assetCount: 56;
+  releaseCount: 8;
+  repository: typeof repository;
+  status: "verified_exact_published_remote_release_history";
+  tagCount: 9;
+  tagOnly: readonly ["v0.1.11"];
+}>;
+export type RemoteReleaseHistoryEvidence =
+  | FrozenRemoteReleaseHistoryEvidence
+  | PublishedRemoteReleaseHistoryEvidence;
+
+export type CurrentRemoteReleaseHistoryEntry = Readonly<{
+  assets: readonly Readonly<{
+    bytes: number;
+    id: number;
+    name: string;
+    sha256: string;
+  }>[];
+  commit: string;
+  publishedAt: string;
+  releaseId: number;
+  tag: "v0.1.15";
+  tagObject: string;
+}>;
+
+const currentRemoteReleaseHistoryEntrySchema = z.object({
+  assets: z.array(assetSchema).length(7),
+  commit: objectIdSchema,
+  publishedAt: z.string().regex(/^2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/u),
+  releaseId: z.number().int().positive().safe(),
+  tag: z.literal("v0.1.15"),
+  tagObject: objectIdSchema,
+}).strict().superRefine((entry, context) => {
+  const names = entry.assets.map(({ name }) => name);
+  if (
+    new Set(names).size !== names.length
+    || new Set(entry.assets.map(({ id }) => id)).size !== entry.assets.length
+    || names.join("\0") !== names.toSorted().join("\0")
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "The current release must have one sorted, unique seven-asset inventory.",
+    });
+  }
+});
 
 export function parseReleaseHistoryContract(value: unknown): ReleaseHistoryContract {
   return releaseHistorySchema.parse(value);
@@ -97,14 +143,29 @@ export function readReleaseHistoryContract(): ReleaseHistoryContract {
 
 export async function verifyRemoteReleaseHistory(
   fetcher: ReleaseHistoryFetcher = fetch,
+  currentEntry?: CurrentRemoteReleaseHistoryEntry,
 ): Promise<RemoteReleaseHistoryEvidence> {
-  return await verifyRemoteReleaseHistoryState(readReleaseHistoryContract(), fetcher);
+  return await verifyRemoteReleaseHistoryState(
+    readReleaseHistoryContract(),
+    fetcher,
+    currentEntry,
+  );
 }
 
 export async function verifyRemoteReleaseHistoryState(
   contract: ReleaseHistoryContract,
   fetcher: ReleaseHistoryFetcher,
+  currentEntryValue?: CurrentRemoteReleaseHistoryEntry,
 ): Promise<RemoteReleaseHistoryEvidence> {
+  const currentEntry = currentEntryValue === undefined
+    ? undefined
+    : currentRemoteReleaseHistoryEntrySchema.parse(currentEntryValue);
+  if (currentEntry !== undefined && contract.tags.some(
+    ({ tag, tagObject }) =>
+      tag === currentEntry.tag || tagObject === currentEntry.tagObject,
+  )) {
+    throw new Error("The current release collides with the frozen release ledger.");
+  }
   const [releaseResponse, refsResponse] = await Promise.all([
     fetchJson(fetcher, `${apiRepository}/releases?per_page=100`, "GitHub release history", 8 * 1_024 * 1_024),
     fetchJson(fetcher, `${apiRepository}/git/matching-refs/tags/v0.1`, "GitHub release tags", 1_048_576),
@@ -114,13 +175,20 @@ export async function verifyRemoteReleaseHistoryState(
   }
   const remoteReleases = requireArray(releaseResponse.value, "GitHub release history", 100);
   const expectedPublished = contract.tags.filter((entry) => entry.release !== null);
-  if (remoteReleases.length !== expectedPublished.length) {
+  if (
+    remoteReleases.length
+      !== expectedPublished.length + (currentEntry === undefined ? 0 : 1)
+  ) {
     throw new Error("GitHub has a different exact HRA v0 release set.");
   }
   const releasesByTag = uniqueRecordsByString(remoteReleases, "tag_name", "GitHub release");
+  const expectedReleaseTags = [
+    ...expectedPublished.map(({ tag }) => tag),
+    ...(currentEntry === undefined ? [] : [currentEntry.tag]),
+  ];
   if (!isDeepStrictEqual(
     [...releasesByTag.keys()].toSorted(),
-    expectedPublished.map(({ tag }) => tag).toSorted(),
+    expectedReleaseTags.toSorted(),
   )) {
     throw new Error("GitHub has a different exact HRA v0 release tag set.");
   }
@@ -129,14 +197,37 @@ export async function verifyRemoteReleaseHistoryState(
     if (expectedRelease === null) throw new Error("Published release evidence is missing.");
     verifyReleaseMetadata(entry, expectedRelease, releasesByTag.get(entry.tag));
   }
+  if (currentEntry !== undefined) {
+    verifyCurrentReleaseMetadata(
+      currentEntry,
+      releasesByTag.get(currentEntry.tag),
+    );
+  }
 
   const remoteRefs = requireArray(refsResponse.value, "GitHub release tags", 64);
   const refsByName = uniqueRecordsByString(remoteRefs, "ref", "GitHub tag ref");
-  const expectedRefs = contract.tags.map(({ tag }) => `refs/tags/${tag}`).toSorted();
+  const expectedRefs = [
+    ...contract.tags.map(({ tag }) => `refs/tags/${tag}`),
+    ...(currentEntry === undefined ? [] : [`refs/tags/${currentEntry.tag}`]),
+  ].toSorted();
   if (!isDeepStrictEqual([...refsByName.keys()].toSorted(), expectedRefs)) {
     throw new Error("GitHub has a different exact HRA v0 tag-ref set.");
   }
-  await Promise.all(contract.tags.map(async (entry) => {
+  const expectedTags = [
+    ...contract.tags.map((entry) => ({
+      commit: entry.commit,
+      tag: entry.tag,
+      tagObject: entry.tagObject,
+    })),
+    ...(currentEntry === undefined
+      ? []
+      : [{
+          commit: currentEntry.commit,
+          tag: currentEntry.tag,
+          tagObject: currentEntry.tagObject,
+        }]),
+  ];
+  await Promise.all(expectedTags.map(async (entry) => {
     const ref = refsByName.get(`refs/tags/${entry.tag}`);
     const refObject = requireRecord(ref?.["object"], `GitHub tag ref ${entry.tag} object`);
     if (
@@ -165,14 +256,82 @@ export async function verifyRemoteReleaseHistoryState(
     }
   }));
 
-  return Object.freeze({
-    assetCount: 49,
-    releaseCount: 7,
-    repository,
-    status: "verified_exact_remote_release_history",
-    tagCount: 8,
-    tagOnly: Object.freeze(["v0.1.11"] as const),
-  });
+  return currentEntry === undefined
+    ? Object.freeze({
+        assetCount: 49,
+        releaseCount: 7,
+        repository,
+        status: "verified_exact_candidate_remote_release_history",
+        tagCount: 8,
+        tagOnly: Object.freeze(["v0.1.11"] as const),
+      })
+    : Object.freeze({
+        assetCount: 56,
+        releaseCount: 8,
+        repository,
+        status: "verified_exact_published_remote_release_history",
+        tagCount: 9,
+        tagOnly: Object.freeze(["v0.1.11"] as const),
+      });
+}
+
+function verifyCurrentReleaseMetadata(
+  expected: CurrentRemoteReleaseHistoryEntry,
+  raw: Record<string, unknown> | undefined,
+): void {
+  const release = requireRecord(raw, `GitHub release ${expected.tag}`);
+  if (
+    release["id"] !== expected.releaseId
+    || release["tag_name"] !== expected.tag
+    || release["draft"] !== false
+    || release["prerelease"] !== true
+    || release["immutable"] !== true
+    || release["published_at"] !== expected.publishedAt
+    || release["html_url"] !== `${repository}/releases/tag/${expected.tag}`
+  ) {
+    throw new Error(
+      `GitHub release ${expected.tag} differs from the verified current release.`,
+    );
+  }
+  const rawAssets = requireArray(
+    release["assets"],
+    `GitHub release ${expected.tag} assets`,
+    64,
+  );
+  if (rawAssets.length !== expected.assets.length) {
+    throw new Error(
+      `GitHub release ${expected.tag} has a different exact asset set.`,
+    );
+  }
+  const assetsByName = uniqueRecordsByString(
+    rawAssets,
+    "name",
+    `GitHub release ${expected.tag} asset`,
+  );
+  if (!isDeepStrictEqual(
+    [...assetsByName.keys()].toSorted(),
+    expected.assets.map(({ name }) => name).toSorted(),
+  )) {
+    throw new Error(
+      `GitHub release ${expected.tag} has a different exact asset-name set.`,
+    );
+  }
+  for (const asset of expected.assets) {
+    const remote = assetsByName.get(asset.name);
+    if (
+      remote?.["id"] !== asset.id
+      || remote["state"] !== "uploaded"
+      || remote["size"] !== asset.bytes
+      || remote["digest"] !== `sha256:${asset.sha256}`
+      || remote["browser_download_url"]
+        !== `${repository}/releases/download/${expected.tag}/${asset.name}`
+      || remote["url"] !== `${apiRepository}/releases/assets/${asset.id}`
+    ) {
+      throw new Error(
+        `GitHub current release asset ${expected.tag}/${asset.name} differs from verified evidence.`,
+      );
+    }
+  }
 }
 
 function verifyReleaseMetadata(

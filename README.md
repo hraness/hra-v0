@@ -3,9 +3,10 @@
 [![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)
 
 > [!IMPORTANT]
-> This repository preserves HRA v0 and its final v0.1.14 prerelease. The
-> current HRA is at [hra.sh](https://hra.sh) with source at
-> [github.com/hraness/hra](https://github.com/hraness/hra).
+> This repository preserves HRA v0. Its generation-0 release ledger ends at
+> v0.1.14, while the checked contract stages the final v0.1.15 compatibility
+> and recovery correction. The current HRA is at [hra.sh](https://hra.sh) with
+> source at [github.com/hraness/hra](https://github.com/hraness/hra).
 
 **The original metaharness for Codex.** HRA v0 turns the Codex accounts you already use into
 one durable system for planning work, delegating it, running it in parallel,
@@ -14,10 +15,15 @@ and bringing it back for review.
 [Download for macOS](https://hra-weld.vercel.app/download) · [Release history](https://hra-weld.vercel.app/releases) · [Website](https://hra-weld.vercel.app) ·
 [Historical comparisons](https://hra-weld.vercel.app/alternatives) · [Current HRA](https://hra.sh)
 
-> HRA v0.1.14 build 15 is the final archived prerelease for Apple Silicon Macs.
-> Its exact source commit, annotated tag, runtime tree, manifest, checksum, and
-> artifact hashes are published. The app uses an ad-hoc code seal; it is not
-> Developer ID signed or notarized.
+> The checked release contract names HRA 0.1.15 build 16 for Apple Silicon
+> Macs. While its availability is `candidate`, direct downloads remain disabled
+> until the exact source commit, annotated tag, runtime tree, manifest,
+> checksum, and artifact hashes are published. Once the contract is
+> `published`, the download page exposes only those verified assets. The outer
+> app, native host, and custody-authorizing helpers use HRA's self-managed
+> certificate chain. Other HRA-owned nested executables, including the exact
+> runtime/JIT gateway, retain pinned ad-hoc signatures. The package is not Developer ID
+> signed or notarized.
 
 ## Why HRA exists
 
@@ -81,17 +87,19 @@ and data boundary.
 
 ## Install the prerelease
 
-The native app targets Apple Silicon and macOS 13 or newer. The
-[download page](https://hra-weld.vercel.app/download) exposes the immutable
-v0.1.14 build 15 prerelease from the HRA v0 archive. Download the DMG and
-checksum there, verify the SHA-256, and follow the unknown-developer
-instructions. The tagged candidate source and complete corresponding-source
-archives remain attached to that release.
+The native app targets Apple Silicon and macOS 13 or newer. While the v0.1.15
+contract is a candidate, the [download page](https://hra-weld.vercel.app/download)
+continues to identify v0.1.14 build 15 as the latest ledgered prerelease and
+does not expose candidate assets. Once v0.1.15 is published, it exposes only
+the exact DMG, checksum, and manifest bound by the published contract. Verify
+the SHA-256 and follow the unknown-developer instructions.
 
-The [release history](https://hra-weld.vercel.app/releases) records every tag
-from v0.1.7 through v0.1.14, all seven immutable GitHub prereleases, and every
-asset's exact byte count, SHA-256 digest, and archive download link. v0.1.11 is
-preserved as a tag-only candidate.
+The generation-0 [release history](https://hra-weld.vercel.app/releases)
+records every tag from v0.1.7 through v0.1.14, all seven immutable GitHub
+prereleases, and every asset's exact byte count, SHA-256 digest, and archive
+download link. v0.1.11 is preserved as a tag-only candidate. A later reviewed
+archive-surface commit promotes the immutable v0.1.15 evidence into that
+ledger after publication.
 
 ## Develop HRA v0
 
@@ -125,12 +133,14 @@ On a supported Mac, also run:
 ```sh
 bun run --cwd apps/desktop test:macos
 bun run --cwd apps/desktop build:macos
-bun run --cwd apps/desktop package:macos:adhoc
+bun run --cwd apps/desktop package:macos:structural
 ```
 
-The package command creates the self-contained DMG and checksum under
-`apps/desktop/zig-out/release/macos/arm64`. The full release command and its
-corresponding-source artifacts are documented in the
+The structural package command uses an isolated ephemeral CMS identity and
+places its signed result under `apps/desktop/zig-out/structural`. It does not
+create a release DMG and cannot satisfy a production release gate. The
+production command, signing-custody requirements, and corresponding-source
+artifacts are documented in the
 [desktop guide](apps/desktop/README.md#verification).
 
 ## Project and license
