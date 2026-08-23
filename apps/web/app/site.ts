@@ -63,7 +63,7 @@ export const HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY =
 export const CURRENT_HRA_REPOSITORY =
   "https://github.com/hraness/hra" as const;
 export const CURRENT_HRA_SITE = "https://hra.sh" as const;
-const releaseContract = releaseDownloadSchema.parse(releaseDownload as unknown);
+const releaseContract = releaseDownloadSchema.parse(releaseDownload);
 export const HRA_RELEASE = Object.freeze({
   architecture: releaseContract.release.architecture,
   asset: releaseContract.release.artifacts.dmg.name,
@@ -74,6 +74,7 @@ export const HRA_RELEASE = Object.freeze({
   minimumMacOS: releaseContract.release.minimumMacOS,
   historicalPublicationRepository: HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY,
   repository: releaseContract.repository,
+  sha256: releaseContract.release.artifacts.dmg.sha256,
   source: releaseContract.release.source,
   tag: releaseContract.release.tag,
   version: releaseContract.release.version,

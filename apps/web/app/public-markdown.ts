@@ -13,6 +13,16 @@ import {
 } from "./alternatives/comparisons";
 import { isHraPublicComparisonPath } from "./alternatives/slugs";
 import {
+  HRA_DEPLOYMENT_IDENTITY_PATH,
+} from "./deployment-identity";
+import {
+  HRA_RELEASE_HISTORY,
+  hraCommitUrl,
+  hraReleaseAssetUrl,
+  hraReleaseTagUrl,
+  hraTagObjectUrl,
+} from "./release-history";
+import {
   CURRENT_HRA_REPOSITORY,
   CURRENT_HRA_SITE,
   HRA_RELEASE,
@@ -58,6 +68,7 @@ export function isPublicHtmlDocumentPath(pathname: string): boolean {
   if (canonicalPath === null) return false;
   return canonicalPath === "/"
     || canonicalPath === "/download"
+    || canonicalPath === "/releases"
     || isHraPublicComparisonPath(canonicalPath);
 }
 
@@ -95,6 +106,7 @@ export function createHraLlmsTxt(): string {
   const pages = [
     `- [HRA v0 archive](${absoluteUrl("/")}): Archive status, current-HRA handoff, and original product overview`,
     `- [HRA v0 download](${absoluteUrl("/download")}): Final Apple Silicon prerelease and source-build guidance`,
+    `- [HRA v0 release history](${absoluteUrl("/releases")}): Exact tags, commits, releases, assets, sizes, checksums, and download links`,
     `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
     ...hraComparisons.map((comparison) =>
       `- [HRA vs ${comparison.shortName}](${absoluteUrl(`/alternatives/${comparison.slug}`)}): ${comparison.description}`),
@@ -119,6 +131,7 @@ export function createHraLlmsTxt(): string {
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)}): This file`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")}): Indexable public HTML pages`,
     `- [Robots](${absoluteUrl("/robots.txt")}): Crawler allow and deny rules`,
+    `- [Deployment identity](${absoluteUrl(HRA_DEPLOYMENT_IDENTITY_PATH)}): Stable generation and publication marker for cutover checks`,
     "- [HRA v0 source](https://github.com/hraness/hra-v0): Archived product source, security architecture, and build checks",
     `- [Current HRA](${CURRENT_HRA_SITE}): Current product and documentation`,
     `- [Current HRA source](${CURRENT_HRA_REPOSITORY}): Current repository`,
@@ -193,6 +206,7 @@ export function createLandingMarkdown(): string {
     "## Public pages",
     "",
     `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Compare HRA](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
@@ -238,9 +252,55 @@ export function createDownloadMarkdown(): string {
     "## Public pages",
     "",
     `- [HRA v0 archive](${absoluteUrl("/")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Current HRA](${CURRENT_HRA_SITE})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
+    "",
+  ].join("\n");
+}
+
+export function createReleaseHistoryMarkdown(): string {
+  const entries = HRA_RELEASE_HISTORY.tags.toReversed().flatMap((entry) => {
+    const identity = [
+      `## ${entry.tag} (build ${entry.build})`,
+      "",
+      `- Tag object: annotated [\`${entry.tagObject}\`](${hraTagObjectUrl(entry)})`,
+      `- Peeled commit: [\`${entry.commit}\`](${hraCommitUrl(entry)})`,
+    ];
+    if (entry.release === null) {
+      return [
+        ...identity,
+        "- Publication: tag only; no GitHub release or downloadable assets",
+        "",
+        "v0.1.11 was a tagged candidate only. It is not prior installed authority.",
+        "",
+      ];
+    }
+    return [
+      ...identity,
+      `- Publication: [immutable GitHub prerelease #${entry.release.id}](${hraReleaseTagUrl(entry)})`,
+      `- Published: ${entry.release.publishedAt}`,
+      "",
+      "### Assets",
+      "",
+      ...entry.release.assets.map((asset) =>
+        `- [${asset.name}](${hraReleaseAssetUrl(entry, asset)}); ${asset.bytes} bytes; SHA-256 \`${asset.sha256}\``),
+      "",
+    ];
+  });
+  return [
+    "# HRA v0 release history",
+    "",
+    "This checked compatibility ledger records every HRA v0 tag from v0.1.7 through v0.1.14, every GitHub release that exists, and all attached assets. v0.1.14 is the final archived prerelease.",
+    "",
+    ...entries,
+    "## Public pages",
+    "",
+    `- [HRA v0 archive](${absoluteUrl("/")})`,
+    `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
+    `- [Deployment identity](${absoluteUrl(HRA_DEPLOYMENT_IDENTITY_PATH)})`,
     "",
   ].join("\n");
 }
@@ -274,6 +334,7 @@ export function createAlternativesIndexMarkdown(): string {
     "",
     `- [HRA home](${absoluteUrl("/")})`,
     `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
     "",
@@ -361,6 +422,7 @@ export function createNotFoundMarkdown(): string {
     "",
     `- [HRA home](${absoluteUrl("/")})`,
     `- [Download for macOS](${absoluteUrl("/download")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
     `- [Comparisons](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
@@ -373,6 +435,7 @@ export function publicDocumentMarkdown(pathname: string): string | null {
   if (canonicalPath === null) return null;
   if (canonicalPath === "/") return createLandingMarkdown();
   if (canonicalPath === "/download") return createDownloadMarkdown();
+  if (canonicalPath === "/releases") return createReleaseHistoryMarkdown();
   if (canonicalPath === "/alternatives") return createAlternativesIndexMarkdown();
   if (canonicalPath.startsWith("/alternatives/")) {
     const comparison = comparisonForSlug(canonicalPath.slice("/alternatives/".length));

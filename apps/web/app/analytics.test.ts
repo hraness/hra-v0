@@ -38,6 +38,8 @@ describe("HRA analytics route boundary", () => {
       "/api/suite-auth/session",
       "/design",
       "/download/private",
+      "/releases",
+      "/.well-known/hra.json",
       "//",
       "///",
       "/download//",

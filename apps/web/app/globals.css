@@ -2360,6 +2360,188 @@ code {
   text-underline-offset: 0.3rem;
 }
 
+.release-history-hero h1 {
+  max-width: 15ch;
+}
+
+.release-history-list {
+  display: grid;
+  gap: 0;
+  padding-block: clamp(3rem, 7vw, 6rem);
+}
+
+.release-history-entry {
+  padding: clamp(1.5rem, 4vw, 3rem) 0;
+  border-top: 1px solid var(--line);
+}
+
+.release-history-entry:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+.release-history-entry--final {
+  margin-inline: calc(-1 * clamp(1rem, 3vw, 2rem));
+  padding-inline: clamp(1rem, 3vw, 2rem);
+  border: 1px solid color-mix(in oklch, var(--accent-ink) 38%, var(--line));
+  background: color-mix(in oklch, var(--accent) 7%, var(--surface));
+}
+
+.release-history-entry > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.release-history-entry h2 {
+  margin: 0.45rem 0 0;
+  font-family: var(--editorial-serif);
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+
+.release-history-entry h2 span {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.release-history-state {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent-ink);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.release-history-state--tag {
+  color: var(--faint);
+}
+
+.release-history-git {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 1.6rem 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.release-history-git > div {
+  min-width: 0;
+  padding: 1rem 1rem 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.release-history-git dt {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.63rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.release-history-git dd {
+  margin: 0.5rem 0 0;
+  overflow-x: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.release-history-git a {
+  color: inherit;
+  text-underline-offset: 0.2rem;
+}
+
+.release-history-tag-only {
+  max-width: 52rem;
+  margin: 1.4rem 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.release-history-assets {
+  margin-top: 1.4rem;
+}
+
+.release-history-assets summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.release-history-asset-scroll {
+  margin-top: 1.1rem;
+  overflow-x: auto;
+}
+
+.release-history-assets table {
+  width: 100%;
+  min-width: 68rem;
+  border-collapse: collapse;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.release-history-assets th,
+.release-history-assets td {
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.release-history-assets thead th {
+  background: var(--surface-raised);
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.61rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.release-history-assets tbody th {
+  width: 32%;
+  font-weight: 650;
+}
+
+.release-history-assets tbody th a {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  text-underline-offset: 0.2rem;
+}
+
+.release-history-assets tbody td:nth-child(2) {
+  width: 19%;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.release-history-assets tbody td:nth-child(2) span {
+  display: block;
+  color: var(--faint);
+}
+
+.release-history-assets tbody td:last-child code {
+  font-size: 0.66rem;
+  overflow-wrap: anywhere;
+}
+
+.release-history-method p:last-child {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
 .global-notice {
   position: fixed;
   z-index: 50;
@@ -2447,8 +2629,14 @@ code {
 
   .alternatives-grid,
   .comparison-short-answer > div:last-child,
-  .alternatives-method {
+  .alternatives-method,
+  .release-history-git {
     grid-template-columns: 1fr;
+  }
+
+  .release-history-entry > header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .alternatives-grid article {

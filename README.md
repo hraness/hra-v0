@@ -11,7 +11,7 @@
 one durable system for planning work, delegating it, running it in parallel,
 and bringing it back for review.
 
-[Download for macOS](https://hra-weld.vercel.app/download) · [Website](https://hra-weld.vercel.app) ·
+[Download for macOS](https://hra-weld.vercel.app/download) · [Release history](https://hra-weld.vercel.app/releases) · [Website](https://hra-weld.vercel.app) ·
 [Historical comparisons](https://hra-weld.vercel.app/alternatives) · [Current HRA](https://hra.sh)
 
 > HRA v0.1.14 build 15 is the final archived prerelease for Apple Silicon Macs.
@@ -87,6 +87,11 @@ v0.1.14 build 15 prerelease from the HRA v0 archive. Download the DMG and
 checksum there, verify the SHA-256, and follow the unknown-developer
 instructions. The tagged candidate source and complete corresponding-source
 archives remain attached to that release.
+
+The [release history](https://hra-weld.vercel.app/releases) records every tag
+from v0.1.7 through v0.1.14, all seven immutable GitHub prereleases, and every
+asset's exact byte count, SHA-256 digest, and archive download link. v0.1.11 is
+preserved as a tag-only candidate.
 
 ## Develop HRA v0
 

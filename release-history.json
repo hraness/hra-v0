@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "generation": 0,
+  "publicationCommit": "6221f79b745f154882080936b961ff431569f33e",
+  "repository": "https://github.com/hraness/hra-v0",
+  "repositoryId": 1334876494,
+  "tags": [
+    {
+      "tag": "v0.1.7",
+      "version": "0.1.7",
+      "build": 8,
+      "tagObject": "b9789e1104b6943a36edcc7d61b28635141e3be0",
+      "commit": "4fa78a8c6141446be343be13df056381c3b5a224",
+      "objectKind": "annotated",
+      "release": {
+        "id": 371487477,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-17T02:46:24Z",
+        "assets": [
+          { "id": 517449745, "name": "HRA-0.1.7-8-macos-arm64.dmg", "bytes": 212183245, "sha256": "a57594b66aab1db5a7dc4aebd34fb50b345242a73c03488731077618278cd639" },
+          { "id": 517449738, "name": "HRA-0.1.7-8-macos-arm64.dmg.sha256", "bytes": 94, "sha256": "c077ef1ad797a3fa903f1329acf93c16bc0505508cc93d2ba671727988c69415" },
+          { "id": 517449744, "name": "HRA-0.1.7-8-release-manifest.json", "bytes": 28178, "sha256": "507c08beccd798c3685d467329a05265fcc2bd8a1fe562954f5319d939c8d56a" },
+          { "id": 517449746, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 517449737, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 517449752, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 517449757, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.8",
+      "version": "0.1.8",
+      "build": 9,
+      "tagObject": "0b3d3aa7e88e5537cc4b6f85b2dbf3969dd12c60",
+      "commit": "a3a142452921b9b9299d880f251d66dbe51c823b",
+      "objectKind": "annotated",
+      "release": {
+        "id": 371977411,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-17T22:06:30Z",
+        "assets": [
+          { "id": 518557736, "name": "HRA-0.1.8-9-macos-arm64.dmg", "bytes": 210477806, "sha256": "e87945b7571b83e4a042553655cd77b12bdaa12e08d6f368f95b48e59939eb5c" },
+          { "id": 518557732, "name": "HRA-0.1.8-9-macos-arm64.dmg.sha256", "bytes": 94, "sha256": "8287c9d18682a680b4903fcc21a658a6425027ddc3d0062bf005056ab1c0ab10" },
+          { "id": 518557734, "name": "HRA-0.1.8-9-release-manifest.json", "bytes": 28178, "sha256": "7304dce3a066c8b1a5664a8640ae5a13f723d4687e27d28d22c80fd0936fa520" },
+          { "id": 518557735, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 518557733, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 518557742, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 518557741, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.9",
+      "version": "0.1.9",
+      "build": 10,
+      "tagObject": "1b62548881f190272d0095f3900d683f43c34a69",
+      "commit": "531eb23e165852e2921282862c019770bb3eb914",
+      "objectKind": "annotated",
+      "release": {
+        "id": 372074589,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-18T03:40:01Z",
+        "assets": [
+          { "id": 518880485, "name": "HRA-0.1.9-10-macos-arm64.dmg", "bytes": 211501935, "sha256": "51ab5bb5138066a443a5c81db3657396bb4ec9dcced5462b82752f3e87caf45b" },
+          { "id": 518880488, "name": "HRA-0.1.9-10-macos-arm64.dmg.sha256", "bytes": 95, "sha256": "99314f9ba714e2a51ce1b4756497a420d4176a3e6545003e46c4000cdec7298b" },
+          { "id": 518880486, "name": "HRA-0.1.9-10-release-manifest.json", "bytes": 28181, "sha256": "d05c8bc088e6d9990dbbffcce336d525fe90288adc5d3666c77336f2924ad848" },
+          { "id": 518880496, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 518880500, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 518880547, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 518880539, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.10",
+      "version": "0.1.10",
+      "build": 11,
+      "tagObject": "9abeb033d6d965bf214b062c3c6266bc600ec76b",
+      "commit": "2457962b31b873b9b0521ca5606b9ad3746404de",
+      "objectKind": "annotated",
+      "release": {
+        "id": 372110643,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-18T05:45:51Z",
+        "assets": [
+          { "id": 518993763, "name": "HRA-0.1.10-11-macos-arm64.dmg", "bytes": 211494496, "sha256": "0c5fac9eaa8ef1e8d7b94a63448dc43e2d813f86e1445338d21bc9339b85a6de" },
+          { "id": 518993765, "name": "HRA-0.1.10-11-macos-arm64.dmg.sha256", "bytes": 96, "sha256": "a241f3276279f0301c5b641be5b1040538cd16944f707d8e55bc06459a286053" },
+          { "id": 518993761, "name": "HRA-0.1.10-11-release-manifest.json", "bytes": 28184, "sha256": "ef6f67762b8d28233a663b7362a6c4c78a28c272c086d203d194408a5af546fa" },
+          { "id": 518993767, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 518993766, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 518993775, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 518993779, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.11",
+      "version": "0.1.11",
+      "build": 12,
+      "tagObject": "e4c171e33e414d74a36791fc8577cbfbcef8e52e",
+      "commit": "5a2a9842cacc75fee42ab8e23ca8c215a643e21e",
+      "objectKind": "annotated",
+      "release": null
+    },
+    {
+      "tag": "v0.1.12",
+      "version": "0.1.12",
+      "build": 13,
+      "tagObject": "626be494d24733d12e53d09932cb5cc6218bc2fe",
+      "commit": "9ab991d08d1507fd73c9e7ef5fb4a37baee9c014",
+      "objectKind": "annotated",
+      "release": {
+        "id": 374867227,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-22T07:54:37Z",
+        "assets": [
+          { "id": 524806089, "name": "HRA-0.1.12-13-macos-arm64.dmg", "bytes": 213069200, "sha256": "246edd7ce995f7e5318aded0d35064041c0a062a98d4cd781ce746133f877dd4" },
+          { "id": 524806092, "name": "HRA-0.1.12-13-macos-arm64.dmg.sha256", "bytes": 96, "sha256": "1a7f4d353e8eaf7e2537b15828dc0b803528cd60ed396275e368b3610deae042" },
+          { "id": 524806088, "name": "HRA-0.1.12-13-release-manifest.json", "bytes": 31307, "sha256": "908f43a41ae2ff3def55518a9d06a35c57c6d14beb358502d3d41a8baabcdf1b" },
+          { "id": 524806084, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 524806090, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 524806100, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 524806101, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.13",
+      "version": "0.1.13",
+      "build": 14,
+      "tagObject": "44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3",
+      "commit": "9ba06a441c9b12b448cfe34784432592dbeccb19",
+      "objectKind": "annotated",
+      "release": {
+        "id": 374920071,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-22T12:10:37Z",
+        "assets": [
+          { "id": 525000691, "name": "HRA-0.1.13-14-macos-arm64.dmg", "bytes": 212565759, "sha256": "db25ea7d9a814e568bbf34e168a40d085fc1a5bfb7890648a1d001a328544772" },
+          { "id": 525000692, "name": "HRA-0.1.13-14-macos-arm64.dmg.sha256", "bytes": 96, "sha256": "e7a4a464d1fb8ab8007913b201b65956d1b24905c09645a7af123fd7b6f8fb3f" },
+          { "id": 525000694, "name": "HRA-0.1.13-14-release-manifest.json", "bytes": 31307, "sha256": "ba815e5245014cbbc44e2dcaf1ed6f32701257fb5c42f839e18ba43efe9e1fdf" },
+          { "id": 525000690, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 525000693, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 525000699, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 525000696, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.14",
+      "version": "0.1.14",
+      "build": 15,
+      "tagObject": "37ed37afb39cacfd6a51044cf7f3c1b873571aa3",
+      "commit": "7b39c459827b2acf45aa2d911c94fdb5d4f37860",
+      "objectKind": "annotated",
+      "release": {
+        "id": 374980441,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-22T16:46:26Z",
+        "assets": [
+          { "id": 525223753, "name": "HRA-0.1.14-15-macos-arm64.dmg", "bytes": 213613720, "sha256": "7ff49500de3d1fc768c17454ef7642c51f6662dfa5bf0e2ba183a85bb67fcd03" },
+          { "id": 525223750, "name": "HRA-0.1.14-15-macos-arm64.dmg.sha256", "bytes": 96, "sha256": "3ac713a656f9caf4c04c257909f1e6a4289638a45e34fee0c00bc5dbaba7dc51" },
+          { "id": 525223751, "name": "HRA-0.1.14-15-release-manifest.json", "bytes": 31307, "sha256": "21346db3de75d0f2edf289fc4088cda7e839e3bb9760e3b080b704cce220f0fb" },
+          { "id": 525223749, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 525223752, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 525223760, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 525223758, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import {
   createDownloadMarkdown,
   createLandingMarkdown,
   createNotFoundMarkdown,
+  createReleaseHistoryMarkdown,
   HRA_LLMS_TXT,
   HRA_LLMS_TXT_PATH,
   isAuthProtectedTree,
@@ -27,6 +28,8 @@ describe("HRA public markdown representations", () => {
     expect(HRA_LLMS_TXT).not.toContain("OAuth client");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/download");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/releases");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/hra.json");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/alternatives");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/llms.txt");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/sitemap.xml");
@@ -69,6 +72,14 @@ describe("HRA public markdown representations", () => {
     }
   });
 
+  test("serves the checked compatibility ledger as Markdown", () => {
+    const markdown = createReleaseHistoryMarkdown();
+    expect(markdown).toContain("# HRA v0 release history");
+    expect(markdown).toContain("v0.1.11 was a tagged candidate only");
+    expect(markdown).toContain(HRA_RELEASE.source.tagObject);
+    expect(publicDocumentMarkdown("/releases")).toBe(markdown);
+  });
+
   test("gives unmatched public paths a markdown 404 with recovery links", () => {
     const markdown = createNotFoundMarkdown();
     expect(markdown).toContain("# Not found");
@@ -82,6 +93,7 @@ describe("HRA public discovery decisions", () => {
   test("classifies only the existing public HTML documents", () => {
     expect(isPublicHtmlDocumentPath("/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/download/")).toBeTrue();
+    expect(isPublicHtmlDocumentPath("/releases")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/codex-app")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/missing")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/app")).toBeFalse();
@@ -144,6 +156,7 @@ describe("HRA public discovery decisions", () => {
       ["/robots.txt", "text/markdown"],
       ["/sitemap.xml", "text/markdown"],
       ["/llms.txt", "text/markdown"],
+      ["/.well-known/hra.json", "text/markdown"],
       ["/icon.png", "text/markdown"],
     ] as const) {
       expect(resolvePublicDiscovery({

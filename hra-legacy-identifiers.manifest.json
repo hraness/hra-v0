@@ -1932,7 +1932,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "bee57dac2ce9986fb282e7567f0e2f2a3f21b588b7ffae3085d3a89010a1f4ed",
+      "matchingLinesSha256": "9444393a7880aa0fdfa173050cd6736cfbd2bb8197207aced374753650ab9ca6",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,

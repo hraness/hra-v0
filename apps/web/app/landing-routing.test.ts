@@ -13,8 +13,10 @@ describe("HRA public and control-plane route boundary", () => {
       "/alternatives",
       "/alternatives/codex-app",
       "/download",
+      "/.well-known/hra.json",
       "/llms.txt",
       "/opengraph-image",
+      "/releases",
       "/robots.txt",
       "/sitemap.xml",
     ]) {
@@ -27,6 +29,8 @@ describe("HRA public and control-plane route boundary", () => {
       "/auth/sign-in",
       "/design",
       "/download/private",
+      "/.well-known/hra.json/private",
+      "/releases/private",
       "/alternative",
       "/alternatives/missing",
     ]) {
@@ -91,7 +95,7 @@ describe("HRA public and control-plane route boundary", () => {
   });
 
   test("returns auth and every internal control-plane link to app", async () => {
-    const [callback, signIn, signUp, shell, suiteAccount, download, notFound] = await Promise.all([
+    const [callback, signIn, signUp, shell, suiteAccount, download, notFound, releases] = await Promise.all([
       source("./auth/callback/route.ts"),
       source("./auth/sign-in/route.ts"),
       source("./auth/sign-up/route.ts"),
@@ -99,6 +103,7 @@ describe("HRA public and control-plane route boundary", () => {
       source("./suite-account-control.tsx"),
       source("./download/page.tsx"),
       source("./not-found.tsx"),
+      source("./releases/page.tsx"),
     ]);
 
     expect(callback).toContain('returnPathname: "/app"');
@@ -110,6 +115,7 @@ describe("HRA public and control-plane route boundary", () => {
     expect(shell).toContain('signOut({ returnTo: "/" })');
     expect(suiteAccount).toContain('href="/api/suite-auth/start?return_to=/app"');
     expect(download).toContain('className="download-control-plane-link" href={CURRENT_HRA_SITE}');
+    expect(releases).toContain("HRA_RELEASE_HISTORY.tags.toReversed()");
     expect(notFound).toContain('href="/app" variant="primary">Open control plane');
   });
 });

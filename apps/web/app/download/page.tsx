@@ -50,6 +50,9 @@ export default function DownloadPage() {
             <strong>HRA v0</strong>
           </Link>
           <div className="download-header__actions">
+            <Link className="download-control-plane-link" href="/releases">
+              Release history
+            </Link>
             <a className="download-control-plane-link" href={CURRENT_HRA_SITE}>
               Open current HRA
             </a>
@@ -184,6 +187,7 @@ export default function DownloadPage() {
 
         <footer className="download-footer">
           <span>HRA v0 archive</span>
+          <Link href="/releases">Release history</Link>
           <a href="https://github.com/hraness/hra-v0">github.com/hraness/hra-v0</a>
         </footer>
       </div>

@@ -105,6 +105,14 @@ fallback. Connect it to `hraness/hra-v0`. Keep automatic Vercel system
 variables enabled because the source gate requires Vercel's own target, Git
 provider, repository, branch, and full commit SHA evidence.
 
+The public `/releases` page is generated from the checked root
+`release-history.json` ledger. The credential-free remote gate verifies its
+eight annotated tags, seven immutable releases, 49 assets, and v0.1.11
+tag-only state against GitHub after the repository rename. The public
+`/.well-known/hra.json` marker binds archive generation 0 to the checked
+numeric GitHub repository ID and final v0.1.14 publication identity for domain
+cutover and rollback checks.
+
 Keep the public `NEXT_PUBLIC_CONVEX_URL` and
 `NEXT_PUBLIC_CONVEX_SITE_URL` records scoped to Production and Preview with the
 exact `benevolent-akita-439` URLs. Keep the Convex deploy key,

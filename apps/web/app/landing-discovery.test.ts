@@ -10,6 +10,7 @@ import { generateMetadata as comparisonMetadata } from "./alternatives/[slug]/pa
 import { metadata as alternativesMetadata } from "./alternatives/page";
 import { hraComparisons } from "./alternatives/comparisons";
 import { metadata as downloadMetadata } from "./download/page";
+import { metadata as releaseHistoryMetadata } from "./releases/page";
 import { metadata as notFoundMetadata } from "./not-found";
 import OpenGraphImage from "./opengraph-image";
 import { metadata as homepageMetadata } from "./page";
@@ -88,6 +89,11 @@ describe("HRA public discovery contract", () => {
     });
     expect(downloadMetadata.openGraph?.title).toBe("HRA v0 for macOS · HRA v0");
     expect(downloadMetadata.twitter?.title).toBe("HRA v0 for macOS · HRA v0");
+    expect(releaseHistoryMetadata.title).toEqual({
+      default: "HRA v0 release history",
+      template: "%s · HRA v0",
+    });
+    expect(releaseHistoryMetadata.openGraph?.title).toBe("HRA v0 release history · HRA v0");
     expect(alternativesMetadata.title).toEqual({
       default: "HRA v0 alternatives",
       template: "%s · HRA v0",
@@ -155,6 +161,11 @@ describe("HRA public discovery contract", () => {
         changeFrequency: "weekly",
         priority: 0.8,
         url: "https://hra-weld.vercel.app/download",
+      },
+      {
+        changeFrequency: "monthly",
+        priority: 0.8,
+        url: "https://hra-weld.vercel.app/releases",
       },
       {
         changeFrequency: "monthly",

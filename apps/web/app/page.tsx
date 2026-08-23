@@ -148,6 +148,7 @@ export default function LandingPage() {
         <nav aria-label="Primary navigation" className="landing-navigation">
           <a href="#why-hra">Why HRA</a>
           <a href="#how-it-works">How it works</a>
+          <Link href="/releases">History</Link>
           <Link href="/alternatives">Compare</Link>
         </nav>
         <div className="landing-header-actions">

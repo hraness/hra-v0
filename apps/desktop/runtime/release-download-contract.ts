@@ -8,6 +8,10 @@ import { z } from "@hra-internal/schema";
 import { correspondingSourceSpecs } from "./corresponding-sources";
 import { macosPackage } from "./macos-package-config";
 import {
+  verifyRemoteReleaseHistory,
+  type RemoteReleaseHistoryEvidence,
+} from "./release-history-contract";
+import {
   HRA_CANONICAL_REPOSITORY,
   HRA_HISTORICAL_PUBLICATION_REPOSITORY,
   HRA_V0_CURRENT_REPOSITORY,
@@ -187,7 +191,7 @@ export type ReleaseHttpFetcher = (
   init: RequestInit,
 ) => Promise<Response>;
 
-export type RemoteReleaseGateEvidence = Readonly<{
+export type RemoteReleaseStateEvidence = Readonly<{
   assets: LocalReleaseCandidateEvidence["artifacts"];
   availability: "published";
   contract: PublishedReleaseDownloadContract;
@@ -195,6 +199,11 @@ export type RemoteReleaseGateEvidence = Readonly<{
   releaseId: number;
   status: "verified_immutable_remote_release";
 }>;
+export type RemoteReleaseGateEvidence = Readonly<
+  RemoteReleaseStateEvidence & {
+    history: RemoteReleaseHistoryEvidence;
+  }
+>;
 
 type ReleaseSourceStateOptions = Readonly<{
   environment?: Readonly<Record<string, string | undefined>>;
@@ -279,16 +288,18 @@ export async function verifyReleaseSourceGate(): Promise<ReleaseSourceGateEviden
 export async function verifyRemoteReleaseGate(
   fetcher: ReleaseHttpFetcher = defaultReleaseFetcher,
 ): Promise<RemoteReleaseGateEvidence> {
-  return await verifyRemoteReleaseState(
-    await verifyReleaseDownloadContract(),
-    fetcher,
-  );
+  const contract = await verifyReleaseDownloadContract();
+  const [release, history] = await Promise.all([
+    verifyRemoteReleaseState(contract, fetcher),
+    verifyRemoteReleaseHistory(fetcher),
+  ]);
+  return Object.freeze({ ...release, history });
 }
 
 export async function verifyRemoteReleaseState(
   contract: ReleaseDownloadContract,
   fetcher: ReleaseHttpFetcher,
-): Promise<RemoteReleaseGateEvidence> {
+): Promise<RemoteReleaseStateEvidence> {
   const publishedContract = asPublishedContract(contract);
   const metadataUrl =
     `https://api.github.com/repos/hraness/hra-v0/releases/tags/${publishedContract.release.tag}`;

@@ -246,6 +246,12 @@ published HRA v0.1.14 build 15 prerelease. It names
 object, runtime-tree digest, artifact byte counts, and SHA-256 digests used by
 the download page.
 
+The root `release-history.json` is the checked compatibility ledger for tags
+v0.1.7 through v0.1.14. It records each annotated tag object and peeled commit,
+the seven GitHub release IDs, all 49 asset IDs, byte counts, and SHA-256
+digests, and the v0.1.11 tag-only state. The public `/releases` page and remote
+gate consume this one ledger.
+
 The immutable publication history remains separate from that maintained
 repository coordinate:
 
@@ -286,16 +292,18 @@ shallow history, or included local Git configuration. It rejects inherited
 `GIT_*` variables, runs `/usr/bin/git` with explicit Git and work-tree paths,
 and disables global and system configuration.
 
-The remote gate reads the immutable v0.1.14 prerelease from
-`hraness/hra-v0`. It checks the exact seven-asset set, upload state, canonical
-URLs, byte counts, GitHub SHA-256 digests, checksum-to-DMG binding, release
-manifest, and all four corresponding-source records. It does not redownload
-the multi-gigabyte immutable assets. A mutable, incomplete, additional, or
-different release fails. Do not create another v0.1.14 release, move its tag,
-replace an asset, or run the former publication procedure again.
+The remote gate reads the renamed `hraness/hra-v0` repository. It checks the
+exact eight-tag set and annotated tag objects, their peeled commits, the exact
+seven-release and 49-asset set, upload state, canonical URLs, byte counts, and
+GitHub SHA-256 digests. It requires v0.1.11 to remain tag-only. For v0.1.14 it
+also verifies the checksum-to-DMG binding, release manifest, and all four
+corresponding-source records. It does not redownload the multi-gigabyte
+immutable assets. A moved tag, new or missing release, mutable release, or
+asset difference fails closed.
 
-The immutable published HRA v0.1.8 build 9, v0.1.9 build 10, v0.1.10 build 11,
-v0.1.12 build 13, and v0.1.13 build 14 prereleases remain historical evidence.
+The immutable published HRA v0.1.7 build 8, v0.1.8 build 9, v0.1.9 build 10,
+v0.1.10 build 11, v0.1.12 build 13, and v0.1.13 build 14 prereleases remain
+historical evidence.
 The retired tagged-only v0.1.11 build 12 candidate is not a published release
 and must never be accepted as prior installed authority. Do not replace or
 reuse any historical tag, release, version, build, or asset.
