@@ -10989,13 +10989,13 @@ test "production cloud coordinates are pinned and ambient overrides are ignored"
         &paths,
         .production,
         .{
-            .api_origin = "https://hra.sh",
+            .api_origin = "https://hra-weld.vercel.app",
             .workos_client_id = "client_release",
         },
     );
     defer enabled.deinit();
     try std.testing.expectEqualStrings(
-        "https://hra.sh",
+        "https://hra-weld.vercel.app",
         enabled.get("HRA_CLOUD_API_URL").?,
     );
     try std.testing.expectEqualStrings(

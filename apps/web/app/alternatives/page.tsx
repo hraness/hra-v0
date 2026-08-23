@@ -5,15 +5,20 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
-import { HRA_BRAND_ICON_PATH, hraSearchSite, hraSocialPageTitle } from "../site";
+import {
+  CURRENT_HRA_SITE,
+  HRA_BRAND_ICON_PATH,
+  hraSearchSite,
+  hraSocialPageTitle,
+} from "../site";
 import { COMPARISON_REVIEW_LABEL, hraComparisons } from "./comparisons";
 
 export const metadata = createPublicSiteMetadata({
   ...hraSearchSite,
   description:
-    "Compare HRA with Codex app, OpenCode Desktop, Paseo, Conductor, Superset, OpenChamber, and Happy Coder using current first-party sources.",
-  socialTitle: hraSocialPageTitle("HRA alternatives"),
-  title: "HRA alternatives",
+    "Archived HRA v0 comparisons with Codex app, OpenCode Desktop, Paseo, Conductor, Superset, OpenChamber, and Happy Coder.",
+  socialTitle: hraSocialPageTitle("HRA v0 alternatives"),
+  title: "HRA v0 alternatives",
 }, { canonicalPath: "/alternatives" }) satisfies Metadata;
 
 export default function AlternativesPage() {
@@ -24,9 +29,9 @@ export default function AlternativesPage() {
       "@type": "ListItem",
       position: index + 1,
       url: `${hraSearchSite.origin}/alternatives/${comparison.slug}`,
-      name: `HRA vs ${comparison.shortName}`,
+      name: `HRA v0 vs ${comparison.shortName}`,
     })),
-    name: "HRA alternatives and comparisons",
+    name: "HRA v0 alternatives and comparisons",
   };
 
   return (
@@ -37,17 +42,18 @@ export default function AlternativesPage() {
       />
       <a className="landing-skip-link" href="#main-content">Skip to content</a>
       <header className="alternatives-header">
-        <Link aria-label="HRA home" className="landing-wordmark" href="/">
+        <Link aria-label="HRA v0 home" className="landing-wordmark" href="/">
           <span aria-hidden="true">
             <Image alt="" className="brand-icon-image" height={512} src={HRA_BRAND_ICON_PATH} width={512} />
           </span>
-          <strong>HRA</strong>
+          <strong>HRA v0</strong>
         </Link>
         <div className="alternatives-header-actions">
           <nav aria-label="Comparison navigation">
             <Link href="/">Overview</Link>
             <Link href="/download">Download</Link>
-            <a href="https://github.com/hraness/hra">GitHub</a>
+            <a href="https://github.com/hraness/hra-v0">GitHub</a>
+            <a href={CURRENT_HRA_SITE}>Current HRA</a>
           </nav>
           <ThemeMenuButton />
         </div>
@@ -55,10 +61,10 @@ export default function AlternativesPage() {
 
       <main className="alternatives-shell" id="main-content">
         <section aria-labelledby="alternatives-title" className="alternatives-hero">
-          <p className="landing-eyebrow">HRA alternatives</p>
+          <p className="landing-eyebrow">Archived HRA v0 comparisons</p>
           <h1 id="alternatives-title">Choose the layer you actually need.</h1>
           <p className="alternatives-lede">
-            Coding-agent tools now overlap. Most can run work in parallel. The useful question is whether you need a first-party Codex app, a multi-provider workspace, a remote client, or a durable metaharness around Codex.
+            These pages preserve HRA v0&apos;s comparisons as reviewed on {COMPARISON_REVIEW_LABEL}. They describe the archived product, not the current HRA at <a href={CURRENT_HRA_SITE}>hra.sh</a>.
           </p>
           <p className="alternatives-reviewed">Sources last reviewed {COMPARISON_REVIEW_LABEL}.</p>
         </section>
@@ -72,7 +78,7 @@ export default function AlternativesPage() {
             {hraComparisons.map((comparison) => (
               <article key={comparison.slug}>
                 <p>{comparison.shortName}</p>
-                <h3>HRA vs {comparison.shortName}</h3>
+                <h3>HRA v0 vs {comparison.shortName}</h3>
                 <p>{comparison.meaningfulDifference}</p>
                 <Link href={`/alternatives/${comparison.slug}`}>Read the comparison →</Link>
               </article>
@@ -106,7 +112,7 @@ export default function AlternativesPage() {
 
       <footer className="alternatives-footer">
         <HranessBrand />
-        <p>See something stale? <a href="https://github.com/hraness/hra/issues">Open a correction.</a></p>
+        <p>See something stale? <a href="https://github.com/hraness/hra-v0/issues">Open a correction.</a></p>
       </footer>
     </div>
   );

@@ -109,7 +109,7 @@ describe("HRA public and control-plane route boundary", () => {
     expect(shell).toContain('window.location.replace("/app")');
     expect(shell).toContain('signOut({ returnTo: "/" })');
     expect(suiteAccount).toContain('href="/api/suite-auth/start?return_to=/app"');
-    expect(download).toContain('className="download-control-plane-link" href="/app"');
+    expect(download).toContain('className="download-control-plane-link" href={CURRENT_HRA_SITE}');
     expect(notFound).toContain('href="/app" variant="primary">Open control plane');
   });
 });

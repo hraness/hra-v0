@@ -1035,14 +1035,14 @@ static void HRAShowManualUpdateFallbackOnMainThread(void) {
   alert.messageText = @"Automatic update checking is unavailable";
   alert.informativeText = [NSString stringWithFormat:
       @"%@ will keep running. Retry later, or download the latest release "
-       @"from https://hra.sh/download.",
+       @"from https://hra-weld.vercel.app/download.",
       installed];
   [alert addButtonWithTitle:@"Open Download Page"];
   [alert addButtonWithTitle:@"Not Now"];
   if ([alert runModal] != NSAlertFirstButtonReturn) {
     return;
   }
-  NSURL *downloadURL = [NSURL URLWithString:@"https://hra.sh/download"];
+  NSURL *downloadURL = [NSURL URLWithString:@"https://hra-weld.vercel.app/download"];
   if (downloadURL != nil) {
     [NSWorkspace.sharedWorkspace openURL:downloadURL];
   }

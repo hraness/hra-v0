@@ -1,18 +1,23 @@
-# HRA
+# HRA v0
 
-[![HRA](https://hra.sh/opengraph-image)](https://hra.sh)
+[![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)
 
-**A metaharness for Codex.** HRA turns the Codex accounts you already use into
+> [!IMPORTANT]
+> This repository preserves HRA v0 and its final v0.1.14 prerelease. The
+> current HRA is at [hra.sh](https://hra.sh) with source at
+> [github.com/hraness/hra](https://github.com/hraness/hra).
+
+**The original metaharness for Codex.** HRA v0 turns the Codex accounts you already use into
 one durable system for planning work, delegating it, running it in parallel,
 and bringing it back for review.
 
-[Download for macOS](https://hra.sh/download) · [Website](https://hra.sh) ·
-[Compare HRA](https://hra.sh/alternatives) · [Open HRA](https://hra.sh/app)
+[Download for macOS](https://hra-weld.vercel.app/download) · [Website](https://hra-weld.vercel.app) ·
+[Historical comparisons](https://hra-weld.vercel.app/alternatives) · [Current HRA](https://hra.sh)
 
-> HRA 0.1.14 build 15 is a source release candidate for Apple Silicon Macs.
-> Direct downloads remain disabled until its exact source commit, annotated
-> tag, runtime tree, manifest, checksum, and artifact hashes are published. The
-> candidate uses an ad-hoc code seal; it is not Developer ID signed or notarized.
+> HRA v0.1.14 build 15 is the final archived prerelease for Apple Silicon Macs.
+> Its exact source commit, annotated tag, runtime tree, manifest, checksum, and
+> artifact hashes are published. The app uses an ad-hoc code seal; it is not
+> Developer ID signed or notarized.
 
 ## Why HRA exists
 
@@ -49,7 +54,7 @@ worktree manager may be a better fit when model choice or workspace isolation
 is the main problem, and a remote client may be better when the main job is
 checking an agent from your phone.
 
-The [comparison pages](https://hra.sh/alternatives) explain those tradeoffs
+The [comparison pages](https://hra-weld.vercel.app/alternatives) explain those tradeoffs
 using current first-party sources, including Codex app, OpenCode Desktop,
 Paseo, Conductor, Superset, OpenChamber, and Happy Coder.
 
@@ -77,12 +82,12 @@ and data boundary.
 ## Install the prerelease
 
 The native app targets Apple Silicon and macOS 13 or newer. The
-[download page](https://hra.sh/download) exposes no draft asset while the
+[download page](https://hra-weld.vercel.app/download) exposes no draft asset while the
 checked release contract is a candidate. After publication, download the DMG
 and checksum from that page, verify the SHA-256, and follow the
 unknown-developer instructions. You can build the candidate source locally.
 
-## Develop HRA
+## Develop HRA v0
 
 Repository development uses Bun 1.3.14 and Node.js 24. Native work additionally
 requires Zig 0.16.0, Xcode Command Line Tools, and an Apple Silicon Mac.
@@ -124,7 +129,9 @@ corresponding-source artifacts are documented in the
 
 ## Project and license
 
-HRA is under active development. It is an independent project and is not
+HRA v0 is archived. Security reports and narrowly scoped archival corrections
+remain welcome, but feature development continues in the separate
+[current HRA repository](https://github.com/hraness/hra). HRA v0 is an independent project and is not
 affiliated with, endorsed by, or sponsored by OpenAI. “OpenAI” and “Codex” are
 used only to identify the product HRA interoperates with.
 

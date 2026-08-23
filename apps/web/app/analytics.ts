@@ -7,8 +7,8 @@ import type {
 import { isHraPublicComparisonPath } from "./alternatives/slugs";
 
 export const HRA_ANALYTICS_SCHEMA_VERSION = 1 as const;
-export const HRA_ANALYTICS_SITE_ID = "hra" as const;
-export const HRA_ANALYTICS_CANONICAL_DOMAIN = "hra.sh" as const;
+export const HRA_ANALYTICS_SITE_ID = "hra-v0" as const;
+export const HRA_ANALYTICS_CANONICAL_DOMAIN = "hra-weld.vercel.app" as const;
 export const HRA_ANALYTICS_CANONICAL_ORIGIN =
   `https://${HRA_ANALYTICS_CANONICAL_DOMAIN}` as const;
 export const HRA_POSTHOG_INGESTION_HOST = "https://us.i.posthog.com" as const;

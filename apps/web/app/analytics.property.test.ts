@@ -29,8 +29,8 @@ test("analytics classification never admits a route outside the public allowlist
     if (route !== null) {
       expect(route.canonical_path).toBe(canonicalPath);
       expect(route.analytics_schema_version).toBe(1);
-      expect(route.canonical_domain).toBe("hra.sh");
-      expect(route.site_id).toBe("hra");
+      expect(route.canonical_domain).toBe("hra-weld.vercel.app");
+      expect(route.site_id).toBe("hra-v0");
     }
   }));
 });
@@ -81,7 +81,7 @@ test("arbitrary provider properties cannot escape the pageview allowlist", () =>
       for (const key of Object.keys(filtered?.properties ?? {})) {
         expect(allowedKeys.has(key), key).toBeTrue();
       }
-      expect(filtered?.properties.$current_url).toBe("https://hra.sh/download");
+      expect(filtered?.properties.$current_url).toBe("https://hra-weld.vercel.app/download");
       expect(filtered?.properties.$pathname).toBe("/download");
       expect(filtered?.properties.$process_person_profile).toBeFalse();
       expect(filtered?.properties.distinct_id)

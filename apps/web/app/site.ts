@@ -77,6 +77,11 @@ const releaseDownloadSchema = z.object({
 
 export const HRA_BRAND_EMOJI = "🐦‍🔥" as const;
 export const HRA_BRAND_ICON_PATH = "/icon.png" as const;
+export const HRA_V0_REPOSITORY =
+  "https://github.com/hraness/hra-v0" as const;
+export const CURRENT_HRA_REPOSITORY =
+  "https://github.com/hraness/hra" as const;
+export const CURRENT_HRA_SITE = "https://hra.sh" as const;
 const releaseContract = releaseDownloadSchema.parse(releaseDownload as unknown);
 export const HRA_RELEASE = Object.freeze({
   architecture: releaseContract.release.architecture,
@@ -86,7 +91,8 @@ export const HRA_RELEASE = Object.freeze({
   checksumAsset: releaseContract.release.artifacts.checksum.name,
   manifestAsset: releaseContract.release.artifacts.manifest.name,
   minimumMacOS: releaseContract.release.minimumMacOS,
-  repository: releaseContract.repository,
+  historicalPublicationRepository: releaseContract.repository,
+  repository: HRA_V0_REPOSITORY,
   source: releaseContract.release.source,
   tag: releaseContract.release.tag,
   version: releaseContract.release.version,
@@ -103,19 +109,19 @@ export const HRA_RELEASE_MANIFEST_URL = HRA_RELEASE_URL === null
 
 export const hraSearchSite = {
   description:
-    "A metaharness for Codex: coordinate authorized accounts, delegate durable work, preserve continuity, and recover parallel sessions on your Mac.",
-  applicationName: "HRA",
+    "The archived HRA v0 metaharness for Codex, preserved with its final macOS prerelease and public source.",
+  applicationName: "HRA v0",
   category: "DeveloperApplication",
   creator: "Hraness",
-  name: "HRA",
-  origin: "https://hra.sh",
+  name: "HRA v0",
+  origin: "https://hra-weld.vercel.app",
   publisher: "Hraness",
   socialImage: {
-    alt: "HRA: a durable metaharness for Codex",
+    alt: "HRA v0: the archived Codex metaharness",
     path: "/opengraph-image",
   },
-  title: "HRA: a metaharness for Codex",
-  titleTemplate: "%s · HRA",
+  title: "HRA v0: archived Codex metaharness",
+  titleTemplate: "%s · HRA v0",
 } as const satisfies SearchSite;
 
 const rootSocialImage = {

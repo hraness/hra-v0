@@ -10,6 +10,7 @@ import {
   previewForbiddenEnvironmentVariables,
   previewSurfaceOriginEnvironmentVariable,
   releasePublicationCommitEnvironmentVariable,
+  releaseSurfaceCommitEnvironmentVariable,
   runVercelAppBuild,
   runVercelConvexBuild,
   type VercelConvexBuildLauncher,
@@ -19,10 +20,11 @@ const deployment = "benevolent-akita-439";
 const marker = {
   CONVEX_PRODUCTION_DEPLOYMENT_NAME: deployment,
   [releasePublicationCommitEnvironmentVariable]: "a".repeat(40),
-  VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
+  [releaseSurfaceCommitEnvironmentVariable]: "b".repeat(40),
+  VERCEL_GIT_COMMIT_SHA: "b".repeat(40),
   VERCEL_GIT_PROVIDER: "github",
   VERCEL_GIT_REPO_OWNER: "hraness",
-  VERCEL_GIT_REPO_SLUG: "hra",
+  VERCEL_GIT_REPO_SLUG: "hra-v0",
 } as const;
 const publicConvex = {
   NEXT_PUBLIC_CONVEX_SITE_URL: `https://${deployment}.convex.site`,
@@ -32,8 +34,8 @@ const productionEnvironment = {
   ...marker,
   ...publicConvex,
   CONVEX_PROVIDER_AUTHORITY: `prod:${deployment}|secret`,
-  NEXT_PUBLIC_POSTHOG_KEY: "phc_hra_public",
-  NEXT_PUBLIC_SITE_URL: "https://hra.sh",
+  NEXT_PUBLIC_POSTHOG_KEY: "phc_hra_v0_public",
+  NEXT_PUBLIC_SITE_URL: "https://hra-weld.vercel.app",
   SUITE_IDENTITY_RECEIPT_KEY_VERSION: "v1",
   SUITE_OIDC_COOKIE_SECRET: "c".repeat(64),
   VERCEL: "1",
@@ -94,10 +96,10 @@ describe("HRA Vercel Convex target plans", () => {
     })).toEqual({ environmentMode: "deploy-convex", kind: "run" });
     for (const value of [
       "",
-      "phx_hra_public",
+      "phx_hra_v0_public",
       "phc_short",
-      "phc_hra public",
-      "phc_hra_public!",
+      "phc_hra_v0 public",
+      "phc_hra_v0_public!",
       `phc_${"a".repeat(513)}`,
     ]) {
       expect(planVercelConvexBuild({
@@ -277,7 +279,7 @@ describe("provider process boundary", () => {
   });
 
   test("refuses a malformed Production PostHog key before launching Next", async () => {
-    for (const value of ["", "phx_hra_public", "phc_short", "phc_hra public"]) {
+    for (const value of ["", "phx_hra_v0_public", "phc_short", "phc_hra_v0 public"]) {
       const observed = recorder();
       const reasons: string[] = [];
       expect(await runVercelAppBuild({
@@ -321,6 +323,9 @@ describe("provider process boundary", () => {
     expect(
       observed.calls[0]?.environment[releasePublicationCommitEnvironmentVariable],
     ).toBe("a".repeat(40));
+    expect(
+      observed.calls[0]?.environment[releaseSurfaceCommitEnvironmentVariable],
+    ).toBe("b".repeat(40));
   });
 
   test("the checked nested Production build strips secrets and retains public literals", async () => {
@@ -348,13 +353,16 @@ describe("provider process boundary", () => {
     expect(observed.calls[0]?.environment.NEXT_PUBLIC_CONVEX_SITE_URL)
       .toBe(publicConvex.NEXT_PUBLIC_CONVEX_SITE_URL);
     expect(observed.calls[0]?.environment.NEXT_PUBLIC_SITE_URL)
-      .toBe("https://hra.sh");
+      .toBe("https://hra-weld.vercel.app");
     expect(observed.calls[0]?.environment.NEXT_PUBLIC_POSTHOG_KEY)
-      .toBe("phc_hra_public");
+      .toBe("phc_hra_v0_public");
     expect(observed.calls[0]?.environment.SUITE_IDENTITY_RECEIPT_KEY_VERSION)
       .toBe("v1");
     expect(
       observed.calls[0]?.environment[releasePublicationCommitEnvironmentVariable],
+    ).toBeUndefined();
+    expect(
+      observed.calls[0]?.environment[releaseSurfaceCommitEnvironmentVariable],
     ).toBeUndefined();
   });
 
@@ -385,6 +393,9 @@ describe("provider process boundary", () => {
     expect(observed.calls[0]?.environment.NEXT_PUBLIC_SITE_URL).toBeUndefined();
     expect(
       observed.calls[0]?.environment[releasePublicationCommitEnvironmentVariable],
+    ).toBeUndefined();
+    expect(
+      observed.calls[0]?.environment[releaseSurfaceCommitEnvironmentVariable],
     ).toBeUndefined();
   });
 
@@ -425,6 +436,9 @@ describe("checked provider wiring", () => {
     expect(wrapper).toContain("verifyReleaseSourceGate");
     expect(releasePublicationCommitEnvironmentVariable).toBe(
       "HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST",
+    );
+    expect(releaseSurfaceCommitEnvironmentVariable).toBe(
+      "HRA_V0_SURFACE_COMMIT_ALLOWLIST",
     );
   });
 });

@@ -1,6 +1,12 @@
-# HRA for macOS
+# HRA v0 for macOS
 
-HRA is a local-first macOS interface for long-running, parallel Codex work. Panes are repository-bound chats that can run independently. Settings manages local Codex subscriptions. HRA keeps the pane grid unavailable until at least one subscription is signed in.
+This directory preserves the archived HRA v0 macOS application and its final
+v0.1.14 prerelease. The current HRA is at [hra.sh](https://hra.sh) in the
+[current repository](https://github.com/hraness/hra). HRA v0 is a local-first
+interface for long-running, parallel Codex work. Panes are repository-bound
+chats that can run independently. Settings manages local Codex subscriptions.
+HRA keeps the pane grid unavailable until at least one subscription is signed
+in.
 
 HRA does not require a separate HRA account for local use. It routes each prompt to a bounded model, reasoning, and service-tier profile, then exposes that read-only decision with the pane's current activity and latest assistant response. The gateway admits work only to an eligible signed-in subscription. A provider usage limit stops the affected work; HRA does not move that work to another subscription or use multiple subscriptions to circumvent provider limits.
 

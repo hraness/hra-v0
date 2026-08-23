@@ -13,11 +13,13 @@ import {
   verifyLocalReleaseCandidate,
   verifyPublishedReleaseArtifacts,
   verifyPublishedReleaseCandidate,
+  verifyArchivedReleaseSourceEvidence,
   verifyPublishedReleaseSourceEvidence,
   verifyReleaseSourceGate,
   verifyReleaseSourceState,
   verifyRemoteReleaseState,
   releasePublicationCommitAllowlistEnvironmentVariable,
+  releaseSurfaceCommitAllowlistEnvironmentVariable,
   verifyVercelReleaseSourceState,
   type PublishedReleaseDownloadContract,
   type ReleaseDownloadContract,
@@ -127,7 +129,7 @@ describe("release and download convergence", () => {
       VERCEL_GIT_COMMIT_SHA: "a".repeat(40),
       VERCEL_GIT_PROVIDER: "github",
       VERCEL_GIT_REPO_OWNER: "hraness",
-      VERCEL_GIT_REPO_SLUG: "hra",
+      VERCEL_GIT_REPO_SLUG: "hra-v0",
       VERCEL_TARGET_ENV: "preview",
     } as const;
     expect(await verifyVercelReleaseSourceState(
@@ -430,10 +432,19 @@ describe("release and download convergence", () => {
     );
     await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "archive.md"), "HRA v0 archive\n");
+    await runSetupGit(repositoryRoot, ["add", "archive.md"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "archive surface Q"]);
+    const surfaceCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
 
     const verified = await verifyReleaseSourceState(
       publishedContract,
-      { environment: {}, repositoryRoot },
+      { environment: {}, publicationCommit, repositoryRoot },
     );
     if (verified.availability !== "published") {
       throw new Error("Expected published source evidence.");
@@ -441,8 +452,13 @@ describe("release and download convergence", () => {
     expect(verified.publication).toMatchObject({
       candidateCommit,
       changedPath: "release-download.json",
-      publicationCommit: verified.repository.commit,
+      publicationCommit,
       status: "exact_candidate_publication_transition",
+    });
+    expect(verified.surface).toEqual({
+      publicationCommit,
+      status: "verified_descendant_archive_surface",
+      surfaceCommit,
     });
     expect(verified.tag.commit).toBe(candidateCommit);
     expect(verified.repository.commit).not.toBe(candidateCommit);
@@ -450,12 +466,12 @@ describe("release and download convergence", () => {
     const objectStore = await inspectReleasePublicationObjectStore({
       candidateCommit,
       gitDirectory: join(repositoryRoot, ".git"),
-      publicationCommit: verified.repository.commit,
+      publicationCommit,
       tag: publishedContract.release.tag,
     });
     expect(objectStore.publication).toMatchObject({
       candidateCommit,
-      publicationCommit: verified.repository.commit,
+      publicationCommit,
       status: "exact_candidate_publication_transition",
     });
     expect(objectStore.tag).toEqual(verified.tag);
@@ -463,20 +479,24 @@ describe("release and download convergence", () => {
       VERCEL: "1",
       VERCEL_ENV: "production",
       VERCEL_GIT_COMMIT_REF: "main",
-      VERCEL_GIT_COMMIT_SHA: verified.repository.commit,
+      VERCEL_GIT_COMMIT_SHA: surfaceCommit,
       VERCEL_GIT_PROVIDER: "github",
       VERCEL_GIT_REPO_OWNER: "hraness",
-      VERCEL_GIT_REPO_SLUG: "hra",
+      VERCEL_GIT_REPO_SLUG: "hra-v0",
       VERCEL_TARGET_ENV: "production",
       [releasePublicationCommitAllowlistEnvironmentVariable]:
-        verified.repository.commit,
+        publicationCommit,
+      [releaseSurfaceCommitAllowlistEnvironmentVariable]:
+        `${"f".repeat(40)},${surfaceCommit}`,
     }, () => Promise.resolve({
       publication: verified.publication,
+      surface: verified.surface,
       tag: verified.tag,
     }))).toMatchObject({
       availability: "published",
-      publicationCommit: verified.repository.commit,
-      status: "verified_vercel_publication_binding",
+      publicationCommit,
+      status: "verified_vercel_archive_surface_binding",
+      surfaceCommit,
     });
 
     await writeFile(join(repositoryRoot, "source.txt"), "follow-up\n");
@@ -486,9 +506,35 @@ describe("release and download convergence", () => {
       environment: {},
       repositoryRoot,
     });
+    expect(await verifyArchivedReleaseSourceEvidence(
+      publishedContract,
+      followUpRepository,
+      publicationCommit,
+    )).toMatchObject({
+      surface: { publicationCommit, surfaceCommit: followUpRepository.commit },
+    });
     await expectRejection(
       verifyPublishedReleaseSourceEvidence(publishedContract, followUpRepository),
       "only direct parent",
+    );
+
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      `${JSON.stringify(candidate, null, 2)}\n`,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "rewrite release contract"]);
+    const rewrittenRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    await expectRejection(
+      verifyArchivedReleaseSourceEvidence(
+        publishedContract,
+        rewrittenRepository,
+        publicationCommit,
+      ),
+      "preserve release-download.json byte-for-byte",
     );
   });
 
@@ -573,20 +619,27 @@ describe("release and download convergence", () => {
     const bogusPublicationCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
+    await writeFile(join(repositoryRoot, "archive.md"), "HRA v0 archive\n");
+    await runSetupGit(repositoryRoot, ["add", "archive.md"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "archive surface Q"]);
+    const surfaceCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
 
     await expectRejection(
       verifyVercelReleaseSourceState(bogusPublished, {
         VERCEL: "1",
         VERCEL_ENV: "production",
         VERCEL_GIT_COMMIT_REF: "main",
-        VERCEL_GIT_COMMIT_SHA: bogusPublicationCommit,
+        VERCEL_GIT_COMMIT_SHA: surfaceCommit,
         VERCEL_GIT_PROVIDER: "github",
         VERCEL_GIT_REPO_OWNER: "hraness",
-        VERCEL_GIT_REPO_SLUG: "hra",
+        VERCEL_GIT_REPO_SLUG: "hra-v0",
         VERCEL_TARGET_ENV: "production",
         [releasePublicationCommitAllowlistEnvironmentVariable]: "a".repeat(40),
+        [releaseSurfaceCommitAllowlistEnvironmentVariable]: "b".repeat(40),
       }),
-      "not the trusted release publication commit",
+      "not an allowlisted HRA v0 archive surface",
     );
 
     const bogusObjectStore = await inspectReleasePublicationObjectStore({
@@ -600,21 +653,33 @@ describe("release and download convergence", () => {
         VERCEL: "1",
         VERCEL_ENV: "production",
         VERCEL_GIT_COMMIT_REF: "main",
-        VERCEL_GIT_COMMIT_SHA: bogusPublicationCommit,
+        VERCEL_GIT_COMMIT_SHA: surfaceCommit,
         VERCEL_GIT_PROVIDER: "github",
         VERCEL_GIT_REPO_OWNER: "hraness",
-        VERCEL_GIT_REPO_SLUG: "hra",
+        VERCEL_GIT_REPO_SLUG: "hra-v0",
         VERCEL_TARGET_ENV: "production",
         [releasePublicationCommitAllowlistEnvironmentVariable]:
           bogusPublicationCommit,
-      }, () => Promise.resolve(bogusObjectStore)),
+        [releaseSurfaceCommitAllowlistEnvironmentVariable]: surfaceCommit,
+      }, () => Promise.resolve({
+        ...bogusObjectStore,
+        surface: {
+          publicationCommit: bogusPublicationCommit,
+          status: "verified_descendant_archive_surface" as const,
+          surfaceCommit,
+        },
+      })),
       "canonical annotated release tag differs",
     );
 
     await expectRejection(
       verifyReleaseSourceState(
         bogusPublished,
-        { environment: {}, repositoryRoot },
+        {
+          environment: {},
+          publicationCommit: bogusPublicationCommit,
+          repositoryRoot,
+        },
       ),
       "annotated release tag differs",
     );
@@ -734,7 +799,7 @@ function createRemoteReleaseFixture(
     throw new Error("Expected a published remote fixture.");
   }
   const metadataUrl =
-    `https://api.github.com/repos/hraness/hra/releases/tags/${contract.release.tag}`;
+    `https://api.github.com/repos/hraness/hra-v0/releases/tags/${contract.release.tag}`;
   const metadataAssets = [
     contract.release.artifacts.checksum,
     contract.release.artifacts.dmg,
@@ -746,13 +811,13 @@ function createRemoteReleaseFixture(
     })),
   ].map((artifact, index) => ({
     browser_download_url:
-      `https://github.com/hraness/hra/releases/download/${contract.release.tag}/${artifact.name}`,
+      `https://github.com/hraness/hra-v0/releases/download/${contract.release.tag}/${artifact.name}`,
     digest: `sha256:${artifact.sha256}`,
     id: 100 + index,
     name: artifact.name,
     size: artifact.bytes,
     state: "uploaded",
-    url: `https://api.github.com/repos/hraness/hra/releases/assets/${100 + index}`,
+    url: `https://api.github.com/repos/hraness/hra-v0/releases/assets/${100 + index}`,
   }));
   const metadata = {
     assets: metadataAssets,

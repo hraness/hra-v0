@@ -45,7 +45,7 @@ export function hraComparisonCitationVersion(
 const HRA_COMPARISON_CITATION_VERSION =
   hraComparisonCitationVersion(HRA_RELEASE);
 const HRA_VERSIONED_SOURCE_ROOT =
-  `https://github.com/hraness/hra/blob/v${HRA_COMPARISON_CITATION_VERSION}/` as const;
+  `https://github.com/hraness/hra-v0/blob/v${HRA_COMPARISON_CITATION_VERSION}/` as const;
 
 export const hraComparisonSources = [
   {

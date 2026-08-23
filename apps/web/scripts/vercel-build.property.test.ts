@@ -16,7 +16,7 @@ const productionEnvironment = {
     "https://benevolent-akita-439.convex.site",
   NEXT_PUBLIC_CONVEX_URL:
     "https://benevolent-akita-439.convex.cloud",
-  NEXT_PUBLIC_SITE_URL: "https://hra.sh",
+  NEXT_PUBLIC_SITE_URL: "https://hra-weld.vercel.app",
   SUITE_IDENTITY_RECEIPT_KEY_VERSION: "v1",
   SUITE_OIDC_COOKIE_SECRET: "c".repeat(64),
   VERCEL: "1",
@@ -73,7 +73,7 @@ test("Production never runs with Convex-only custody in Vercel", () => {
           "https://benevolent-akita-439.convex.site",
         NEXT_PUBLIC_CONVEX_URL:
           "https://benevolent-akita-439.convex.cloud",
-        NEXT_PUBLIC_SITE_URL: "https://hra.sh",
+        NEXT_PUBLIC_SITE_URL: "https://hra-weld.vercel.app",
         SUITE_IDENTITY_RECEIPT_KEY_VERSION: "v1",
         SUITE_OIDC_COOKIE_SECRET: "c".repeat(64),
         VERCEL: "1",

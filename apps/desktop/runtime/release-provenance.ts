@@ -7,12 +7,24 @@ import {
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
-export const HRA_CANONICAL_REPOSITORY =
+/** The repository that owns the maintained HRA v0 archive surface. */
+export const HRA_V0_CURRENT_REPOSITORY =
+  "https://github.com/hraness/hra-v0" as const;
+
+/**
+ * The repository spelling recorded in the immutable v0.1.14 publication
+ * contract. It is historical evidence, not the maintained source location.
+ */
+export const HRA_HISTORICAL_PUBLICATION_REPOSITORY =
   "https://github.com/hraness/hra" as const;
+
+/** Compatibility name for the immutable release-contract repository field. */
+export const HRA_CANONICAL_REPOSITORY =
+  HRA_HISTORICAL_PUBLICATION_REPOSITORY;
 
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const productionRepositoryRoot = resolve(import.meta.dir, "../../..");
-const canonicalGitRepository = `${HRA_CANONICAL_REPOSITORY}.git` as const;
+const canonicalGitRepository = `${HRA_V0_CURRENT_REPOSITORY}.git` as const;
 const hermeticGitEnvironment = Object.freeze({
   GIT_CONFIG_COUNT: "0",
   GIT_CONFIG_GLOBAL: "/dev/null",
@@ -28,7 +40,7 @@ const hermeticGitEnvironment = Object.freeze({
 export interface ReleaseRepositoryEvidence {
   readonly commit: string;
   readonly gitDirectory: string;
-  readonly repository: typeof HRA_CANONICAL_REPOSITORY;
+  readonly repository: typeof HRA_V0_CURRENT_REPOSITORY;
   readonly repositoryRoot: string;
   readonly status: "clean_canonical_source";
   readonly tree: string;
@@ -53,6 +65,17 @@ export interface ReleasePublicationEvidence {
 export interface CanonicalReleasePublicationEvidence {
   readonly publication: ReleasePublicationEvidence;
   readonly tag: ReleaseTagEvidence;
+}
+
+export interface ArchiveReleaseSurfaceEvidence {
+  readonly publicationCommit: string;
+  readonly status: "verified_descendant_archive_surface";
+  readonly surfaceCommit: string;
+}
+
+export interface CanonicalArchiveReleaseEvidence
+  extends CanonicalReleasePublicationEvidence {
+  readonly surface: ArchiveReleaseSurfaceEvidence;
 }
 
 type ReleaseGitRunner = Readonly<{
@@ -161,7 +184,7 @@ export async function inspectReleaseSourceRepository(
   return Object.freeze({
     commit: normalizedCommit,
     gitDirectory,
-    repository: HRA_CANONICAL_REPOSITORY,
+    repository: HRA_V0_CURRENT_REPOSITORY,
     repositoryRoot,
     status: "clean_canonical_source",
     tree: normalizedTree,
@@ -251,6 +274,93 @@ export async function inspectReleasePublicationTransition(
     candidateCommit,
     repository.commit,
   );
+}
+
+/**
+ * Verify the immutable C-to-P transition at an explicit historical commit.
+ * The maintained archive checkout may be a later descendant, so P must not be
+ * inferred from its HEAD.
+ */
+export async function inspectReleasePublicationAtCommit(
+  repository: ReleaseRepositoryEvidence,
+  candidateCommitValue: string,
+  publicationCommitValue: string,
+): Promise<ReleasePublicationEvidence> {
+  const candidateCommit = requireObjectId(
+    candidateCommitValue,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    publicationCommitValue,
+    "Published publication commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectReleasePublicationWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+  );
+}
+
+/**
+ * Bind a maintained archive surface to the immutable publication without
+ * allowing a descendant to rewrite release-download.json.
+ */
+export async function inspectArchiveReleaseSurface(
+  repository: ReleaseRepositoryEvidence,
+  publicationCommitValue: string,
+): Promise<ArchiveReleaseSurfaceEvidence> {
+  const publicationCommit = requireObjectId(
+    publicationCommitValue,
+    "Published publication commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectArchiveReleaseSurfaceWithRunner(
+    runner,
+    publicationCommit,
+    repository.commit,
+  );
+}
+
+async function inspectArchiveReleaseSurfaceWithRunner(
+  runner: ReleaseGitRunner,
+  publicationCommit: string,
+  surfaceCommit: string,
+): Promise<ArchiveReleaseSurfaceEvidence> {
+  if (publicationCommit === surfaceCommit) {
+    throw new Error(
+      "The HRA v0 archive surface must descend from the publication commit.",
+    );
+  }
+  const mergeBase = requireObjectId(
+    await runner.run(["merge-base", publicationCommit, surfaceCommit]),
+    "Archive publication merge base",
+  );
+  if (mergeBase !== publicationCommit) {
+    throw new Error(
+      "The HRA v0 archive surface must descend from the publication commit.",
+    );
+  }
+  const [publicationContract, surfaceContract] = await Promise.all([
+    runner.run(["show", `${publicationCommit}:release-download.json`]),
+    runner.run(["show", `${surfaceCommit}:release-download.json`]),
+  ]);
+  if (surfaceContract !== publicationContract) {
+    throw new Error(
+      "The HRA v0 archive surface must preserve release-download.json byte-for-byte.",
+    );
+  }
+  return Object.freeze({
+    publicationCommit,
+    status: "verified_descendant_archive_surface",
+    surfaceCommit,
+  });
 }
 
 async function inspectReleasePublicationWithRunner(
@@ -419,6 +529,98 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       publicationCommit,
       tag: options.tag,
     });
+  } finally {
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Fetch and verify both immutable release history and an allowlisted archive
+ * surface from the maintained HRA v0 repository. The historical repository
+ * spelling remains inside release-download.json only.
+ */
+export async function inspectCanonicalArchiveRelease(options: Readonly<{
+  candidateCommit: string;
+  publicationCommit: string;
+  surfaceCommit: string;
+  tag: string;
+}>): Promise<CanonicalArchiveReleaseEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const surfaceCommit = requireObjectId(
+    options.surfaceCommit,
+    "Archive surface commit",
+  );
+  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
+    throw new Error("Release tag is invalid.");
+  }
+  const temporaryRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "hra-v0-release-fetch-")),
+  );
+  const gitDirectory = join(temporaryRoot, "publication.git");
+  try {
+    await runHermeticGit(
+      ["init", "--bare", "--initial-branch=main", gitDirectory],
+      temporaryRoot,
+    );
+    const runner = releaseGitObjectRunner(gitDirectory);
+    await runner.run(["remote", "add", "canonical", canonicalGitRepository]);
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=64",
+      "--filter=blob:limit=32768",
+      "canonical",
+      surfaceCommit,
+    ]);
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=2",
+      "--filter=blob:limit=32768",
+      "canonical",
+      publicationCommit,
+    ]);
+    const tagRef = `refs/tags/${options.tag}`;
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=2",
+      "--filter=blob:limit=32768",
+      "canonical",
+      `${tagRef}:${tagRef}`,
+    ]);
+    const [publication, tag, surface] = await Promise.all([
+      inspectReleasePublicationWithRunner(
+        runner,
+        candidateCommit,
+        publicationCommit,
+      ),
+      inspectReleaseTagWithRunner(runner, options.tag),
+      inspectArchiveReleaseSurfaceWithRunner(
+        runner,
+        publicationCommit,
+        surfaceCommit,
+      ),
+    ]);
+    if (tag === null) {
+      throw new Error(
+        "The canonical HRA v0 repository has no annotated release tag.",
+      );
+    }
+    return Object.freeze({ publication, surface, tag });
   } finally {
     await rm(temporaryRoot, { force: true, recursive: true });
   }

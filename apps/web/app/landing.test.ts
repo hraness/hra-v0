@@ -41,8 +41,8 @@ describe("HRA public landing", () => {
     for (const brandedSurface of [page, download, adminShell]) {
       expect(brandedSurface).not.toContain("{HRA_BRAND_EMOJI}");
     }
-    expect(page).toContain('aria-label="HRA home"');
-    expect(download).toContain('aria-label="HRA download"');
+    expect(page).toContain('aria-label="HRA v0 home"');
+    expect(download).toContain('aria-label="HRA v0 download"');
     expect(adminShell).not.toContain('className="brand-mark" aria-hidden="true">OP');
     expect(await sha256("./icon.png")).toBe(
       "17f58b8c253691f5302d5a742f540e04e7b8105bad1032cd1f1320a9388029e1",
@@ -58,16 +58,16 @@ describe("HRA public landing", () => {
   test("leads with the outcome and exposes the complete public decision path", async () => {
     const page = await source("./page.tsx");
 
-    expect(page).toContain("A metaharness for Codex");
-    expect(page).toContain("Give Codex a team, a memory, and a budget.");
-    expect(page).toContain("Codex accounts you already use");
+    expect(page).toContain("Archived HRA v0 · final prerelease");
+    expect(page).toContain("HRA v0 is preserved here.");
+    expect(page).toContain("The current HRA is a separate project");
     expect(page).toContain("Delegate work with structure");
     expect(page).toContain("Spend reasoning deliberately");
     expect(page).toContain("Recover the work, not just the window");
     expect(page.match(/<h1\b/gu)).toHaveLength(1);
-    expect(page).toContain('href="/download">Download for macOS</Link>');
-    expect(page).toContain('href="/alternatives">Compare HRA</Link>');
-    expect(page).toContain('href="https://github.com/hraness/hra"');
+    expect(page).toContain('href="/download">Download HRA v0</Link>');
+    expect(page).toContain("href={CURRENT_HRA_SITE}>Go to current HRA</a>");
+    expect(page).toContain("href={HRA_V0_REPOSITORY}");
     expect(page).toContain("Let the Mac keep the authority.");
     expect(page).toContain("HRA is intentionally narrower than an AI IDE.");
     expect(page).toContain("A provider limit ends the affected turn.");
@@ -85,7 +85,8 @@ describe("HRA public landing", () => {
       checksumAsset: "HRA-0.1.14-15-macos-arm64.dmg.sha256",
       manifestAsset: "HRA-0.1.14-15-release-manifest.json",
       minimumMacOS: "13",
-      repository: "https://github.com/hraness/hra",
+      historicalPublicationRepository: "https://github.com/hraness/hra",
+      repository: "https://github.com/hraness/hra-v0",
       tag: "v0.1.14",
       version: "0.1.14",
     });
@@ -103,11 +104,11 @@ describe("HRA public landing", () => {
       expect(HRA_RELEASE.source.runtimeTreeSha256).toMatch(/^[0-9a-f]{64}$/u);
       expect(HRA_RELEASE.source.tagObject).toMatch(/^[0-9a-f]{40}$/u);
       expect(HRA_RELEASE_URL).toBe(
-        "https://github.com/hraness/hra/releases/download/v0.1.14/HRA-0.1.14-15-macos-arm64.dmg",
+        "https://github.com/hraness/hra-v0/releases/download/v0.1.14/HRA-0.1.14-15-macos-arm64.dmg",
       );
       expect(HRA_RELEASE_CHECKSUM_URL).toBe(`${HRA_RELEASE_URL}.sha256`);
       expect(HRA_RELEASE_MANIFEST_URL).toBe(
-        "https://github.com/hraness/hra/releases/download/v0.1.14/HRA-0.1.14-15-release-manifest.json",
+        "https://github.com/hraness/hra-v0/releases/download/v0.1.14/HRA-0.1.14-15-release-manifest.json",
       );
     }
     expect(download).toContain("Unknown developer.");
@@ -151,18 +152,18 @@ describe("HRA public landing", () => {
   test("positions the repository around concrete outcomes and boundaries", async () => {
     const readme = await source("../../../README.md");
 
-    expect(readme).toContain("# HRA");
-    expect(readme).toContain("**A metaharness for Codex.**");
+    expect(readme).toContain("# HRA v0");
+    expect(readme).toContain("**The original metaharness for Codex.**");
     expect(readme).toContain("one durable system for planning work, delegating it, running it in parallel");
-    expect(readme).toContain("[Website](https://hra.sh)");
-    expect(readme).toContain("[![HRA](https://hra.sh/opengraph-image)](https://hra.sh)");
-    expect(readme).toContain("[Download for macOS](https://hra.sh/download)");
-    expect(readme).toContain("[Compare HRA](https://hra.sh/alternatives)");
-    expect(readme).toContain("[Open HRA](https://hra.sh/app)");
+    expect(readme).toContain("[Website](https://hra-weld.vercel.app)");
+    expect(readme).toContain("[![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)");
+    expect(readme).toContain("[Download for macOS](https://hra-weld.vercel.app/download)");
+    expect(readme).toContain("[Historical comparisons](https://hra-weld.vercel.app/alternatives)");
+    expect(readme).toContain("[Current HRA](https://hra.sh)");
     expect(readme).toContain("## Why HRA exists");
     expect(readme).toContain("Several authorized accounts, kept separate.");
     expect(readme).toContain("HRA does not combine subscriptions or bypass provider limits.");
     expect(readme).toContain("See [Security architecture](SECURITY_ARCHITECTURE.md)");
-    expect(readme).toContain("HRA is under active development.");
+    expect(readme).toContain("HRA v0 is archived.");
   });
 });

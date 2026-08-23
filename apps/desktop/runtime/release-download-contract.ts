@@ -9,11 +9,15 @@ import { correspondingSourceSpecs } from "./corresponding-sources";
 import { macosPackage } from "./macos-package-config";
 import {
   HRA_CANONICAL_REPOSITORY,
-  inspectCanonicalReleasePublication,
+  HRA_V0_CURRENT_REPOSITORY,
+  inspectArchiveReleaseSurface,
+  inspectCanonicalArchiveRelease,
+  inspectReleasePublicationAtCommit,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
-  type CanonicalReleasePublicationEvidence,
+  type ArchiveReleaseSurfaceEvidence,
+  type CanonicalArchiveReleaseEvidence,
   type ReleasePublicationEvidence,
   type ReleaseRepositoryEvidence,
   type ReleaseTagEvidence,
@@ -130,6 +134,7 @@ export interface PublishedReleaseSourceEvidence {
   readonly contract: PublishedReleaseDownloadContract;
   readonly publication: ReleasePublicationEvidence;
   readonly repository: ReleaseRepositoryEvidence;
+  readonly surface: ArchiveReleaseSurfaceEvidence;
   readonly tag: ReleaseTagEvidence;
 }
 
@@ -146,6 +151,10 @@ export type ReleaseSourceGateEvidence =
 
 export const releasePublicationCommitAllowlistEnvironmentVariable =
   "HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST" as const;
+export const releaseSurfaceCommitAllowlistEnvironmentVariable =
+  "HRA_V0_SURFACE_COMMIT_ALLOWLIST" as const;
+export const HRA_V0_RELEASE_PUBLICATION_COMMIT =
+  "6221f79b745f154882080936b961ff431569f33e" as const;
 
 export type VercelReleaseSourceGateEvidence =
   | Extract<ReleaseSourceGateEvidence, { availability: "candidate" }>
@@ -153,7 +162,8 @@ export type VercelReleaseSourceGateEvidence =
       availability: "published";
       contract: PublishedReleaseDownloadContract;
       publicationCommit: string;
-      status: "verified_vercel_publication_binding";
+      status: "verified_vercel_archive_surface_binding";
+      surfaceCommit: string;
     }>;
 
 export type ReleaseHttpFetcher = (
@@ -178,6 +188,7 @@ export type RemoteReleaseGateEvidence =
 
 type ReleaseSourceStateOptions = Readonly<{
   environment?: Readonly<Record<string, string | undefined>>;
+  publicationCommit?: string;
   repositoryRoot?: string;
 }>;
 
@@ -272,7 +283,7 @@ export async function verifyRemoteReleaseState(
   }
   const publishedContract = asPublishedContract(contract);
   const metadataUrl =
-    `https://api.github.com/repos/hraness/hra/releases/tags/${publishedContract.release.tag}`;
+    `https://api.github.com/repos/hraness/hra-v0/releases/tags/${publishedContract.release.tag}`;
   const metadataResponse = await fetcher(metadataUrl, {
     headers: githubJsonHeaders(),
     redirect: "error",
@@ -406,15 +417,16 @@ export async function verifyVercelReleaseSourceState(
   inspectCanonical: (options: Readonly<{
     candidateCommit: string;
     publicationCommit: string;
+    surfaceCommit: string;
     tag: string;
-  }>) => Promise<CanonicalReleasePublicationEvidence> =
-    inspectCanonicalReleasePublication,
+  }>) => Promise<CanonicalArchiveReleaseEvidence> =
+    inspectCanonicalArchiveRelease,
 ): Promise<VercelReleaseSourceGateEvidence> {
   if (
     environment.VERCEL !== "1"
     || environment.VERCEL_GIT_PROVIDER !== "github"
     || environment.VERCEL_GIT_REPO_OWNER !== "hraness"
-    || environment.VERCEL_GIT_REPO_SLUG !== "hra"
+    || environment.VERCEL_GIT_REPO_SLUG !== "hra-v0"
   ) {
     throw new Error(
       "HRA provider source requires the canonical Vercel Git repository identity.",
@@ -435,7 +447,7 @@ export async function verifyVercelReleaseSourceState(
   ) {
     throw new Error("HRA Production source must be deployed from main.");
   }
-  const actualCommit = requireObjectId(
+  const surfaceCommit = requireObjectId(
     environment.VERCEL_GIT_COMMIT_SHA,
     "Vercel source commit",
   );
@@ -446,19 +458,24 @@ export async function verifyVercelReleaseSourceState(
       status: "valid_candidate_contract",
     });
   }
-  const allowedCommit = requireObjectId(
+  const publicationCommit = requireObjectId(
     environment[releasePublicationCommitAllowlistEnvironmentVariable],
     "Trusted Vercel publication commit allowlist",
   );
-  if (actualCommit !== allowedCommit) {
+  const allowedSurfaceCommits = parseCommitAllowlist(
+    environment[releaseSurfaceCommitAllowlistEnvironmentVariable],
+    "Trusted HRA v0 surface commit allowlist",
+  );
+  if (!allowedSurfaceCommits.has(surfaceCommit)) {
     throw new Error(
-      "The Vercel Git commit is not the trusted release publication commit.",
+      "The Vercel Git commit is not an allowlisted HRA v0 archive surface.",
     );
   }
   const publishedContract = asPublishedContract(contract);
   const canonical = await inspectCanonical({
     candidateCommit: publishedContract.release.source.commit,
-    publicationCommit: actualCommit,
+    publicationCommit,
+    surfaceCommit,
     tag: publishedContract.release.tag,
   });
   verifyPublicationContractTransition(
@@ -473,11 +490,21 @@ export async function verifyVercelReleaseSourceState(
       "The canonical annotated release tag differs from the published contract.",
     );
   }
+  if (
+    canonical.surface.publicationCommit !== publicationCommit
+    || canonical.surface.surfaceCommit !== surfaceCommit
+    || canonical.surface.status !== "verified_descendant_archive_surface"
+  ) {
+    throw new Error(
+      "The canonical HRA v0 archive surface differs from provider source.",
+    );
+  }
   return Object.freeze({
     availability: "published",
     contract: publishedContract,
-    publicationCommit: actualCommit,
-    status: "verified_vercel_publication_binding",
+    publicationCommit,
+    status: "verified_vercel_archive_surface_binding",
+    surfaceCommit,
   });
 }
 
@@ -499,9 +526,10 @@ export async function verifyReleaseSourceState(
   }
   const publishedContract = asPublishedContract(contract);
   const repository = await inspectReleaseSourceRepository(options);
-  const published = await verifyPublishedReleaseSourceEvidence(
+  const published = await verifyArchivedReleaseSourceEvidence(
     publishedContract,
     repository,
+    options.publicationCommit ?? HRA_V0_RELEASE_PUBLICATION_COMMIT,
   );
   return Object.freeze({
     ...published,
@@ -545,13 +573,42 @@ export async function requirePublishedReleaseSource(): Promise<
 > {
   const contract = await requirePublishedContract();
   const repository = await inspectReleaseSourceRepository();
-  return await verifyPublishedReleaseSourceEvidence(contract, repository);
+  return await verifyArchivedReleaseSourceEvidence(
+    contract,
+    repository,
+    HRA_V0_RELEASE_PUBLICATION_COMMIT,
+  );
+}
+
+export async function verifyArchivedReleaseSourceEvidence(
+  contract: PublishedReleaseDownloadContract,
+  repository: ReleaseRepositoryEvidence,
+  publicationCommit: string,
+): Promise<PublishedReleaseSourceEvidence> {
+  const publication = await inspectReleasePublicationAtCommit(
+    repository,
+    contract.release.source.commit,
+    publicationCommit,
+  );
+  verifyPublicationContractTransition(contract, publication);
+  const [surface, tag] = await Promise.all([
+    inspectArchiveReleaseSurface(repository, publicationCommit),
+    inspectReleaseTag(repository, contract.release.tag),
+  ]);
+  if (
+    tag === null
+    || tag.commit !== contract.release.source.commit
+    || tag.object !== contract.release.source.tagObject
+  ) {
+    throw new Error("The local annotated release tag differs from the published contract.");
+  }
+  return Object.freeze({ contract, publication, repository, surface, tag });
 }
 
 export async function verifyPublishedReleaseSourceEvidence(
   contract: PublishedReleaseDownloadContract,
   repository: ReleaseRepositoryEvidence,
-): Promise<PublishedReleaseSourceEvidence> {
+): Promise<Omit<PublishedReleaseSourceEvidence, "surface">> {
   const publication = await inspectReleasePublicationTransition(
     repository,
     contract.release.source.commit,
@@ -917,9 +974,9 @@ function inspectRemoteReleaseAssetMetadata(
     `GitHub release asset ${expected.name} ID`,
   );
   const expectedDownloadUrl =
-    `${HRA_CANONICAL_REPOSITORY}/releases/download/${tag}/${expected.name}`;
+    `${HRA_V0_CURRENT_REPOSITORY}/releases/download/${tag}/${expected.name}`;
   const expectedApiUrl =
-    `https://api.github.com/repos/hraness/hra/releases/assets/${id}`;
+    `https://api.github.com/repos/hraness/hra-v0/releases/assets/${id}`;
   if (
     metadata["state"] !== "uploaded"
     || metadata["size"] !== expected.bytes
@@ -1100,6 +1157,28 @@ function requireObjectId(value: unknown, label: string): string {
     throw new Error(`${label} must be one full SHA-1 object ID.`);
   }
   return value;
+}
+
+function parseCommitAllowlist(
+  value: unknown,
+  label: string,
+): ReadonlySet<string> {
+  if (typeof value !== "string" || value.length === 0 || value.length > 1_312) {
+    throw new Error(`${label} must contain 1 to 32 full SHA-1 object IDs.`);
+  }
+  const commits = value.split(",");
+  if (
+    commits.length === 0
+    || commits.length > 32
+    || commits.some((commit) => !/^[0-9a-f]{40}$/u.test(commit))
+  ) {
+    throw new Error(`${label} must contain 1 to 32 full SHA-1 object IDs.`);
+  }
+  const unique = new Set(commits);
+  if (unique.size !== commits.length) {
+    throw new Error(`${label} may not contain duplicate commits.`);
+  }
+  return unique;
 }
 
 function requireDigest(value: unknown, label: string): string {

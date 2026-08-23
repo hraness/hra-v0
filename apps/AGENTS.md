@@ -1,7 +1,7 @@
 # Contents
 
 - `desktop/` – the macOS Native SDK shell, Codex account runtime, and local session dashboard.
-- `web/` – the HRA Next.js task control plane, authoritative Convex backend, and `hra.sh` Vercel root.
+- `web/` – the archived HRA v0 Next.js task control plane, authoritative Convex backend, and `hra-weld.vercel.app` fallback root.
 - `cli/` – the non-interactive `taskctl` client used by humans and agents.
 
 # Guidelines

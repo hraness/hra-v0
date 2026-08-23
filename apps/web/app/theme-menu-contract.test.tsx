@@ -42,14 +42,14 @@ test("public and gallery surfaces keep the sole menu as their final header actio
     expect(themeMenuUsages(page)).toBe(1);
     expect(page).not.toContain("<ThemeToggle");
   }
-  expect(landing).toMatch(/Open HRA<\/Link>\s*<ThemeMenuButton \/>\s*<\/div>/u);
+  expect(landing).toMatch(/Open current HRA<\/a>\s*<ThemeMenuButton \/>\s*<\/div>/u);
   expect(alternatives).toMatch(
-    /GitHub<\/a>\s*<\/nav>\s*<ThemeMenuButton \/>\s*<\/div>/u,
+    /Current HRA<\/a>\s*<\/nav>\s*<ThemeMenuButton \/>\s*<\/div>/u,
   );
   expect(comparison).toMatch(
     /Download<\/Link>\s*<\/nav>\s*<ThemeMenuButton \/>\s*<\/div>/u,
   );
-  expect(download).toMatch(/Open control plane[\s\S]*?<\/Link>\s*<ThemeMenuButton \/>\s*<\/div>/u);
+  expect(download).toMatch(/Open current HRA[\s\S]*?<\/a>\s*<ThemeMenuButton \/>\s*<\/div>/u);
   expect(designPage).toContain("actions={<ThemeMenuButton />}");
   expect(designPage).not.toContain('position="sticky"');
   expect(gallery).not.toContain("<ThemeToggle");

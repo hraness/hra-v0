@@ -8,6 +8,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 import {
+  CURRENT_HRA_SITE,
   HRA_BRAND_ICON_PATH,
   HRA_RELEASE,
   HRA_RELEASE_CHECKSUM_URL,
@@ -20,9 +21,9 @@ import {
 export const metadata = createPublicSiteMetadata({
   ...hraSearchSite,
   description:
-    "Download the HRA Apple Silicon prerelease, verify its checksum, or build it from public source.",
-  socialTitle: hraSocialPageTitle("HRA for macOS"),
-  title: "HRA for macOS",
+    "Download the archived HRA v0 Apple Silicon prerelease, verify its checksum, or build it from public source.",
+  socialTitle: hraSocialPageTitle("HRA v0 for macOS"),
+  title: "HRA v0 for macOS",
 }, { canonicalPath: "/download" }) satisfies Metadata;
 
 export default function DownloadPage() {
@@ -41,7 +42,7 @@ export default function DownloadPage() {
       <a className="landing-skip-link" href="#main-content">Skip to content</a>
       <div className="download-shell">
         <header className="download-header">
-          <Link className="download-wordmark" href="/download" aria-label="HRA download">
+          <Link className="download-wordmark" href="/download" aria-label="HRA v0 download">
             <span aria-hidden="true">
               <Image
                 alt=""
@@ -51,12 +52,12 @@ export default function DownloadPage() {
                 width={512}
               />
             </span>
-            <strong>HRA</strong>
+            <strong>HRA v0</strong>
           </Link>
           <div className="download-header__actions">
-            <Link className="download-control-plane-link" href="/app">
-              Open control plane
-            </Link>
+            <a className="download-control-plane-link" href={CURRENT_HRA_SITE}>
+              Open current HRA
+            </a>
             <ThemeMenuButton />
           </div>
         </header>
@@ -66,11 +67,11 @@ export default function DownloadPage() {
           <div className="download-hero__copy">
             <p className="download-channel">
               <span aria-hidden="true" />
-              Public prerelease
+              Archived prerelease
             </p>
-            <h1 id="download-title">Download HRA for your Mac.</h1>
+            <h1 id="download-title">Download HRA v0 for your Mac.</h1>
             <p className="download-summary">
-              The native prerelease bundles HRA, Codex, and Git for Apple Silicon Macs running macOS {HRA_RELEASE.minimumMacOS} or newer.
+              This is the final archived v0.1.14 prerelease. It bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS {HRA_RELEASE.minimumMacOS} or newer. New users should start with <a href={CURRENT_HRA_SITE}>the current HRA</a>.
             </p>
             <p className="download-trust-callout">
               <strong>Unknown developer.</strong> This candidate uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. {published
@@ -97,7 +98,7 @@ export default function DownloadPage() {
             </div>
           </div>
 
-          <aside className="download-release-card" aria-label="HRA prerelease details">
+          <aside className="download-release-card" aria-label="HRA v0 prerelease details">
             <div className="download-release-card__topline">
               <span>macOS {HRA_RELEASE.version}</span>
               <span className="download-release-state download-release-state--pending">
@@ -191,25 +192,25 @@ export default function DownloadPage() {
           <section className="download-trust-grid" aria-label="Source and release status">
           <article>
             <p className="eyebrow">Build it yourself</p>
-            <h2>Build HRA from source.</h2>
+            <h2>Build HRA v0 from source.</h2>
             <p>
               The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the ad-hoc release boundary is not right for you.
             </p>
-            <a href="https://github.com/hraness/hra#develop-hra">Read the build instructions →</a>
+            <a href="https://github.com/hraness/hra-v0#develop-hra">Read the build instructions →</a>
           </article>
           <article>
             <p className="eyebrow">What remains</p>
             <h2>Developer ID signing is not available yet.</h2>
             <p>
-              A later release needs a Developer ID certificate and Apple notarization before normal double-click installation can replace the unknown-developer flow. Automatic updates remain disabled until HRA owns a signed update channel.
+              HRA v0 is archived and will not gain a new update channel. The current HRA continues separately at <a href={CURRENT_HRA_SITE}>hra.sh</a>.
             </p>
           </article>
           </section>
         </main>
 
         <footer className="download-footer">
-          <span>HRA prerelease</span>
-          <a href="https://github.com/hraness/hra">github.com/hraness/hra</a>
+          <span>HRA v0 archive</span>
+          <a href="https://github.com/hraness/hra-v0">github.com/hraness/hra-v0</a>
         </footer>
       </div>
     </div>

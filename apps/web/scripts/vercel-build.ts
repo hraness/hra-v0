@@ -1,5 +1,6 @@
 import {
   releasePublicationCommitAllowlistEnvironmentVariable,
+  releaseSurfaceCommitAllowlistEnvironmentVariable,
   verifyReleaseSourceGate,
   verifyVercelReleaseSourceGate,
 } from "../../desktop/runtime/release-download-contract";
@@ -26,7 +27,7 @@ const keyVersionPattern = /^[a-z0-9][a-z0-9._-]{0,31}$/u;
 const vercelHostnamePattern =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+vercel\.app$/u;
 
-const HRA_PRODUCTION_SITE_URL = "https://hra.sh";
+const HRA_PRODUCTION_SITE_URL = "https://hra-weld.vercel.app";
 const HRA_PRODUCTION_RECEIPT_KEY_VERSION = "v1";
 
 export const productionDeploymentNameEnvironmentVariable =
@@ -67,6 +68,8 @@ export const convexOnlyEnvironmentVariables = [
 ] as const;
 export const releasePublicationCommitEnvironmentVariable =
   releasePublicationCommitAllowlistEnvironmentVariable;
+export const releaseSurfaceCommitEnvironmentVariable =
+  releaseSurfaceCommitAllowlistEnvironmentVariable;
 
 /**
  * These values are either deployment authority or complete a production-only
@@ -450,6 +453,7 @@ function applicationEnvironment(
     delete child[variable];
   }
   delete child[releasePublicationCommitEnvironmentVariable];
+  delete child[releaseSurfaceCommitEnvironmentVariable];
   if (surfaceOrigin === undefined) {
     delete child[previewSurfaceOriginEnvironmentVariable];
   } else {

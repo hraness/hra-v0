@@ -13,6 +13,8 @@ import {
 } from "./alternatives/comparisons";
 import { isHraPublicComparisonPath } from "./alternatives/slugs";
 import {
+  CURRENT_HRA_REPOSITORY,
+  CURRENT_HRA_SITE,
   HRA_RELEASE,
   HRA_RELEASE_CHECKSUM_URL,
   HRA_RELEASE_MANIFEST_URL,
@@ -91,22 +93,22 @@ export function pathLooksLikeStaticAsset(pathname: string): boolean {
 
 export function createHraLlmsTxt(): string {
   const pages = [
-    `- [HRA home](${absoluteUrl("/")}): Product overview, fit, and limits`,
-    `- [Download for macOS](${absoluteUrl("/download")}): Apple Silicon prerelease status and source-build guidance`,
-    `- [HRA alternatives](${absoluteUrl("/alternatives")}): First-party-sourced comparisons`,
+    `- [HRA v0 archive](${absoluteUrl("/")}): Archive status, current-HRA handoff, and original product overview`,
+    `- [HRA v0 download](${absoluteUrl("/download")}): Final Apple Silicon prerelease and source-build guidance`,
+    `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
     ...hraComparisons.map((comparison) =>
       `- [HRA vs ${comparison.shortName}](${absoluteUrl(`/alternatives/${comparison.slug}`)}): ${comparison.description}`),
   ];
   return [
-    "# HRA",
+    "# HRA v0 archive",
     "",
     `> ${hraSearchSite.description}`,
     "",
-    "When to use this: reach for HRA when one project needs several coordinated Codex sessions, you have separate authorized Codex accounts to keep isolated, child work must rejoin a durable parent task, or restarts and ambiguous effects need explicit recovery.",
+    `This is the maintained archive for HRA v0. New users should start with [current HRA](${CURRENT_HRA_SITE}) and its [current source](${CURRENT_HRA_REPOSITORY}). Use this site for the final v0.1.14 macOS prerelease, historical source, and v0 documentation.`,
     "",
     "Choose something simpler when you want the first-party Codex experience for a few independent sessions, your team needs one desktop for many model providers, the main problem is remote access from a phone, or a worktree launcher and diff viewer already solve the job.",
     "",
-    "How an agent should call HRA: request `Accept: text/markdown` on the public pages below, or start from this file. Point humans at the website for product decisions, `/download` for the Mac app, and `/app` for the hosted control plane. Do not treat hra.sh as an execution, OAuth, GraphQL, MCP, or commerce API. Provider credentials, repositories, commands, and raw transcripts stay on the paired Mac. The public source is https://github.com/hraness/hra.",
+    "How an agent should use this archive: request `Accept: text/markdown` on the public pages below, or start from this file. Point new users at https://hra.sh. Point v0 users at `/download` and https://github.com/hraness/hra-v0. Do not treat hra-weld.vercel.app as an execution, OAuth, GraphQL, MCP, or commerce API.",
     "",
     "## Pages",
     "",
@@ -117,8 +119,9 @@ export function createHraLlmsTxt(): string {
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)}): This file`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")}): Indexable public HTML pages`,
     `- [Robots](${absoluteUrl("/robots.txt")}): Crawler allow and deny rules`,
-    "- [Public source](https://github.com/hraness/hra): Product source, security architecture, and build checks",
-    "- [Hosted control plane](https://hra.sh/app): Authenticated human supervision; not a public API",
+    "- [HRA v0 source](https://github.com/hraness/hra-v0): Archived product source, security architecture, and build checks",
+    `- [Current HRA](${CURRENT_HRA_SITE}): Current product and documentation`,
+    `- [Current HRA source](${CURRENT_HRA_REPOSITORY}): Current repository`,
     "",
   ].join("\n");
 }
@@ -127,13 +130,13 @@ export const HRA_LLMS_TXT = createHraLlmsTxt();
 
 export function createLandingMarkdown(): string {
   return [
-    "# Give Codex a team, a memory, and a budget.",
+    "# HRA v0 is preserved here.",
     "",
     hraSearchSite.description,
     "",
-    "HRA turns the Codex accounts you already use into one durable system for planning work, delegating it, running it in parallel, and bringing it back for review.",
+    "This site and repository preserve the original HRA macOS metaharness, its source, and its final v0.1.14 prerelease.",
     "",
-    "It is for projects that outgrow independent sessions: work has dependencies, follow-ups need continuity, account identities stay separate, and an interrupted run needs a recoverable answer.",
+    `New users should start with [current HRA](${CURRENT_HRA_SITE}) or its [current source](${CURRENT_HRA_REPOSITORY}). Existing v0 users can use this archive and its final download.`,
     "",
     "## When to use HRA",
     "",
@@ -193,7 +196,8 @@ export function createLandingMarkdown(): string {
     `- [Compare HRA](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
-    "- [Public source](https://github.com/hraness/hra)",
+    "- [HRA v0 source](https://github.com/hraness/hra-v0)",
+    `- [Current HRA](${CURRENT_HRA_SITE})`,
     "",
   ].join("\n");
 }
@@ -228,9 +232,9 @@ export function createDownloadMarkdown(): string {
       ];
 
   return [
-    "# Download HRA for your Mac.",
+    "# Download HRA v0 for your Mac.",
     "",
-    `The native prerelease bundles HRA, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer.`,
+    `This is the final archived v0.1.14 prerelease. It bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`,
     "",
     `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · ${published ? "Published prerelease" : "Candidate"} · Ad-hoc · not notarized.`,
     "",
@@ -240,13 +244,14 @@ export function createDownloadMarkdown(): string {
     "",
     "## Build it yourself",
     "",
-    "The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the ad-hoc release boundary is not right for you: https://github.com/hraness/hra#develop-hra",
+    "The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the ad-hoc release boundary is not right for you: https://github.com/hraness/hra-v0#develop-hra",
     "",
-    "Developer ID signing is not available yet. A later release needs a Developer ID certificate and Apple notarization before normal double-click installation can replace the unknown-developer flow. Automatic updates remain disabled until HRA owns a signed update channel.",
+    `HRA v0 is archived and will not gain a new update channel. The current HRA continues separately at ${CURRENT_HRA_SITE}.`,
     "",
     "## Public pages",
     "",
-    `- [HRA home](${absoluteUrl("/")})`,
+    `- [HRA v0 archive](${absoluteUrl("/")})`,
+    `- [Current HRA](${CURRENT_HRA_SITE})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
     "",
@@ -305,7 +310,7 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
       `- [HRA vs ${candidate.shortName}](${absoluteUrl(`/alternatives/${candidate.slug}`)})`);
 
   return [
-    `# HRA vs ${comparison.shortName}`,
+    `# HRA v0 vs ${comparison.shortName}`,
     "",
     `Last verified ${COMPARISON_REVIEW_LABEL}.`,
     "",
@@ -346,7 +351,7 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
     "",
     ...sources,
     "",
-    `“Not documented” means only that a capability was not found in these sources on ${COMPARISON_REVIEW_LABEL}. It does not prove the product lacks it. HRA is independent and unaffiliated with ${comparison.name}. Report a correction: https://github.com/hraness/hra/issues`,
+    `“Not documented” means only that a capability was not found in these sources on ${COMPARISON_REVIEW_LABEL}. It does not prove the product lacks it. HRA is independent and unaffiliated with ${comparison.name}. Report a correction: https://github.com/hraness/hra-v0/issues`,
     "",
     "## More comparisons",
     "",

@@ -5,9 +5,9 @@ import {
   type WorkspaceManifest,
 } from "./check-public-structure";
 
-const repositoryUrl = "git+https://github.com/hraness/hra.git";
-const homepage = "https://hra.sh";
-const bugs = { url: "https://github.com/hraness/hra/issues" } as const;
+const repositoryUrl = "git+https://github.com/hraness/hra-v0.git";
+const homepage = "https://hra-weld.vercel.app";
+const bugs = { url: "https://github.com/hraness/hra-v0/issues" } as const;
 
 const names = new Map([
   ["apps/cli", "@hraness/hra-cli"],

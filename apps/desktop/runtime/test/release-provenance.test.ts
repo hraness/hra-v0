@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
-  HRA_CANONICAL_REPOSITORY,
+  HRA_V0_CURRENT_REPOSITORY,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
@@ -50,7 +50,7 @@ describe("hermetic release provenance", () => {
 
     expect(evidence).toMatchObject({
       gitDirectory: join(repositoryRoot, ".git"),
-      repository: HRA_CANONICAL_REPOSITORY,
+      repository: HRA_V0_CURRENT_REPOSITORY,
       repositoryRoot,
       status: "clean_canonical_source",
     });
