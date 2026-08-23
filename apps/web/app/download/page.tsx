@@ -188,6 +188,8 @@ export default function DownloadPage() {
         <footer className="download-footer">
           <span>HRA v0 archive</span>
           <Link href="/releases">Release history</Link>
+          <Link href="/privacy">Privacy</Link>
+          <a href="https://github.com/hraness/hra-v0/security/policy">Security</a>
           <a href="https://github.com/hraness/hra-v0">github.com/hraness/hra-v0</a>
         </footer>
       </div>

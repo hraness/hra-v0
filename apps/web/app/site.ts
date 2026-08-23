@@ -63,6 +63,29 @@ export const HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY =
 export const CURRENT_HRA_REPOSITORY =
   "https://github.com/hraness/hra" as const;
 export const CURRENT_HRA_SITE = "https://hra.sh" as const;
+export const HRA_V0_ARCHIVE_ORIGIN =
+  "https://hra-weld.vercel.app" as const;
+export const HRA_PRIVACY_PATH = "/privacy" as const;
+export const HRA_PRIVACY_LAST_UPDATED = "August 23, 2026" as const;
+export const HRA_SECURITY_TXT_PATH = "/.well-known/security.txt" as const;
+export const HRA_SECURITY_CONTACT_URL =
+  `${HRA_V0_REPOSITORY}/security/advisories/new` as const;
+export const HRA_SECURITY_POLICY_URL =
+  `${HRA_V0_REPOSITORY}/security/policy` as const;
+export const HRA_SECURITY_TXT_EXPIRES_AT =
+  "2027-08-22T23:59:59Z" as const;
+
+export function createHraSecurityTxt(): string {
+  return [
+    `Contact: ${HRA_SECURITY_CONTACT_URL}`,
+    `Expires: ${HRA_SECURITY_TXT_EXPIRES_AT}`,
+    `Canonical: ${HRA_V0_ARCHIVE_ORIGIN}${HRA_SECURITY_TXT_PATH}`,
+    `Policy: ${HRA_SECURITY_POLICY_URL}`,
+    "Preferred-Languages: en",
+    "",
+  ].join("\n");
+}
+
 const releaseContract = releaseDownloadSchema.parse(releaseDownload);
 export const HRA_RELEASE = Object.freeze({
   architecture: releaseContract.release.architecture,
@@ -93,7 +116,7 @@ export const hraSearchSite = {
   category: "DeveloperApplication",
   creator: "Hraness",
   name: "HRA v0",
-  origin: "https://hra-weld.vercel.app",
+  origin: HRA_V0_ARCHIVE_ORIGIN,
   publisher: "Hraness",
   socialImage: {
     alt: "HRA v0: the archived Codex metaharness",

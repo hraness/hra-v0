@@ -29,6 +29,7 @@ describe("HRA proxy routing", () => {
       "/alternatives",
       "/alternatives/",
       "/alternatives/codex-app",
+      "/.well-known/security.txt",
       "/apple-icon",
       "/apple-icon.png",
       "/download",
@@ -39,6 +40,8 @@ describe("HRA proxy routing", () => {
       "/llms.txt",
       "/llms.txt/",
       "/opengraph-image",
+      "/privacy",
+      "/privacy/",
       "/robots.txt",
       "/sitemap.xml",
     ]) {
@@ -55,6 +58,7 @@ describe("HRA proxy routing", () => {
       "/alternatives/codex-app/private",
       "/design",
       "/download/private",
+      "/privacy/private",
       "/downloader",
       "/artifacts/HRA.dmg",
     ]) {

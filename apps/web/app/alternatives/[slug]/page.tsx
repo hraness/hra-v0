@@ -242,7 +242,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
 
       <footer className="alternatives-footer">
         <HranessBrand />
-        <Link href="/alternatives">All HRA v0 comparisons</Link>
+        <p><Link href="/alternatives">All HRA v0 comparisons</Link> · <Link href="/privacy">Privacy</Link> · <a href="https://github.com/hraness/hra-v0/security/policy">Security</a></p>
       </footer>
     </div>
   );

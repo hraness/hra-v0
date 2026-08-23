@@ -7,6 +7,7 @@ import {
   createDownloadMarkdown,
   createLandingMarkdown,
   createNotFoundMarkdown,
+  createPrivacyMarkdown,
   createReleaseHistoryMarkdown,
   HRA_LLMS_TXT,
   HRA_LLMS_TXT_PATH,
@@ -29,6 +30,8 @@ describe("HRA public markdown representations", () => {
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/download");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/releases");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/privacy");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/security.txt");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/hra.json");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/alternatives");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/llms.txt");
@@ -80,6 +83,21 @@ describe("HRA public markdown representations", () => {
     expect(publicDocumentMarkdown("/releases")).toBe(markdown);
   });
 
+  test("serves the privacy boundary as a complete Markdown document", () => {
+    const markdown = createPrivacyMarkdown();
+    expect(markdown).toContain("# Privacy at the HRA v0 archive");
+    expect(markdown).toContain("cookieless, personless PostHog pageview");
+    expect(markdown).toContain("Hosted data is coordination data");
+    expect(markdown).toContain("WorkOS subject, human name and email when supplied");
+    expect(markdown).toContain("Execution authority stays local");
+    expect(markdown).toContain("device names and public keys, enrollment state and one-time pairing metadata");
+    expect(markdown).toContain("session lifecycle event kinds and revisions");
+    expect(markdown).toContain("does not publish one fixed retention period");
+    expect(markdown).toContain("https://hra-weld.vercel.app/.well-known/security.txt");
+    expect(publicDocumentMarkdown("/privacy/private")).toBeNull();
+    expect(publicDocumentMarkdown("/privacy/")).toBe(markdown);
+  });
+
   test("gives unmatched public paths a markdown 404 with recovery links", () => {
     const markdown = createNotFoundMarkdown();
     expect(markdown).toContain("# Not found");
@@ -94,6 +112,7 @@ describe("HRA public discovery decisions", () => {
     expect(isPublicHtmlDocumentPath("/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/download/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/releases")).toBeTrue();
+    expect(isPublicHtmlDocumentPath("/privacy/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/codex-app")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/missing")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/app")).toBeFalse();
@@ -157,6 +176,7 @@ describe("HRA public discovery decisions", () => {
       ["/sitemap.xml", "text/markdown"],
       ["/llms.txt", "text/markdown"],
       ["/.well-known/hra.json", "text/markdown"],
+      ["/.well-known/security.txt", "text/markdown"],
       ["/icon.png", "text/markdown"],
     ] as const) {
       expect(resolvePublicDiscovery({

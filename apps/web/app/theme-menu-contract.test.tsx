@@ -27,6 +27,7 @@ test("public and gallery surfaces keep the sole menu as their final header actio
     alternatives,
     comparison,
     download,
+    privacy,
     designPage,
     gallery,
   ] = await Promise.all([
@@ -34,11 +35,12 @@ test("public and gallery surfaces keep the sole menu as their final header actio
     source("./alternatives/page.tsx"),
     source("./alternatives/[slug]/page.tsx"),
     source("./download/page.tsx"),
+    source("./privacy/page.tsx"),
     source("./design/page.tsx"),
     source("../../../packages/internal/design-kit/src/react/design-gallery.tsx"),
   ]);
 
-  for (const page of [landing, alternatives, comparison, download, designPage]) {
+  for (const page of [landing, alternatives, comparison, download, privacy, designPage]) {
     expect(themeMenuUsages(page)).toBe(1);
     expect(page).not.toContain("<ThemeToggle");
   }
@@ -50,6 +52,9 @@ test("public and gallery surfaces keep the sole menu as their final header actio
     /Download<\/Link>\s*<\/nav>\s*<ThemeMenuButton \/>\s*<\/div>/u,
   );
   expect(download).toMatch(/Open current HRA[\s\S]*?<\/a>\s*<ThemeMenuButton \/>\s*<\/div>/u);
+  expect(privacy).toMatch(
+    /Current HRA<\/a>\s*<\/nav>\s*<ThemeMenuButton \/>\s*<\/div>/u,
+  );
   expect(designPage).toContain("actions={<ThemeMenuButton />}");
   expect(designPage).not.toContain('position="sticky"');
   expect(gallery).not.toContain("<ThemeToggle");

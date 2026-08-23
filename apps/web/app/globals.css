@@ -2168,6 +2168,74 @@ code {
   line-height: 1.75;
 }
 
+.privacy-hero {
+  min-height: 34rem;
+}
+
+.privacy-hero h1 {
+  max-width: 15ch;
+}
+
+.privacy-section {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.62fr) minmax(0, 1.38fr);
+  gap: clamp(3rem, 8vw, 7rem);
+}
+
+.privacy-section > div:first-child {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+}
+
+.privacy-section h2 {
+  margin: 0;
+  font-family: var(--editorial-serif);
+  font-size: clamp(2rem, 4vw, 3.7rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.06;
+}
+
+.privacy-copy {
+  max-width: 48rem;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.privacy-copy h3 {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--editorial-serif);
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.privacy-copy h3:not(:first-child) {
+  margin-top: 2.25rem;
+}
+
+.privacy-copy p {
+  margin: 0.85rem 0 0;
+}
+
+.privacy-copy ul {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1.25rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.privacy-copy a {
+  color: var(--text);
+  text-underline-offset: 0.22rem;
+}
+
+.privacy-copy code {
+  color: var(--text);
+  font-size: 0.88em;
+}
+
 .alternatives-footer {
   display: flex;
   align-items: center;
@@ -2630,6 +2698,7 @@ code {
   .alternatives-grid,
   .comparison-short-answer > div:last-child,
   .alternatives-method,
+  .privacy-section,
   .release-history-git {
     grid-template-columns: 1fr;
   }

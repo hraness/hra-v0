@@ -14,6 +14,7 @@ import { metadata as releaseHistoryMetadata } from "./releases/page";
 import { metadata as notFoundMetadata } from "./not-found";
 import OpenGraphImage from "./opengraph-image";
 import { metadata as homepageMetadata } from "./page";
+import { metadata as privacyMetadata } from "./privacy/page";
 import { HRA_LLMS_TXT } from "./public-markdown";
 import robots from "./robots";
 import {
@@ -94,6 +95,13 @@ describe("HRA public discovery contract", () => {
       template: "%s · HRA v0",
     });
     expect(releaseHistoryMetadata.openGraph?.title).toBe("HRA v0 release history · HRA v0");
+    expect(privacyMetadata.title).toEqual({
+      default: "HRA v0 privacy",
+      template: "%s · HRA v0",
+    });
+    expect(privacyMetadata.alternates?.canonical).toBe("https://hra-weld.vercel.app/privacy");
+    expect(privacyMetadata.openGraph?.title).toBe("HRA v0 privacy · HRA v0");
+    expect(privacyMetadata.twitter?.title).toBe("HRA v0 privacy · HRA v0");
     expect(alternativesMetadata.title).toEqual({
       default: "HRA v0 alternatives",
       template: "%s · HRA v0",
@@ -137,6 +145,7 @@ describe("HRA public discovery contract", () => {
   test("keeps crawler files on the existing public product surface", () => {
     expect(HRA_LLMS_TXT).toContain("maintained archive for HRA v0");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/sitemap.xml");
+    expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/security.txt");
     expect(robots().sitemap).toBe("https://hra-weld.vercel.app/sitemap.xml");
     expect(sitemap().some((entry) => entry.url === "https://hra-weld.vercel.app/llms.txt")).toBeFalse();
   });
@@ -166,6 +175,11 @@ describe("HRA public discovery contract", () => {
         changeFrequency: "monthly",
         priority: 0.8,
         url: "https://hra-weld.vercel.app/releases",
+      },
+      {
+        changeFrequency: "yearly",
+        priority: 0.5,
+        url: "https://hra-weld.vercel.app/privacy",
       },
       {
         changeFrequency: "monthly",
