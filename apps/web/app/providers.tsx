@@ -67,6 +67,10 @@ export function Providers({
     pathname === "/"
     || pathname === "/download"
     || pathname === "/download/"
+    || pathname === "/privacy"
+    || pathname === "/privacy/"
+    || pathname === "/releases"
+    || pathname === "/releases/"
     || isHraPublicComparisonPath(pathname);
   const content = standalonePublicRoute || !authConfigured ? children : (
     <AuthKitProvider>

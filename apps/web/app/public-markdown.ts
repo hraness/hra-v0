@@ -25,10 +25,15 @@ import {
 import {
   CURRENT_HRA_REPOSITORY,
   CURRENT_HRA_SITE,
+  HRA_PRIVACY_LAST_UPDATED,
+  HRA_PRIVACY_PATH,
   HRA_RELEASE,
   HRA_RELEASE_CHECKSUM_URL,
   HRA_RELEASE_MANIFEST_URL,
   HRA_RELEASE_URL,
+  HRA_SECURITY_CONTACT_URL,
+  HRA_SECURITY_POLICY_URL,
+  HRA_SECURITY_TXT_PATH,
   hraSearchSite,
 } from "./site";
 
@@ -68,6 +73,7 @@ export function isPublicHtmlDocumentPath(pathname: string): boolean {
   if (canonicalPath === null) return false;
   return canonicalPath === "/"
     || canonicalPath === "/download"
+    || canonicalPath === HRA_PRIVACY_PATH
     || canonicalPath === "/releases"
     || isHraPublicComparisonPath(canonicalPath);
 }
@@ -75,6 +81,7 @@ export function isPublicHtmlDocumentPath(pathname: string): boolean {
 export function isAgentDiscoveryPath(pathname: string): boolean {
   const canonicalPath = canonicalPublicPath(pathname);
   return canonicalPath === HRA_LLMS_TXT_PATH
+    || canonicalPath === HRA_SECURITY_TXT_PATH
     || canonicalPath === "/robots.txt"
     || canonicalPath === "/sitemap.xml";
 }
@@ -107,6 +114,7 @@ export function createHraLlmsTxt(): string {
     `- [HRA v0 archive](${absoluteUrl("/")}): Archive status, current-HRA handoff, and original product overview`,
     `- [HRA v0 download](${absoluteUrl("/download")}): Final Apple Silicon prerelease and source-build guidance`,
     `- [HRA v0 release history](${absoluteUrl("/releases")}): Exact tags, commits, releases, assets, sizes, checksums, and download links`,
+    `- [HRA v0 privacy](${absoluteUrl(HRA_PRIVACY_PATH)}): Public analytics, hosted coordination data, local execution data, retention, and provider boundaries`,
     `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
     ...hraComparisons.map((comparison) =>
       `- [HRA vs ${comparison.shortName}](${absoluteUrl(`/alternatives/${comparison.slug}`)}): ${comparison.description}`),
@@ -132,6 +140,7 @@ export function createHraLlmsTxt(): string {
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")}): Indexable public HTML pages`,
     `- [Robots](${absoluteUrl("/robots.txt")}): Crawler allow and deny rules`,
     `- [Deployment identity](${absoluteUrl(HRA_DEPLOYMENT_IDENTITY_PATH)}): Stable generation and publication marker for cutover checks`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)}): Standard vulnerability-reporting contact and policy links`,
     "- [HRA v0 source](https://github.com/hraness/hra-v0): Archived product source, security architecture, and build checks",
     `- [Current HRA](${CURRENT_HRA_SITE}): Current product and documentation`,
     `- [Current HRA source](${CURRENT_HRA_REPOSITORY}): Current repository`,
@@ -210,6 +219,8 @@ export function createLandingMarkdown(): string {
     `- [Compare HRA](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
+    `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)})`,
     "- [HRA v0 source](https://github.com/hraness/hra-v0)",
     `- [Current HRA](${CURRENT_HRA_SITE})`,
     "",
@@ -256,6 +267,8 @@ export function createDownloadMarkdown(): string {
     `- [Current HRA](${CURRENT_HRA_SITE})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
+    `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)})`,
     "",
   ].join("\n");
 }
@@ -301,6 +314,63 @@ export function createReleaseHistoryMarkdown(): string {
     `- [Download for macOS](${absoluteUrl("/download")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [Deployment identity](${absoluteUrl(HRA_DEPLOYMENT_IDENTITY_PATH)})`,
+    `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)})`,
+    "",
+  ].join("\n");
+}
+
+export function createPrivacyMarkdown(): string {
+  return [
+    "# Privacy at the HRA v0 archive",
+    "",
+    `Last updated ${HRA_PRIVACY_LAST_UPDATED}.`,
+    "",
+    "The archive separates public browsing, signed-in coordination data, and local Mac authority. This notice describes what each boundary can process and where the archived product has no universal retention promise.",
+    "",
+    "## Public browsing stays narrow",
+    "",
+    "On the exact Production archive origin, HRA v0 can send a cookieless, personless PostHog pageview from `/`, `/download`, `/alternatives`, and the exact published comparison pages. The event contains the canonical route, page kind, archive site ID, and comparison slug when applicable. It excludes query text, URL fragments, referrers, account and task data, commands, provider sessions, and custom events.",
+    "",
+    "The analytics client uses memory-only persistence, creates no person profile, disables autocapture, replay, surveys, feature flags, exception capture, and performance capture, and respects the browser's Do Not Track setting. This privacy page, the release ledger, machine-readable files, and every signed-in route are outside the analytics allowlist.",
+    "",
+    "Vercel serves the archive and may process operational request data under its [privacy notice](https://vercel.com/legal/privacy-notice). PostHog processes allowed pageview requests under its [privacy policy](https://posthog.com/privacy). HRA v0 adds no advertising tracker.",
+    "",
+    "## Hosted data is coordination data",
+    "",
+    "WorkOS authenticates humans and organization membership. Convex stores the WorkOS subject, human name and email when supplied, organization and membership provider identifiers, role claims, and the authorized task graph with its related workspaces, agents, runner state, dependencies, claims, submissions, reviews, bounded display events, and human decisions. Those providers process data under the [WorkOS privacy notice](https://workos.com/legal/privacy) and [Convex privacy policy](https://www.convex.dev/legal/privacy).",
+    "",
+    "The service can read accepted task descriptions, comments, reasoning summaries, assistant messages, and remote question text and choices. Structural validation cannot detect every secret in ordinary prose. Do not put credentials, private keys, sensitive local data, or personal data that the work does not require into those fields.",
+    "",
+    "An optional Hraness suite-account link adds bounded account and entitlement status to the signed-in human. It does not identify a Codex account, agent credential, local session, runner, or repository, and it does not grant an HRA role or task capability.",
+    "",
+    "## Execution authority stays local",
+    "",
+    "Codex credentials, provider sessions, raw transcripts, raw reasoning, tool names and arguments, environment values, commands, diffs, command output, canonical filesystem paths, local repositories, worktrees, and local SQLite state remain on the paired Mac. Credential and key material uses macOS Keychain-backed custody where the feature requires it.",
+    "",
+    "Optional cross-device session sync sends an end-to-end encrypted summary projection rather than prompts or transcripts. The relay still stores or observes traffic timing, bounded ciphertext sizes, opaque vault, device, and session identifiers, device names and public keys, enrollment state and one-time pairing metadata, boot and heartbeat presence, membership epochs and device membership, and session lifecycle event kinds and revisions. Accepted remote answers are encrypted to a boot-scoped desktop key and deleted from the relay after acknowledgement or expiry.",
+    "",
+    "## Retention and choices",
+    "",
+    "Durable task and authorization records remain available for history, review, fencing, and recovery. Hosted data residency, backup retention, request-log retention, and incident handling depend on the deployed provider configuration. HRA v0 does not publish one fixed retention period that overrides those systems.",
+    "",
+    "- Use Do Not Track to suppress the optional HRA pageview on analytics-eligible public routes.",
+    "- Do not use the signed-in control plane for content you do not want sent to the hosted service.",
+    "- Sign out and revoke task credentials when a human or agent should no longer have access.",
+    "- For a private data-access or deletion request, [ask a maintainer to establish a private contact channel](https://github.com/hraness/hra-v0/issues/new). Do not include personal data, credentials, or task content in the public issue.",
+    "",
+    "## Security and changes",
+    "",
+    `Read the archived [security policy](${HRA_SECURITY_POLICY_URL}) and [security architecture](https://github.com/hraness/hra-v0/blob/main/SECURITY_ARCHITECTURE.md). Report a vulnerability through [GitHub private vulnerability reporting](${HRA_SECURITY_CONTACT_URL}). The standard contact file is available at ${absoluteUrl(HRA_SECURITY_TXT_PATH)}.`,
+    "",
+    `HRA v0 is archived at v0.1.14. Privacy information for the current HRA belongs at ${CURRENT_HRA_SITE}.`,
+    "",
+    "## Public pages",
+    "",
+    `- [HRA v0 archive](${absoluteUrl("/")})`,
+    `- [Release history](${absoluteUrl("/releases")})`,
+    `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)})`,
     "",
   ].join("\n");
 }
@@ -337,6 +407,8 @@ export function createAlternativesIndexMarkdown(): string {
     `- [Release history](${absoluteUrl("/releases")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
+    `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)})`,
     "",
   ].join("\n");
 }
@@ -408,6 +480,8 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
     `- [All HRA comparisons](${absoluteUrl("/alternatives")})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
+    `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
+    `- [Security contact](${absoluteUrl(HRA_SECURITY_TXT_PATH)})`,
     "",
   ].join("\n");
 }
@@ -424,6 +498,7 @@ export function createNotFoundMarkdown(): string {
     `- [Download for macOS](${absoluteUrl("/download")})`,
     `- [Release history](${absoluteUrl("/releases")})`,
     `- [Comparisons](${absoluteUrl("/alternatives")})`,
+    `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
     "",
@@ -436,6 +511,7 @@ export function publicDocumentMarkdown(pathname: string): string | null {
   if (canonicalPath === "/") return createLandingMarkdown();
   if (canonicalPath === "/download") return createDownloadMarkdown();
   if (canonicalPath === "/releases") return createReleaseHistoryMarkdown();
+  if (canonicalPath === HRA_PRIVACY_PATH) return createPrivacyMarkdown();
   if (canonicalPath === "/alternatives") return createAlternativesIndexMarkdown();
   if (canonicalPath.startsWith("/alternatives/")) {
     const comparison = comparisonForSlug(canonicalPath.slice("/alternatives/".length));

@@ -141,6 +141,8 @@ export default function ReleasesPage() {
 
       <footer className="alternatives-footer">
         <p>HRA v0 archive · exact Git and GitHub evidence</p>
+        <Link href="/privacy">Privacy</Link>
+        <a href="https://github.com/hraness/hra-v0/security/policy">Security</a>
         <a href={HRA_RELEASE_HISTORY.repository}>github.com/hraness/hra-v0</a>
       </footer>
     </div>

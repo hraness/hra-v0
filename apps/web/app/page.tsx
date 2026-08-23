@@ -302,7 +302,9 @@ export default function LandingPage() {
 
       <footer className="landing-footer">
         <HranessBrand />
-        <p>HRA v0 archive. For current HRA, visit <a href={CURRENT_HRA_SITE}>hra.sh</a>.</p>
+        <p>
+          HRA v0 archive. For current HRA, visit <a href={CURRENT_HRA_SITE}>hra.sh</a>. <Link href="/privacy">Privacy</Link> · <a href="https://github.com/hraness/hra-v0/security/policy">Security</a>
+        </p>
         <details className="landing-disclosure">
           <summary>Privacy and analytics</summary>
           <p>

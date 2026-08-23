@@ -112,7 +112,7 @@ export default function AlternativesPage() {
 
       <footer className="alternatives-footer">
         <HranessBrand />
-        <p>See something stale? <a href="https://github.com/hraness/hra-v0/issues">Open a correction.</a></p>
+        <p>See something stale? <a href="https://github.com/hraness/hra-v0/issues">Open a correction.</a> <Link href="/privacy">Privacy</Link> · <a href="https://github.com/hraness/hra-v0/security/policy">Security</a></p>
       </footer>
     </div>
   );

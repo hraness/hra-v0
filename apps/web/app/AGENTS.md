@@ -10,11 +10,13 @@
 - `page.tsx` – canonical public HRA v0 archive landing page. It owns the homepage title, description, current-HRA handoff, canonical `/`, indexable robots, matching social titles, archived product boundaries, public-source entry points, and an honest analytics disclosure.
 - `accept-negotiation.ts` and `public-markdown.ts` – acceptmarkdown.com HTML/Markdown ranking, `llms.txt` body, and public-page Markdown representations used by the proxy.
 - `llms.txt/route.ts` – the root agent-instruction file with when-to-use guidance and links to the existing public pages.
+- `privacy/` – the canonical public notice for bounded analytics, hosted coordination data, local execution custody, retention limits, and service-provider boundaries.
 - `alternatives/` – public, dated, first-party-sourced comparisons that explain HRA's fit without inventing competitor limitations.
 - `app/page.tsx` – authenticated WorkOS/Convex control-plane entry and exact local missing-configuration states.
 - `download/` – public macOS prerelease status and source-build guidance.
 - `releases/` and `release-history.ts` – the checked v0.1.7–v0.1.14 compatibility ledger, immutable release and asset links, and exact Git identities generated from the root release-history manifest.
 - `.well-known/hra.json/` and `deployment-identity.ts` – the stable generation-0 repository and final-publication marker used during domain cutover verification.
+- `.well-known/security.txt/` and `site.ts` – the RFC 9116 vulnerability-reporting contact, expiry, canonical location, policy, and preferred language.
 - `admin-shell.tsx` – authenticated human identity and agent lifecycle supervision inside the persistent rail, shared Hraness footer identity, suite-account status, final top-bar appearance action, and query-addressed Tasks/Access stages.
 - `suite-account-control.tsx` and `suite-account-protocol.ts` – same-origin central OIDC session control, strict receipt parsing, explicit WorkOS-human linking, and verified plan status.
 - `api/suite-auth/` – exact shared OIDC relying-party catch-all with encrypted server-only token custody and fail-closed configuration.
@@ -33,6 +35,8 @@
 - Keep route components focused on human supervision: work readiness, task state, agent identity, leases, and review.
 - Keep `/` public and indexable without mounting WorkOS or Convex. Keep `/app` behind the configured WorkOS proxy and preserve its server-rendered configuration failures before the authenticated control plane mounts.
 - Keep `/download` honest about final archived prerelease status. Link only to the exact public GitHub release contract in `site.ts`, disclose ad-hoc signing and missing notarization before the action, and never embed signing credentials or publication authority in the web app.
+- Keep `/privacy` public, indexable, Markdown-negotiable, and outside analytics ingestion. Match its claims to the implemented analytics allowlist, `SECURITY_ARCHITECTURE.md`, and current provider boundaries; state unknown retention instead of inventing a promise.
+- Keep `/.well-known/security.txt` public and plain text. Require Contact, Expires, Canonical, Policy, and Preferred-Languages fields derived from the checked HRA v0 site and repository identity, and keep its `Expires` value current.
 - Generate `/releases` from the checked root release-history manifest. Preserve every tag from v0.1.7 through v0.1.14, identify v0.1.11 as tag-only, and expose exact object IDs, byte counts, SHA-256 digests, and archive-repository links without treating an older package as current authority.
 - Keep `/.well-known/hra.json` stable and public. Bind generation 0 to the checked numeric GitHub repository ID and final v0.1.14 publication; do not derive it from mutable request or provider state.
 - Keep `/alternatives` and its exact static child routes public. Date each review, cite current first-party sources, distinguish “not documented” from “absent,” and write product-specific analysis rather than name-swapped SEO pages.
