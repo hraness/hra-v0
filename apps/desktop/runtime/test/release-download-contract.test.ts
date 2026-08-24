@@ -573,6 +573,60 @@ describe("release and download convergence", () => {
     }
   });
 
+  test("keeps candidate source valid on a descendant of exact C15", async () => {
+    const repositoryRoot = await realpath(
+      await mkdtemp(join(tmpdir(), "hra-v015-candidate-descendant-")),
+    );
+    temporaryRoots.push(repositoryRoot);
+    await runSetupGit(repositoryRoot, ["init", "--initial-branch=main"]);
+    await runSetupGit(repositoryRoot, [
+      "config",
+      "user.email",
+      "release-test@hraness.com",
+    ]);
+    await runSetupGit(repositoryRoot, [
+      "config",
+      "user.name",
+      "HRA release test",
+    ]);
+    await writeFile(join(repositoryRoot, "q14.txt"), "reviewed Q14 surface\n");
+    await runSetupGit(repositoryRoot, ["add", "q14.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "reviewed Q14"]);
+    const q14Commit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      `${JSON.stringify(candidateContractFixture, null, 2)}\n`,
+    );
+    await writeFile(join(repositoryRoot, "source.txt"), "candidate C15\n");
+    await runSetupGit(repositoryRoot, [
+      "add",
+      "release-download.json",
+      "source.txt",
+    ]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    expect(await verifyReleaseSourceState(candidateContractFixture, {
+      candidateParentCommit: q14Commit,
+      environment: {},
+      repositoryRoot,
+    })).toMatchObject({
+      availability: "candidate",
+      status: "valid_candidate_contract",
+    });
+    await writeFile(join(repositoryRoot, "follow-up.txt"), "archive follow-up\n");
+    await runSetupGit(repositoryRoot, ["add", "follow-up.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "archive follow-up"]);
+    expect(await verifyReleaseSourceState(candidateContractFixture, {
+      candidateParentCommit: q14Commit,
+      environment: {},
+      repositoryRoot,
+    })).toMatchObject({
+      availability: "candidate",
+      status: "valid_candidate_contract",
+    });
+  });
+
   test("binds published v0.1.15 to exact same-coordinate C15-to-P15", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
