@@ -5,7 +5,7 @@
 - `providers.tsx` – shared appearance/router composition around the optional WorkOS and Convex providers.
 - `analytics.ts` and `analytics-provider.tsx` – strict canonical-public-route classification and anonymous, cookieless PostHog pageview delivery.
 - `workos-configuration.ts` – one whitespace-safe WorkOS configuration predicate shared by proxy, auth routes, layout providers, and the `/app` configuration state.
-- `global-error.tsx`, `error.tsx`, `loading.tsx`, and `not-found.tsx` – shared, themed route-state boundaries, including the root-layout replacement. `loading.tsx` stays heading-free so streamed public HTML cannot grow a second H1. `not-found.tsx` owns a distinct noindex title and must not inherit the homepage canonical.
+- `global-error.tsx`, `error.tsx`, `loading.tsx`, and `not-found.tsx` – shared, themed route-state boundaries, including the root-layout replacement. `loading.tsx` stays heading-free and main-free so streamed public HTML cannot grow a second H1 or a leftover first `<main>` Loading landmark. `not-found.tsx` owns a distinct noindex title and must not inherit the homepage canonical.
 - `standalone-theme-header.tsx` – the single final header appearance action shared by configuration, loading, missing-route, signed-out, and recoverable standalone states.
 - `page.tsx` – canonical public HRA v0 archive landing page. It owns the homepage title, description, current-HRA handoff, canonical `/`, indexable robots, matching social titles, archived product boundaries, public-source entry points, and an honest analytics disclosure.
 - `accept-negotiation.ts` and `public-markdown.ts` – acceptmarkdown.com HTML/Markdown ranking, `llms.txt` body, and public-page Markdown representations used by the proxy.

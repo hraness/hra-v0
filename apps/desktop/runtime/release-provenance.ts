@@ -216,6 +216,63 @@ export async function inspectReleaseTag(
 }
 
 /**
+ * Find the unique C15 commit on the path from Q14 to HEAD. HEAD may be C15 or
+ * a later descendant; packaging still requires a standalone C15 checkout.
+ */
+export async function resolveReleaseCandidateCommit(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{
+    expectedParentCommit?: string;
+  }> = {},
+): Promise<string> {
+  const expectedParentCommit = requireObjectId(
+    options.expectedParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+    "HRA v0.1.15 Q14 parent commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  let mergeBase: string;
+  try {
+    mergeBase = requireObjectId(
+      await runner.run(["merge-base", expectedParentCommit, repository.commit]),
+      "HRA v0.1.15 Q14 merge base",
+    );
+  } catch {
+    throw new Error(
+      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+    );
+  }
+  if (mergeBase !== expectedParentCommit) {
+    throw new Error(
+      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+    );
+  }
+  const historyOutput = (await runner.run([
+    "rev-list",
+    "--parents",
+    "--ancestry-path",
+    `${expectedParentCommit}..${repository.commit}`,
+  ])).trim();
+  const q14Children: string[] = [];
+  for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
+    const objectIds = line.trim().split(/\s+/u);
+    const commit = objectIds[0] ?? "";
+    const parents = objectIds.slice(1);
+    if (parents.length === 1 && parents[0] === expectedParentCommit) {
+      q14Children.push(requireObjectId(commit, "HRA v0.1.15 candidate commit"));
+    }
+  }
+  if (q14Children.length !== 1) {
+    throw new Error(
+      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+    );
+  }
+  return q14Children[0] ?? "";
+}
+
+/**
  * Bind C15 to the final reviewed Q14 archive surface. The optional expected
  * parent is a focused-test seam; production callers always use the pinned Q14
  * object above.

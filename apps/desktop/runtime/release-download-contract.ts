@@ -40,6 +40,7 @@ import {
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
+  resolveReleaseCandidateCommit,
   type ArchiveReleaseSurfaceEvidence,
   type CanonicalArchiveReleaseEvidence,
   type CanonicalReleasePublicationEvidence,
@@ -686,9 +687,14 @@ export async function verifyReleaseSourceState(
 ): Promise<ReleaseSourceGateEvidence> {
   if (contract.release.availability === "candidate") {
     const repository = await inspectReleaseSourceRepository(options);
+    const expectedParentCommit =
+      options.candidateParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT;
+    const candidateCommit = await resolveReleaseCandidateCommit(repository, {
+      expectedParentCommit,
+    });
     await inspectReleaseCandidateLineage(repository, {
-      expectedParentCommit:
-        options.candidateParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+      candidateCommit,
+      expectedParentCommit,
     });
     return Object.freeze({
       availability: "candidate",
