@@ -573,7 +573,7 @@ describe("release and download convergence", () => {
     }
   });
 
-  test("keeps candidate source valid on a descendant of exact final C15", async () => {
+  test("keeps candidate source valid on a descendant of the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-final-C15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-candidate-descendant-")),
     );
@@ -627,11 +627,25 @@ describe("release and download convergence", () => {
     const hostTrustCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
+    await writeFile(
+      join(repositoryRoot, "bundle-code-authority.txt"),
+      "bundle code authority\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "bundle-code-authority.txt"]);
+    await runSetupGit(repositoryRoot, [
+      "commit",
+      "-m",
+      "bundle-code-authority repair",
+    ]);
+    const bundleCodeAuthorityCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
     await writeFile(join(repositoryRoot, "candidate.txt"), "final C15\n");
     await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
+      candidateBundleCodeAuthorityCommit: bundleCodeAuthorityCommit,
       candidateCustodyRepairCommit: custodyRepairCommit,
       candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
@@ -647,6 +661,7 @@ describe("release and download convergence", () => {
     await runSetupGit(repositoryRoot, ["commit", "-m", "archive follow-up"]);
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
+      candidateBundleCodeAuthorityCommit: bundleCodeAuthorityCommit,
       candidateCustodyRepairCommit: custodyRepairCommit,
       candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
@@ -659,7 +674,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-final-C15-to-P15 chain", async () => {
+  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-final-C15-to-P15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
     );
@@ -713,6 +728,19 @@ describe("release and download convergence", () => {
     const hostTrustCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
+    await writeFile(
+      join(repositoryRoot, "bundle-code-authority.txt"),
+      "bundle code authority\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "bundle-code-authority.txt"]);
+    await runSetupGit(repositoryRoot, [
+      "commit",
+      "-m",
+      "bundle-code-authority repair",
+    ]);
+    const bundleCodeAuthorityCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
     await writeFile(join(repositoryRoot, "candidate.txt"), "final C15\n");
     await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
@@ -721,6 +749,7 @@ describe("release and download convergence", () => {
     ).trim();
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
+      candidateBundleCodeAuthorityCommit: bundleCodeAuthorityCommit,
       candidateCustodyRepairCommit: custodyRepairCommit,
       candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
@@ -791,6 +820,7 @@ describe("release and download convergence", () => {
       repository,
       {
         expectedBaseCommit: baseCommit,
+        expectedBundleCodeAuthorityCommit: bundleCodeAuthorityCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
         expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
@@ -847,6 +877,7 @@ describe("release and download convergence", () => {
     await expectRejection(
       verifyPublishedReleaseSourceEvidence(published, descendant, {
         expectedBaseCommit: baseCommit,
+        expectedBundleCodeAuthorityCommit: bundleCodeAuthorityCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
         expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,

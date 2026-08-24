@@ -89,9 +89,14 @@ function commandEnvironment(): Readonly<Record<string, string>> {
   return environment;
 }
 
+export function escapeExtendedRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 async function run(
   argv: readonly string[],
   label: string,
+  acceptedExitCodes: readonly number[] = [0],
 ): Promise<CommandResult> {
   const child = Bun.spawn([...argv], {
     cwd: macosPackage.desktopRoot,
@@ -112,7 +117,7 @@ async function run(
   }
   const stdout = Buffer.from(stdoutBytes).toString("utf8");
   const stderr = Buffer.from(stderrBytes).toString("utf8");
-  if (exitCode !== 0) {
+  if (!acceptedExitCodes.includes(exitCode)) {
     throw new Error(`${label} failed without exposing fixture paths or output.`);
   }
   return Object.freeze({ exitCode, stderr, stdout });
@@ -129,6 +134,33 @@ async function sha256(path: string): Promise<string> {
     await descriptor.close();
   }
   return hasher.digest("hex");
+}
+
+export async function mutateRendererIndexFixture(
+  rendererRoot: string,
+): Promise<void> {
+  const indexPath = join(rendererRoot, "index.html");
+  const manifestPath = join(rendererRoot, "asset-manifest.zon");
+  const original = await readFile(indexPath);
+  const mutated = Buffer.concat([
+    original,
+    Buffer.from("\n<!-- adversarial renderer -->\n", "utf8"),
+  ]);
+  const rowPrefix =
+    '  .{ .id = "index.html", .bundle_path = "index.html", ' +
+    '.source_path = "frontend/dist/index.html", .byte_len = ';
+  const originalRow =
+    `${rowPrefix}${original.byteLength}, .hash = "` +
+    `${createHash("sha256").update(original).digest("hex")}" },`;
+  const mutatedRow =
+    `${rowPrefix}${mutated.byteLength}, .hash = "` +
+    `${createHash("sha256").update(mutated).digest("hex")}" },`;
+  const manifest = await readFile(manifestPath, "utf8");
+  if (manifest.split(originalRow).length !== 2) {
+    throw new Error("Renderer-only fixture manifest is not exact before mutation.");
+  }
+  await writeFile(indexPath, mutated);
+  await writeFile(manifestPath, manifest.replace(originalRow, mutatedRow));
 }
 
 async function packageTreeAuthority(root: string): Promise<readonly TreeEntry[]> {
@@ -235,10 +267,16 @@ function requireEqual(
 
 async function requireNoFixtureProcess(root: string): Promise<void> {
   const processes = await run(
-    ["/bin/ps", "-axo", "command="],
+    [
+      "/usr/bin/pgrep",
+      "-f",
+      "--",
+      escapeExtendedRegularExpression(root),
+    ],
     "Adversarial fixture residue inspection",
+    [0, 1],
   );
-  if (processes.stdout.split("\n").some(line => line.includes(root))) {
+  if (processes.exitCode === 0 && processes.stdout.trim().length > 0) {
     throw new Error("Adversarial package probe left a fixture process alive.");
   }
 }
@@ -381,6 +419,7 @@ async function runFixture(
   assertSingleFault: (snapshot: AuthoritySnapshot) => void,
   treeDelta: Readonly<{
     allowed: readonly string[];
+    expectStaticAcceptance?: true;
     required: readonly string[];
   }>,
   assertAfterProbe?: (appRoot: string) => Promise<void> | void,
@@ -408,7 +447,11 @@ async function runFixture(
       throw new Error("Adversarial fixture did not replace the outer CodeDirectory.");
     }
     await requireDeepSeal(appRoot);
-    await requireProductionVerifierRejects(appRoot);
+    if (treeDelta.expectStaticAcceptance === true) {
+      await verifyMacOSApp(appRoot);
+    } else {
+      await requireProductionVerifierRejects(appRoot);
+    }
     await requireAuthorizeOnlyRejection(
       appRoot,
       custodyProbeSupervisor,
@@ -448,6 +491,8 @@ async function main(): Promise<void> {
   const helperTreePath =
     "Contents/Resources/runtime/bin/oprte-keychain-custodian";
   const rendererIndexTreePath = "Contents/Resources/frontend/dist/index.html";
+  const rendererManifestTreePath =
+    "Contents/Resources/frontend/dist/asset-manifest.zon";
   const searchListBefore = await searchListBytes();
   const root = await realpath(await mkdtemp(join(
     tmpdir(),
@@ -466,15 +511,7 @@ async function main(): Promise<void> {
         baselineEvidence.custodyProbeSupervisor,
         contexts,
         async ({ appRoot }) => {
-          const index = join(
-            packagePaths(appRoot).renderer,
-            "index.html",
-          );
-          const original = await readFile(index);
-          await writeFile(index, Buffer.concat([
-            original,
-            Buffer.from("\n<!-- adversarial renderer -->\n", "utf8"),
-          ]));
+          await mutateRendererIndexFixture(packagePaths(appRoot).renderer);
           await signReleaseCode(
             appRoot,
             macosPackage.bundleIdentifier,
@@ -493,8 +530,14 @@ async function main(): Promise<void> {
             codeResourcesTreePath,
             hostTreePath,
             rendererIndexTreePath,
+            rendererManifestTreePath,
           ],
-          required: [hostTreePath, rendererIndexTreePath],
+          expectStaticAcceptance: true,
+          required: [
+            hostTreePath,
+            rendererIndexTreePath,
+            rendererManifestTreePath,
+          ],
         },
       );
       await runFixture(

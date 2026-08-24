@@ -26,6 +26,7 @@ import {
 import {
   launchSmokeMacOSApp,
   probePackagedCustodyAuthorization,
+  probePackagedCustodyStatus,
   type MacOSPackageResidentProbeDependencies,
 } from "../verify-macos-package";
 import { assertReleaseStrictVerification } from "../package-macos";
@@ -125,6 +126,30 @@ function delayedFifoWriter(path: string): ReturnType<typeof Bun.spawn> {
 }
 
 describe("macOS package resident probe integration", () => {
+  test("inspects signed custody status with the exact candidate authority", async () => {
+    const fixture = await packageProbeFixture();
+    try {
+      const captured: Array<Readonly<{
+        app: string;
+        authority: CustodyProbeSupervisorAuthorityEvidence;
+      }>> = [];
+      await probePackagedCustodyStatus(
+        fixture.app,
+        testCustodyProbeSupervisorAuthority,
+        (app, authority) => {
+          captured.push({ app, authority });
+          return Promise.resolve({ state: "absent" });
+        },
+      );
+      expect(captured).toEqual([{
+        app: fixture.app,
+        authority: testCustodyProbeSupervisorAuthority,
+      }]);
+    } finally {
+      await rm(fixture.root, { force: true, recursive: true });
+    }
+  });
+
   test("authorizes the exact receipt-bound candidate and rejects later package substitution", async () => {
     const fixture = await packageProbeFixture();
     try {
