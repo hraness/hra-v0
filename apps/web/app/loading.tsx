@@ -7,7 +7,7 @@ import { StandaloneThemeHeader } from "./standalone-theme-header";
 
 export default function Loading() {
   return (
-    <main className="state-page" id="main-content">
+    <div className="state-page">
       <StandaloneThemeHeader />
       <section className="state-card state-card--loading" role="status">
         <div className="state-loading-row">
@@ -18,6 +18,6 @@ export default function Loading() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

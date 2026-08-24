@@ -89,7 +89,10 @@ describe("HRA shared appearance and shell contract", () => {
     expect(error).toContain("<InlineAlert");
     expect(loading).toContain("<Spinner");
     expect(loading).toContain("<Skeleton");
+    expect(loading).toContain('<div className="state-page">');
     expect(loading).not.toMatch(/<h1\b/u);
+    expect(loading).not.toContain("<main");
+    expect(loading).not.toContain('id="main-content"');
     expect(loading).not.toContain("Opening HRA");
     expect(loading).not.toContain("PageIntro");
     expect(loading).not.toContain("Restoring the server-authorized organization");
