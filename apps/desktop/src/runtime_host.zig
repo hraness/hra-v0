@@ -220,6 +220,40 @@ extern fn hra_macos_run_attested_keychain_custodian(
 ) bool;
 extern fn hra_macos_prepare_attested_keychain_custodian_operations() void;
 extern fn hra_macos_cancel_attested_keychain_custodian() void;
+const MacOSAttestedGateway = extern struct {
+    process_identifier: c_int,
+    standard_input: c_int,
+    standard_output: c_int,
+    start_seconds: u64,
+    start_microseconds: u64,
+};
+extern fn hra_macos_spawn_attested_gateway(
+    path: [*]const u8,
+    path_length: usize,
+    environment: [*:null]const ?[*:0]const u8,
+    out_gateway: *MacOSAttestedGateway,
+) bool;
+extern fn hra_macos_spawn_attested_gateway_for_custody_probe(
+    path: [*]const u8,
+    path_length: usize,
+    environment: [*:null]const ?[*:0]const u8,
+    out_gateway: *MacOSAttestedGateway,
+) bool;
+extern fn hra_macos_clear_attested_gateway_generation(
+    process_identifier: c_int,
+    start_seconds: u64,
+    start_microseconds: u64,
+) void;
+extern fn hra_macos_custody_probe_parent_remains_live_or_retire() bool;
+
+fn requirePackagedProbeParent() !void {
+    if (comptime !std.mem.eql(u8, build_options.platform, "macos")) {
+        return error.UnsupportedPlatform;
+    }
+    if (!hra_macos_custody_probe_parent_remains_live_or_retire()) {
+        return error.CustodyProbeParentUnavailable;
+    }
+}
 const LegacyHarnessCustodyFailureSubstage = enum(c_int) {
     none = 0,
     admission,
@@ -729,6 +763,7 @@ pub fn runPackagedSmoke(
     init: std.process.Init,
     raw_root: []const u8,
 ) !void {
+    try requirePackagedProbeParent();
     const allocator = std.heap.page_allocator;
     const root = try normalizedPackageSmokeRoot(allocator, raw_root);
     defer allocator.free(root);
@@ -760,11 +795,288 @@ pub fn runPackagedSmoke(
         .create_no_window = true,
     });
     defer child.kill(init.io);
-    std.Io.sleep(
+    try requirePackagedProbeParent();
+    var remaining_milliseconds: i64 = 30_000;
+    while (remaining_milliseconds > 0) {
+        try requirePackagedProbeParent();
+        const interval = @min(remaining_milliseconds, 10);
+        std.Io.sleep(
+            init.io,
+            .fromMilliseconds(interval),
+            .awake,
+        ) catch return error.PackageSmokeInterrupted;
+        remaining_milliseconds -= interval;
+    }
+    try requirePackagedProbeParent();
+}
+
+fn exactLowerHex(value: []const u8, expected_length: usize) bool {
+    if (value.len != expected_length) return false;
+    for (value) |byte| switch (byte) {
+        '0'...'9', 'a'...'f' => {},
+        else => return false,
+    };
+    return true;
+}
+
+const CustodyAuthorizationAuthority = struct {
+    gateway_file_sha256: [64]u8,
+    renderer_authority_sha256: [64]u8,
+};
+
+fn parseAuthorizationProbeResponse(
+    response: []const u8,
+    out: *CustodyAuthorizationAuthority,
+) bool {
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        std.heap.page_allocator,
+        response,
+        .{},
+    ) catch return false;
+    defer parsed.deinit();
+    const object = switch (parsed.value) {
+        .object => |candidate| candidate,
+        else => return false,
+    };
+    if (object.count() != 5) return false;
+    const version = switch (object.get("version") orelse return false) {
+        .integer => |candidate| candidate,
+        else => return false,
+    };
+    const ok = switch (object.get("ok") orelse return false) {
+        .bool => |candidate| candidate,
+        else => return false,
+    };
+    const authorization = switch (object.get("authorization") orelse return false) {
+        .string => |candidate| candidate,
+        else => return false,
+    };
+    const gateway_file_sha256 = switch (object.get("gatewayFileSha256") orelse return false) {
+        .string => |candidate| candidate,
+        else => return false,
+    };
+    const renderer_authority_sha256 = switch (object.get("rendererAuthoritySha256") orelse return false) {
+        .string => |candidate| candidate,
+        else => return false,
+    };
+    if (!(version == 1 and ok and
+        std.mem.eql(u8, authorization, "hra-parent-v1") and
+        exactLowerHex(gateway_file_sha256, 64) and
+        exactLowerHex(renderer_authority_sha256, 64))) return false;
+    @memcpy(&out.gateway_file_sha256, gateway_file_sha256);
+    @memcpy(&out.renderer_authority_sha256, renderer_authority_sha256);
+    return true;
+}
+
+fn runPackagedCustodyHelperProbe(
+    init: std.process.Init,
+    request: []const u8,
+    response: []u8,
+) !usize {
+    if (comptime !std.mem.eql(u8, build_options.platform, "macos")) {
+        return error.UnsupportedPlatform;
+    }
+    try requirePackagedProbeParent();
+    const allocator = std.heap.page_allocator;
+    var paths = try resolveRuntimePaths(
         init.io,
-        .fromMilliseconds(30_000),
-        .awake,
-    ) catch {};
+        allocator,
+        init.environ_map,
+        .{},
+    );
+    defer paths.deinit(allocator);
+    var environment = try buildSanitizedEnvironment(
+        allocator,
+        init.environ_map,
+        &paths,
+        .production,
+        null,
+    );
+    defer environment.deinit();
+    var environment_block = try environment.createPosixBlock(allocator, .{});
+    defer environment_block.deinit(allocator);
+
+    var attested: MacOSAttestedGateway = undefined;
+    try requirePackagedProbeParent();
+    if (!hra_macos_spawn_attested_gateway_for_custody_probe(
+        paths.gateway_path.ptr,
+        paths.gateway_path.len,
+        environment_block.slice.ptr,
+        &attested,
+    ) or attested.process_identifier <= 1 or
+        attested.standard_input < 0 or attested.standard_output < 0 or
+        attested.start_seconds == 0)
+    {
+        return error.GatewayAttestationFailed;
+    }
+    try requirePackagedProbeParent();
+    var child = std.process.Child{
+        .id = attested.process_identifier,
+        .thread_handle = {},
+        .stdin = .{
+            .handle = attested.standard_input,
+            .flags = .{ .nonblocking = false },
+        },
+        .stdout = .{
+            .handle = attested.standard_output,
+            .flags = .{ .nonblocking = false },
+        },
+        .stderr = null,
+        .request_resource_usage_statistics = false,
+    };
+    defer {
+        // The dedicated native verifier supervisor owns the one group-level
+        // signal for this exact probe topology. Retire only the directly owned
+        // idle gateway birth here, then let the supervisor prove the complete
+        // host group quiescent while the host remains WNOWAIT-unreaped.
+        child.kill(init.io);
+        hra_macos_clear_attested_gateway_generation(
+            attested.process_identifier,
+            attested.start_seconds,
+            attested.start_microseconds,
+        );
+    }
+
+    hra_macos_prepare_attested_keychain_custodian_operations();
+    defer hra_macos_cancel_attested_keychain_custodian();
+    var response_length: usize = 0;
+    try requirePackagedProbeParent();
+    if (!hra_macos_run_attested_keychain_custodian(
+        paths.keychain_custodian_path.ptr,
+        paths.keychain_custodian_path.len,
+        request.ptr,
+        request.len,
+        response.ptr,
+        response.len,
+        &response_length,
+        30_000,
+        false,
+    )) return error.CustodyProbeFailed;
+    try requirePackagedProbeParent();
+    return response_length;
+}
+
+/// Exercises the exact production host -> suspended/attested gateway ->
+/// suspended/attested custodian chain without issuing a SecItem operation.
+/// The verifier receipt carries the helper-returned authority values so an
+/// independent package verifier can bind them to the final package bytes.
+pub fn runPackagedCustodyAuthorizationProbe(init: std.process.Init) !void {
+    const request = "{\"action\":\"authorize\",\"version\":1}";
+    var response: [1024]u8 = undefined;
+    defer secureWipe(&response);
+    const response_length = try runPackagedCustodyHelperProbe(
+        init,
+        request,
+        &response,
+    );
+    var authority: CustodyAuthorizationAuthority = undefined;
+    defer secureWipe(std.mem.asBytes(&authority));
+    if (!parseAuthorizationProbeResponse(
+            response[0..response_length],
+            &authority)) return error.CustodyAuthorizationFailed;
+    var receipt: [320]u8 = undefined;
+    defer secureWipe(&receipt);
+    const encoded = std.fmt.bufPrint(
+        &receipt,
+        "{{\"authorization\":\"hra-parent-v1\"," ++
+            "\"gatewayFileSha256\":\"{s}\"," ++
+            "\"keychainAccessed\":false,\"ok\":true," ++
+            "\"rendererAuthoritySha256\":\"{s}\",\"version\":1}}\n",
+        .{
+            &authority.gateway_file_sha256,
+            &authority.renderer_authority_sha256,
+        },
+    ) catch return error.CustodyAuthorizationFailed;
+    try std.Io.File.stdout().writeStreamingAll(init.io, encoded);
+}
+
+const CustodyStatus = union(enum) {
+    absent,
+    present: [64]u8,
+};
+
+fn parseCustodyStatusResponse(response: []const u8) ?CustodyStatus {
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        std.heap.page_allocator,
+        response,
+        .{},
+    ) catch return null;
+    defer parsed.deinit();
+    const object = switch (parsed.value) {
+        .object => |candidate| candidate,
+        else => return null,
+    };
+    const version = switch (object.get("version") orelse return null) {
+        .integer => |candidate| candidate,
+        else => return null,
+    };
+    const ok = switch (object.get("ok") orelse return null) {
+        .bool => |candidate| candidate,
+        else => return null,
+    };
+    const state = switch (object.get("state") orelse return null) {
+        .string => |candidate| candidate,
+        else => return null,
+    };
+    const strict_acl = switch (object.get("strictAcl") orelse return null) {
+        .bool => |candidate| candidate,
+        else => return null,
+    };
+    if (version != 1 or !ok) return null;
+    if (std.mem.eql(u8, state, "absent")) {
+        return if (object.count() == 4 and !strict_acl) .absent else null;
+    }
+    if (!std.mem.eql(u8, state, "present") or object.count() != 5 or
+        !strict_acl) return null;
+    const digest = switch (object.get("envelopeSha256") orelse return null) {
+        .string => |candidate| candidate,
+        else => return null,
+    };
+    if (!exactLowerHex(digest, 64)) return null;
+    var copied: [64]u8 = undefined;
+    @memcpy(&copied, digest);
+    return .{ .present = copied };
+}
+
+/// Reports only whether the exact login-Keychain item is absent or present
+/// under the strict helper ACL. A present result carries only the canonical
+/// envelope digest, never the envelope or any filesystem path.
+pub fn runPackagedCustodyStatusProbe(init: std.process.Init) !void {
+    const request = "{\"action\":\"status\",\"version\":1}";
+    var response: [1024]u8 = undefined;
+    defer secureWipe(&response);
+    const response_length = try runPackagedCustodyHelperProbe(
+        init,
+        request,
+        &response,
+    );
+    var status = parseCustodyStatusResponse(
+        response[0..response_length]) orelse
+        return error.CustodyStatusFailed;
+    defer switch (status) {
+        .absent => {},
+        .present => |*digest| secureWipe(digest),
+    };
+    switch (status) {
+        .absent => try std.Io.File.stdout().writeStreamingAll(
+            init.io,
+            "{\"schemaVersion\":1,\"state\":\"absent\"}\n",
+        ),
+        .present => |digest| {
+            var receipt: [192]u8 = undefined;
+            defer secureWipe(&receipt);
+            const encoded = std.fmt.bufPrint(
+                &receipt,
+                "{{\"envelopeSha256\":\"{s}\"," ++
+                    "\"schemaVersion\":1,\"state\":\"present\"," ++
+                    "\"strictAcl\":true}}\n",
+                .{&digest},
+            ) catch return error.CustodyStatusFailed;
+            try std.Io.File.stdout().writeStreamingAll(init.io, encoded);
+        },
+    }
 }
 
 fn addStartupRemovalRecoveryEnvironment(
@@ -1068,8 +1380,13 @@ fn encodeHarnessCustodyNativeResultRequest(
                     return error.OutOfMemory;
             }
             payload.writer.print(
-                ",\"migratedFromLegacy\":{},\"legacyPreserved\":{}}}",
-                .{ read.migrated_from_legacy, read.legacy_preserved },
+                ",\"strictAcl\":{},\"migratedFromLegacy\":{}," ++
+                    "\"legacyPreserved\":{}}}",
+                .{
+                    read.value.strict_acl,
+                    read.migrated_from_legacy,
+                    read.legacy_preserved,
+                },
             ) catch return error.OutOfMemory;
         },
         .set_if_absent => |set| {
@@ -1079,7 +1396,10 @@ fn encodeHarnessCustodyNativeResultRequest(
                 return error.OutOfMemory;
             std.json.Stringify.value(value, .{}, &payload.writer) catch
                 return error.OutOfMemory;
-            payload.writer.print(",\"created\":{}}}", .{set.created}) catch
+            payload.writer.print(",\"created\":{},\"strictAcl\":{}}}", .{
+                set.created,
+                set.value.strict_acl,
+            }) catch
                 return error.OutOfMemory;
         },
         .delete_both => |deleted| payload.writer.print(
@@ -1590,6 +1910,7 @@ pub const HarnessCustodyReadState = enum {
 
 pub const HarnessCustodyValue = struct {
     state: HarnessCustodyReadState = .absent,
+    strict_acl: bool = false,
     value: [max_harness_install_envelope_bytes]u8 = undefined,
     value_len: usize = 0,
 
@@ -3868,21 +4189,29 @@ fn parseHarnessCustodyHelperResponse(
                 .string => |value| value,
                 else => return false,
             };
+            const strict_acl = switch (object.get("strictAcl") orelse return false) {
+                .bool => |candidate| candidate,
+                else => return false,
+            };
             if (std.mem.eql(u8, state, "absent")) {
-                if (object.count() != 3) return false;
+                if (object.count() != 4 or strict_acl) return false;
                 output.* = .{
                     .envelope_read = .{ .state = .absent },
                 };
                 return true;
             }
-            if (!std.mem.eql(u8, state, "present") or object.count() != 4)
+            if (!std.mem.eql(u8, state, "present") or object.count() != 5 or
+                !strict_acl)
                 return false;
             const value = switch (object.get("value") orelse return false) {
                 .string => |candidate| candidate,
                 else => return false,
             };
             if (!canonicalHarnessInstallEnvelope(value)) return false;
-            var result: HarnessCustodyValue = .{ .state = .present };
+            var result: HarnessCustodyValue = .{
+                .state = .present,
+                .strict_acl = true,
+            };
             defer wipeHarnessCustodyValue(&result);
             result.value_len = boundedCopy(&result.value, value) catch
                 return false;
@@ -3890,7 +4219,7 @@ fn parseHarnessCustodyHelperResponse(
             return true;
         },
         .envelope_set_if_absent => {
-            if (object.count() != 4) return false;
+            if (object.count() != 5) return false;
             const value = switch (object.get("value") orelse return false) {
                 .string => |candidate| candidate,
                 else => return false,
@@ -3899,8 +4228,15 @@ fn parseHarnessCustodyHelperResponse(
                 .bool => |candidate| candidate,
                 else => return false,
             };
-            if (!canonicalHarnessInstallEnvelope(value)) return false;
-            var authoritative: HarnessCustodyValue = .{ .state = .present };
+            const strict_acl = switch (object.get("strictAcl") orelse return false) {
+                .bool => |candidate| candidate,
+                else => return false,
+            };
+            if (!strict_acl or !canonicalHarnessInstallEnvelope(value)) return false;
+            var authoritative: HarnessCustodyValue = .{
+                .state = .present,
+                .strict_acl = true,
+            };
             defer wipeHarnessCustodyValue(&authoritative);
             authoritative.value_len = boundedCopy(
                 &authoritative.value,
@@ -5369,6 +5705,9 @@ pub const RuntimeHost = struct {
     services: ?native_sdk.platform.PlatformServices = null,
 
     child: ?std.process.Child = null,
+    attested_gateway_process_identifier: c_int = -1,
+    attested_gateway_start_seconds: u64 = 0,
+    attested_gateway_start_microseconds: u64 = 0,
     writer_thread: ?std.Thread = null,
     reader_thread: ?std.Thread = null,
     account_profile_thread: ?std.Thread = null,
@@ -5599,7 +5938,48 @@ pub const RuntimeHost = struct {
         }
 
         const executable_path = gateway_executable_path orelse paths.gateway_path;
-        var child = try std.process.spawn(self.io, .{
+        const requires_attested_gateway = (comptime std.mem.eql(
+            u8,
+            build_options.platform,
+            "macos",
+        )) and builtin.mode != .Debug and
+            self.options.bridge_profile == .production and
+            gateway_executable_path == null;
+        var attested_generation: ?MacOSAttestedGateway = null;
+        var child = if (requires_attested_gateway) child: {
+            var environment_block = try environment.createPosixBlock(
+                self.allocator,
+                .{},
+            );
+            defer environment_block.deinit(self.allocator);
+            var attested: MacOSAttestedGateway = undefined;
+            if (!hra_macos_spawn_attested_gateway(
+                executable_path.ptr,
+                executable_path.len,
+                environment_block.slice.ptr,
+                &attested,
+            ) or attested.process_identifier <= 1 or
+                attested.standard_input < 0 or attested.standard_output < 0 or
+                attested.start_seconds == 0)
+            {
+                return error.GatewayAttestationFailed;
+            }
+            attested_generation = attested;
+            break :child std.process.Child{
+                .id = attested.process_identifier,
+                .thread_handle = {},
+                .stdin = .{
+                    .handle = attested.standard_input,
+                    .flags = .{ .nonblocking = false },
+                },
+                .stdout = .{
+                    .handle = attested.standard_output,
+                    .flags = .{ .nonblocking = false },
+                },
+                .stderr = null,
+                .request_resource_usage_statistics = false,
+            };
+        } else try std.process.spawn(self.io, .{
             .argv = &.{executable_path},
             .environ_map = &environment,
             .stdin = .pipe,
@@ -5616,6 +5996,13 @@ pub const RuntimeHost = struct {
             if (!terminateGatewayProcessTree(&child, self.io)) {
                 self.generation_process_tree_contained = false;
             }
+            if (attested_generation) |attested| {
+                hra_macos_clear_attested_gateway_generation(
+                    attested.process_identifier,
+                    attested.start_seconds,
+                    attested.start_microseconds,
+                );
+            }
         };
 
         const stdin_file = child.stdin.?;
@@ -5623,6 +6010,11 @@ pub const RuntimeHost = struct {
         child.stdin = null;
         child.stdout = null;
         self.child = child;
+        if (attested_generation) |attested| {
+            self.attested_gateway_process_identifier = attested.process_identifier;
+            self.attested_gateway_start_seconds = attested.start_seconds;
+            self.attested_gateway_start_microseconds = attested.start_microseconds;
+        }
         self.generation_process_tree_contained = true;
         child_transferred = true;
 
@@ -5651,6 +6043,7 @@ pub const RuntimeHost = struct {
                     terminateGatewayProcessTree(installed_child, self.io);
             }
             self.child = null;
+            self.clearAttestedGatewayGeneration();
             return error.RuntimeHostStopping;
         }
         self.state = .running;
@@ -5801,6 +6194,7 @@ pub const RuntimeHost = struct {
         self.account_profile_thread = null;
         self.harness_custody_thread = null;
         self.child = null;
+        self.clearAttestedGatewayGeneration();
 
         if (self.reader_buffer) |buffer| secureWipeAndFree(self.allocator, buffer);
         if (self.writer_buffer) |buffer| secureWipeAndFree(self.allocator, buffer);
@@ -5810,6 +6204,21 @@ pub const RuntimeHost = struct {
         self.writer_buffer = null;
         self.data_remover_path = null;
         self.keychain_custodian_path = null;
+    }
+
+    fn clearAttestedGatewayGeneration(self: *RuntimeHost) void {
+        if (comptime std.mem.eql(u8, build_options.platform, "macos")) {
+            if (self.attested_gateway_process_identifier > 1) {
+                hra_macos_clear_attested_gateway_generation(
+                    self.attested_gateway_process_identifier,
+                    self.attested_gateway_start_seconds,
+                    self.attested_gateway_start_microseconds,
+                );
+            }
+        }
+        self.attested_gateway_process_identifier = -1;
+        self.attested_gateway_start_seconds = 0;
+        self.attested_gateway_start_microseconds = 0;
     }
 
     fn abortGeneration(
@@ -9200,11 +9609,32 @@ const testing_legacy_harness_gateway_path =
 fn testingHarnessCustodyValue(value: ?[]const u8) HarnessCustodyValue {
     var result: HarnessCustodyValue = .{
         .state = if (value == null) .absent else .present,
+        .strict_acl = value != null,
     };
     if (value) |present| {
         result.value_len = boundedCopy(&result.value, present) catch unreachable;
     }
     return result;
+}
+
+test "Harness custody helper rejects present values without the strict ACL posture" {
+    var output: HarnessCustodyHelperResult = undefined;
+    try std.testing.expect(!parseHarnessCustodyHelperResponse(
+        .envelope_read,
+        "{\"ok\":true,\"state\":\"present\",\"strictAcl\":false," ++
+            "\"value\":\"{\\\"version\\\":1,\\\"algorithm\\\":" ++
+            "\\\"hkdf-sha256\\\",\\\"key\\\":\\\"AAAAAAAAAAAAAAAA" ++
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAA\\\"}\",\"version\":1}",
+        &output,
+    ));
+    try std.testing.expect(!parseHarnessCustodyHelperResponse(
+        .envelope_set_if_absent,
+        "{\"created\":true,\"ok\":true,\"strictAcl\":false," ++
+            "\"value\":\"{\\\"version\\\":1,\\\"algorithm\\\":" ++
+            "\\\"hkdf-sha256\\\",\\\"key\\\":\\\"AAAAAAAAAAAAAAAA" ++
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAA\\\"}\",\"version\":1}",
+        &output,
+    ));
 }
 
 const HarnessCustodyOperationProbe = struct {

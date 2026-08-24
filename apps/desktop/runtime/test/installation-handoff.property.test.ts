@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { fc } from "@hra-internal/test";
 
-import { parseInstallationHandoffJournal } from "../installation-handoff";
+import {
+  parseFrozenV0114InstallationHandoffReceipt,
+} from "../frozen-v0114-installation-handoff-receipt";
 import {
   expectedHistoricalOprtePreviewSignature,
   expectedHistoricalOprtePreviewTree,
@@ -70,7 +72,7 @@ test("arbitrary caller commit spellings cannot steer receipt provenance", () => 
   fc.assert(fc.property(
     fc.string().filter(value => !/^[0-9a-f]{40}$/u.test(value)),
     candidateCommit => {
-      expect(() => parseInstallationHandoffJournal({
+      expect(() => parseFrozenV0114InstallationHandoffReceipt({
         ...validReceipt,
         candidateCommit,
       })).toThrow();
@@ -91,7 +93,7 @@ test("arbitrary nested receipt fields fail the strict schema", () => {
     fc.jsonValue(),
     (key, value) => {
       const candidate = validReceipt.candidate;
-      expect(() => parseInstallationHandoffJournal({
+      expect(() => parseFrozenV0114InstallationHandoffReceipt({
         ...validReceipt,
         candidate: {
           ...candidate,

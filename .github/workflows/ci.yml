@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Source, test, and unsigned build gate
+    name: Source, test, and structural build gate
     runs-on: macos-15
     timeout-minutes: 120
     steps:
@@ -59,13 +59,15 @@ jobs:
       - name: Verify conditional release source provenance
         run: bun run check:release-source
       - name: Verify immutable remote release evidence
+        env:
+          HRA_RELEASE_GITHUB_READ_TOKEN: ${{ github.token }}
         run: bun run verify:remote-release
       - name: Verify policies, source, tests, and builds
         run: bun run check:complete
       - name: Run native macOS tests
         run: bun run --cwd apps/desktop test:macos
-      - name: Build and verify ad-hoc macOS package
-        run: bun run --cwd apps/desktop package:macos:adhoc
+      - name: Build and verify structural macOS package
+        run: bun run --cwd apps/desktop package:macos:structural
 
   codex_signature_macos_26:
     name: Codex signature normalization (macOS 26)
