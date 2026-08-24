@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { chatAttachmentVaultRoot } from "./src/attachments/root";
 import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import { hraReleaseIdentity } from "./release-identity";
 import {
   ControlPlaneBackupError,
@@ -13,6 +13,8 @@ import {
   verifyEncryptedControlPlaneBackup,
 } from "./src/state/control-plane-backup";
 import {
+  assertMachineLocalHarnessKeyEnrollmentUnchanged,
+  captureMachineLocalHarnessKeyEnrollment,
   inspectApplicationSupportReadiness,
   type ApplicationSupportReadinessInspection,
 } from "./src/state/application-support";
@@ -384,13 +386,23 @@ async function restore(
 ): Promise<Readonly<Record<string, unknown>>> {
   const input = await readRestoreInput(io);
   return withExclusiveControlPlane(databasePath, () => {
-    const restored = restoreEncryptedControlPlaneBackup({
-      archivePath,
-      databasePath,
-      passphrase: input.passphrase,
-      releaseIdentity: hraReleaseIdentity,
-      confirmedArchiveSha256: input.confirmedArchiveSha256,
-    });
+    const stateRoot = dirname(databasePath);
+    const enrollment = captureMaintenanceEnrollment(stateRoot);
+    let restored;
+    try {
+      // Enrollment is machine-local Keychain authority and is intentionally
+      // absent from the portable archive payload. Restore may replace only the
+      // database, receipt key, and attachment vault on this same machine.
+      restored = restoreEncryptedControlPlaneBackup({
+        archivePath,
+        databasePath,
+        passphrase: input.passphrase,
+        releaseIdentity: hraReleaseIdentity,
+        confirmedArchiveSha256: input.confirmedArchiveSha256,
+      });
+    } finally {
+      assertMachineLocalHarnessKeyEnrollmentUnchanged(stateRoot, enrollment);
+    }
     return {
       schemaVersion: 1,
       command: "restore",
@@ -423,6 +435,8 @@ async function backup(
 
   const passphrase = await readConfirmedPassphrase(io);
   return withExclusiveControlPlane(databasePath, () => {
+    const stateRoot = dirname(databasePath);
+    const enrollment = captureMaintenanceEnrollment(stateRoot);
     const preflight = preflightControlPlaneRelease(
       databasePath,
       hraReleaseIdentity,
@@ -470,6 +484,7 @@ async function backup(
     } finally {
       receiptKey?.fill(0);
       database?.close();
+      assertMachineLocalHarnessKeyEnrollmentUnchanged(stateRoot, enrollment);
     }
   });
 }
@@ -500,6 +515,20 @@ function withExclusiveControlPlane<T>(
     return result;
   } finally {
     lifetimeLock.release();
+  }
+}
+
+function captureMaintenanceEnrollment(
+  stateRoot: string,
+): ReturnType<typeof captureMachineLocalHarnessKeyEnrollment> {
+  try {
+    return captureMachineLocalHarnessKeyEnrollment(stateRoot);
+  } catch {
+    throw new ControlPlaneMaintenanceError(
+      "state_unhealthy",
+      "review_state_recovery",
+      "application_support_unsafe",
+    );
   }
 }
 

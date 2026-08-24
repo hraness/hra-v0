@@ -35,7 +35,7 @@ const PackageTarget = enum {
 const default_native_sdk_path = "node_modules/@native-sdk/cli";
 const app_exe_name = "hra";
 const app_bundle_name = "HRA";
-const release_build_number = 15;
+const release_build_number = 16;
 
 pub fn build(b: *std.Build) void {
     const target = nativeSdkTarget(b);
@@ -75,6 +75,26 @@ pub fn build(b: *std.Build) void {
         @panic("-Dplatform=windows requires a Windows target");
     }
     const app_config = appManifestBuildConfig(b);
+    const package_output_path = if (package_target == .macos)
+        b.fmt(
+            "zig-out/package/{s}-{s}-{d}-macos-arm64.app",
+            .{ app_bundle_name, app_config.version, release_build_number },
+        )
+    else
+        b.fmt(
+            "zig-out/package/{s}-{s}-{s}-{s}{s}",
+            .{
+                app_bundle_name,
+                app_config.version,
+                @tagName(package_target),
+                package_optimize_name,
+                packageSuffix(package_target),
+            },
+        );
+    const packaged_frontend_path = switch (package_target) {
+        .macos => b.fmt("{s}/Contents/Resources/frontend/dist", .{package_output_path}),
+        .windows, .linux => b.fmt("{s}/resources/frontend/dist", .{package_output_path}),
+    };
     const web_engine = web_engine_override orelse app_config.web_engine;
     const cef_dir = cef_dir_override orelse defaultCefDir(selected_platform, app_config.cef_dir);
     const cef_auto_install = cef_auto_install_override orelse app_config.cef_auto_install;
@@ -100,6 +120,76 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "web_layer", web_layer);
     const options_mod = options.createModule();
 
+    // Renderer code can directly induce destructive custody. Build and bind
+    // its exact packaged asset authority before either production host links.
+    const frontend_build = if (package_target == .macos) build: {
+        break :build b.addSystemCommand(&.{
+            "bunx",
+            "--no-install",
+            "vite",
+            "build",
+            "--config",
+            "frontend/vite.config.ts",
+            "--manifest",
+        });
+    } else b.addSystemCommand(&.{ "bun", "run", "build:frontend" });
+    const frontend_direct_boundary = b.addSystemCommand(&.{ "bun", "run", "check:direct-boundary" });
+    frontend_direct_boundary.step.dependOn(&frontend_build.step);
+    // The macOS manifest validator removes only its ephemeral proof and clears
+    // the one target app. Renderer authority is generated strictly after this
+    // step, so Native packaging and both executables consume one unchanged
+    // frontend/dist producer.
+    const prepare_macos_package = if (package_target == .macos) prepare: {
+        const command = b.addSystemCommand(&.{
+            "bun",
+            "run",
+            "runtime/prepare-package-output.ts",
+            "--source",
+            "frontend/dist",
+            "--app-bundle",
+            package_output_path,
+        });
+        command.step.dependOn(&frontend_direct_boundary.step);
+        break :prepare command;
+    } else null;
+    const renderer_authority_source = if (selected_platform == .macos) authority: {
+        const generate = b.addSystemCommand(&.{
+            "bun",
+            "run",
+            "runtime/generate-renderer-authority.ts",
+        });
+        if (prepare_macos_package) |prepare| {
+            generate.step.dependOn(&prepare.step);
+        } else {
+            generate.step.dependOn(&frontend_direct_boundary.step);
+        }
+        generate.addDirectoryArg(b.path("frontend/dist"));
+        break :authority generate.addOutputFileArg("hra_renderer_authority.c");
+    } else null;
+
+    const release_signing_authority_source = if (selected_platform == .macos) authority: {
+        const generate = b.addSystemCommand(&.{
+            "bun",
+            "run",
+            "runtime/generate-release-signing-authority.ts",
+        });
+        generate.addFileArg(b.path("runtime/release-signing-authority-v2.json"));
+        break :authority generate.addOutputFileArg("hra_release_signing_authority.c");
+    } else null;
+
+    // build:runtime gives the gateway its final ad-hoc runtime/JIT signature
+    // before Zig enters this graph. Bind every signed byte into both Native
+    // executables; packaging preserves the file exactly.
+    const gateway_file_authority_source = if (selected_platform == .macos) authority: {
+        const generate = b.addSystemCommand(&.{
+            "bun",
+            "run",
+            "runtime/generate-gateway-file-authority.ts",
+        });
+        generate.addFileArg(b.path("runtime/dist/oprte-gateway"));
+        break :authority generate.addOutputFileArg("hra_gateway_file_authority.c");
+    } else null;
+
     const runner_mod = localModule(b, target, optimize, "src/runner.zig");
     runner_mod.addImport("native_sdk", native_sdk_mod);
     runner_mod.addImport("build_options", options_mod);
@@ -121,8 +211,32 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .windows and optimize != .Debug) {
         exe.subsystem = .windows;
     }
-    linkPlatform(b, target, app_mod, exe, selected_platform, web_engine, web_layer, native_sdk_path, cef_dir, cef_auto_install);
+    linkPlatform(b, target, app_mod, exe, selected_platform, web_engine, web_layer, native_sdk_path, cef_dir, cef_auto_install, gateway_file_authority_source, renderer_authority_source, release_signing_authority_source);
     b.installArtifact(exe);
+
+    // When one explicit optimize mode owns both host roles, reuse the
+    // already-linked executable. The helper authenticates it through the
+    // externally anchored production CMS/CodeDirectory authority.
+    const package_exe = if (package_optimize == optimize) exe else pkg: {
+        const package_sdk_mod = nativeSdkModule(b, target, package_optimize, native_sdk_path);
+        const package_runner_mod = localModule(b, target, package_optimize, "src/runner.zig");
+        package_runner_mod.addImport("native_sdk", package_sdk_mod);
+        package_runner_mod.addImport("build_options", options_mod);
+        package_runner_mod.addImport("app_manifest_zon", b.createModule(.{ .root_source_file = b.path("app.zon") }));
+        const package_app_mod = localModule(b, target, package_optimize, "src/main.zig");
+        package_app_mod.addImport("native_sdk", package_sdk_mod);
+        package_app_mod.addImport("runner", package_runner_mod);
+        package_app_mod.addImport("build_options", options_mod);
+        const built = b.addExecutable(.{
+            .name = app_exe_name,
+            .root_module = package_app_mod,
+        });
+        if (target.result.os.tag == .windows and package_optimize != .Debug) {
+            built.subsystem = .windows;
+        }
+        linkPlatform(b, target, package_app_mod, built, selected_platform, web_engine, web_layer, native_sdk_path, cef_dir, cef_auto_install, gateway_file_authority_source, renderer_authority_source, release_signing_authority_source);
+        break :pkg built;
+    };
 
     const data_remover = if (selected_platform == .macos) helper: {
         const helper_mod = localModule(
@@ -158,8 +272,95 @@ pub fn build(b: *std.Build) void {
             b,
             target,
             package_optimize,
+            gateway_file_authority_source.?,
+            renderer_authority_source.?,
+            release_signing_authority_source.?,
         );
     } else null;
+
+    // The verifier-only supervisor owns the WNOWAIT lease and sole
+    // process-group signal for adversarial package probes. Its explicit
+    // reject-authorize mode is not compiled into the candidate-owned recovery
+    // supervisor below.
+    const custody_probe_supervisor = if (selected_platform == .macos) helper: {
+        break :helper addCustodyProbeSupervisor(
+            b,
+            target,
+            package_optimize,
+            "hra-custody-probe-supervisor",
+            true,
+            gateway_file_authority_source.?,
+            renderer_authority_source.?,
+            release_signing_authority_source.?,
+        );
+    } else null;
+    // Packaging copies and CMS-signs this separate least-authority artifact as
+    // candidate recovery code. The outer seal and runtime manifest then bind
+    // its final signed bytes and CodeDirectory.
+    const candidate_custody_probe_supervisor = if (selected_platform == .macos) helper: {
+        break :helper addCustodyProbeSupervisor(
+            b,
+            target,
+            package_optimize,
+            "hra-custody-probe-supervisor-candidate",
+            false,
+            gateway_file_authority_source.?,
+            renderer_authority_source.?,
+            release_signing_authority_source.?,
+        );
+    } else null;
+    const custody_probe_supervisor_test = if (selected_platform == .macos)
+        addCustodyProbeSupervisorTest(
+            b,
+            target,
+            .Debug,
+            "hra-custody-probe-supervisor-test",
+            true,
+        )
+    else
+        null;
+    const custody_probe_supervisor_verifier_test = if (selected_platform == .macos)
+        addCustodyProbeSupervisorTest(
+            b,
+            target,
+            .Debug,
+            "hra-custody-probe-supervisor-verifier-test",
+            false,
+        )
+    else
+        null;
+    const custody_probe_fixture = if (selected_platform == .macos)
+        addCustodyProbeFixture(b, target, .Debug)
+    else
+        null;
+    const custody_malicious_helper = if (selected_platform == .macos)
+        addCustodyCFixture(
+            b,
+            target,
+            .Debug,
+            "hra-custody-malicious-helper",
+            "src/macos_custody_malicious_helper.c",
+            false,
+            false,
+        )
+    else
+        null;
+    const custody_malicious_parent = if (selected_platform == .macos)
+        addCustodyCFixture(
+            b,
+            target,
+            .Debug,
+            "hra-custody-malicious-parent",
+            "src/macos_custody_malicious_parent.c",
+            true,
+            true,
+        )
+    else
+        null;
+    const custody_probe_signal_launcher = if (selected_platform == .macos)
+        addCustodyProbeSignalLauncher(b, target, .Debug)
+    else
+        null;
 
     const image_normalizer = if (selected_platform == .macos) helper: {
         break :helper addImageNormalizer(
@@ -191,6 +392,38 @@ pub fn build(b: *std.Build) void {
         b.addInstallArtifact(helper, .{})
     else
         null;
+    const custody_probe_supervisor_install = if (custody_probe_supervisor) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const candidate_custody_probe_supervisor_install = if (candidate_custody_probe_supervisor) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const custody_probe_supervisor_test_install = if (custody_probe_supervisor_test) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const custody_probe_supervisor_verifier_test_install = if (custody_probe_supervisor_verifier_test) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const custody_probe_fixture_install = if (custody_probe_fixture) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const custody_malicious_helper_install = if (custody_malicious_helper) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const custody_malicious_parent_install = if (custody_malicious_parent) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
+    const custody_probe_signal_launcher_install = if (custody_probe_signal_launcher) |helper|
+        b.addInstallArtifact(helper, .{})
+    else
+        null;
     const image_normalizer_install = if (image_normalizer) |helper|
         b.addInstallArtifact(helper, .{})
     else
@@ -211,16 +444,43 @@ pub fn build(b: *std.Build) void {
     if (keychain_custodian_install) |install| {
         b.getInstallStep().dependOn(&install.step);
     }
+    if (custody_probe_supervisor_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (candidate_custody_probe_supervisor_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (custody_probe_supervisor_test_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (custody_probe_supervisor_verifier_test_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (custody_probe_fixture_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (custody_malicious_helper_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (custody_malicious_parent_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
+    if (custody_probe_signal_launcher_install) |install| {
+        b.getInstallStep().dependOn(&install.step);
+    }
     if (image_normalizer_install) |install| {
         b.getInstallStep().dependOn(&install.step);
     }
 
-    const frontend_build = b.addSystemCommand(&.{ "bun", "run", "build:frontend" });
     const frontend_step = b.step("frontend-build", "Build the frontend");
     frontend_step.dependOn(&frontend_build.step);
 
     const run = b.addRunArtifact(exe);
-    run.step.dependOn(&frontend_build.step);
+    if (prepare_macos_package) |prepare| {
+        run.step.dependOn(&prepare.step);
+    } else {
+        run.step.dependOn(&frontend_direct_boundary.step);
+    }
     addCefRuntimeRunFiles(b, target, run, exe, web_engine, cef_dir);
     addWebView2RuntimeRunFiles(b, target, run, web_engine, web_layer, native_sdk_path);
     const run_step = b.step("run", "Run the app");
@@ -231,79 +491,6 @@ pub fn build(b: *std.Build) void {
     // is never a Debug console binary just because the dev loop
     // defaults to Debug. When -Doptimize/--release pinned one mode for
     // everything, the roles agree and the dev exe is reused as-is.
-    const package_exe = if (package_optimize == optimize) exe else pkg: {
-        const package_sdk_mod = nativeSdkModule(b, target, package_optimize, native_sdk_path);
-        const package_runner_mod = localModule(b, target, package_optimize, "src/runner.zig");
-        package_runner_mod.addImport("native_sdk", package_sdk_mod);
-        package_runner_mod.addImport("build_options", options_mod);
-        package_runner_mod.addImport("app_manifest_zon", b.createModule(.{ .root_source_file = b.path("app.zon") }));
-        const package_app_mod = localModule(b, target, package_optimize, "src/main.zig");
-        package_app_mod.addImport("native_sdk", package_sdk_mod);
-        package_app_mod.addImport("runner", package_runner_mod);
-        package_app_mod.addImport("build_options", options_mod);
-        const built = b.addExecutable(.{
-            .name = app_exe_name,
-            .root_module = package_app_mod,
-        });
-        // Same subsystem posture as the dev exe above, keyed on this
-        // exe's own mode: release-shaped Windows exes are GUI-subsystem.
-        if (target.result.os.tag == .windows and package_optimize != .Debug) {
-            built.subsystem = .windows;
-        }
-        linkPlatform(b, target, package_app_mod, built, selected_platform, web_engine, web_layer, native_sdk_path, cef_dir, cef_auto_install);
-        break :pkg built;
-    };
-
-    const package_output_path = if (package_target == .macos)
-        b.fmt(
-            "zig-out/package/{s}-{s}-{d}-macos-arm64.app",
-            .{ app_bundle_name, app_config.version, release_build_number },
-        )
-    else
-        b.fmt(
-            "zig-out/package/{s}-{s}-{s}-{s}{s}",
-            .{
-                app_bundle_name,
-                app_config.version,
-                @tagName(package_target),
-                package_optimize_name,
-                packageSuffix(package_target),
-            },
-        );
-    const packaged_frontend_path = switch (package_target) {
-        .macos => b.fmt("{s}/Contents/Resources/frontend/dist", .{package_output_path}),
-        .windows, .linux => b.fmt("{s}/resources/frontend/dist", .{package_output_path}),
-    };
-    // macOS packaging gets a separate, ephemeral Vite manifest. The
-    // product-owned preflight proves every emitted chunk is reachable,
-    // removes only that proof, and clears only the exact .app target before
-    // Native copies assets. This chain prevents both stale source chunks and
-    // stale package files from surviving a release-shaped build.
-    const prepare_macos_package = if (package_target == .macos) prepare: {
-        const vite = b.addSystemCommand(&.{
-            "bunx",
-            "--no-install",
-            "vite",
-            "build",
-            "--config",
-            "frontend/vite.config.ts",
-            "--manifest",
-        });
-        const direct_boundary = b.addSystemCommand(&.{ "bun", "run", "check:direct-boundary" });
-        direct_boundary.step.dependOn(&vite.step);
-        const command = b.addSystemCommand(&.{
-            "bun",
-            "run",
-            "runtime/prepare-package-output.ts",
-            "--source",
-            "frontend/dist",
-            "--app-bundle",
-            package_output_path,
-        });
-        command.step.dependOn(&direct_boundary.step);
-        break :prepare command;
-    } else null;
-
     const package = b.addSystemCommand(&.{
         "bunx",
         "--no-install",
@@ -348,13 +535,28 @@ pub fn build(b: *std.Build) void {
     if (keychain_custodian_install) |install| {
         package.step.dependOn(&install.step);
     }
+    if (custody_probe_supervisor_install) |install| {
+        package.step.dependOn(&install.step);
+    }
+    if (candidate_custody_probe_supervisor_install) |install| {
+        package.step.dependOn(&install.step);
+    }
+    if (custody_probe_fixture_install) |install| {
+        package.step.dependOn(&install.step);
+    }
+    if (custody_malicious_helper_install) |install| {
+        package.step.dependOn(&install.step);
+    }
+    if (custody_malicious_parent_install) |install| {
+        package.step.dependOn(&install.step);
+    }
     if (package_image_normalizer_install) |install| {
         package.step.dependOn(&install.step);
     }
     if (prepare_macos_package) |prepare| {
         package.step.dependOn(&prepare.step);
     } else {
-        package.step.dependOn(&frontend_build.step);
+        package.step.dependOn(&frontend_direct_boundary.step);
     }
     const package_step = b.step("package", "Create a local package artifact");
     if (package_target == .macos) {
@@ -403,6 +605,9 @@ pub fn build(b: *std.Build) void {
         native_sdk_path,
         cef_dir,
         cef_auto_install,
+        gateway_file_authority_source,
+        renderer_authority_source,
+        release_signing_authority_source,
     );
     test_step.dependOn(&b.addRunArtifact(runtime_host_tests).step);
     if (keychain_custodian) |helper| {
@@ -418,6 +623,18 @@ pub fn build(b: *std.Build) void {
         const run_parent_probe = b.addRunArtifact(parent_probe);
         run_parent_probe.addArtifactArg(helper);
         test_step.dependOn(&run_parent_probe.step);
+    }
+    if (custody_probe_supervisor_test_install) |install| {
+        test_step.dependOn(&install.step);
+    }
+    if (custody_probe_supervisor_verifier_test_install) |install| {
+        test_step.dependOn(&install.step);
+    }
+    if (custody_probe_fixture_install) |install| {
+        test_step.dependOn(&install.step);
+    }
+    if (custody_probe_signal_launcher_install) |install| {
+        test_step.dependOn(&install.step);
     }
     if (data_remover) |_| {
         const helper_tests = b.addTest(.{
@@ -532,6 +749,9 @@ fn addKeychainCustodian(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    gateway_file_authority_source: std.Build.LazyPath,
+    renderer_authority_source: std.Build.LazyPath,
+    release_signing_authority_source: std.Build.LazyPath,
 ) *std.Build.Step.Compile {
     const helper_mod = localModule(
         b,
@@ -544,24 +764,58 @@ fn addKeychainCustodian(
     else
         "";
     const flags: []const []const u8 = if (b.sysroot) |sysroot|
-        &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-ObjC", "-mmacosx-version-min=13.0", "-isysroot", sysroot, sdk_include }
+        &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-Wno-unknown-warning-option", "-Wno-deprecated-declarations", "-ObjC", "-mmacosx-version-min=13.0", "-DHRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD=1", "-isysroot", sysroot, sdk_include }
     else
-        &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-ObjC", "-mmacosx-version-min=13.0" };
+        &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-Wno-unknown-warning-option", "-Wno-deprecated-declarations", "-ObjC", "-mmacosx-version-min=13.0", "-DHRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD=1" };
     helper_mod.addCSourceFile(.{
         .file = b.path("src/macos_keychain_custodian.m"),
+        .flags = flags,
+    });
+    helper_mod.addCSourceFile(.{
+        .file = b.path("src/macos_custody_probe_parent_gate.c"),
+        .flags = flags,
+    });
+    helper_mod.addCSourceFile(.{
+        .file = b.path("src/macos_keychain_access_control.m"),
         .flags = flags,
     });
     helper_mod.addCSourceFile(.{
         .file = b.path("src/macos_self_managed_code_identity.m"),
         .flags = flags,
     });
+    helper_mod.addCSourceFile(.{
+        .file = b.path("src/macos_gateway_attestation.m"),
+        .flags = flags,
+    });
+    helper_mod.addCSourceFile(.{
+        .file = b.path("src/macos_renderer_authority.m"),
+        .flags = flags,
+    });
+    helper_mod.addCSourceFile(.{
+        .file = gateway_file_authority_source,
+        .flags = &.{},
+    });
+    helper_mod.addCSourceFile(.{
+        .file = renderer_authority_source,
+        .flags = &.{},
+    });
+    helper_mod.addCSourceFile(.{
+        .file = release_signing_authority_source,
+        .flags = &.{},
+    });
     if (b.sysroot) |sysroot| {
         helper_mod.addFrameworkPath(.{
             .cwd_relative = b.pathJoin(&.{ sysroot, "System/Library/Frameworks" }),
         });
+        helper_mod.addLibraryPath(.{
+            // Zig resolves absolute library-search paths beneath --sysroot.
+            .cwd_relative = "/usr/lib",
+        });
     }
     helper_mod.linkFramework("Foundation", .{});
+    helper_mod.linkFramework("LocalAuthentication", .{});
     helper_mod.linkFramework("Security", .{});
+    helper_mod.linkSystemLibrary("bsm", .{});
     helper_mod.linkSystemLibrary("c", .{});
     return b.addExecutable(.{
         // Keep the code-signing identifier identical. Only the install path,
@@ -569,6 +823,202 @@ fn addKeychainCustodian(
         // smoke artifact.
         .name = "oprte-keychain-custodian",
         .root_module = helper_mod,
+    });
+}
+
+fn addCustodyProbeSupervisor(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+    adversarial: bool,
+    gateway_file_authority_source: std.Build.LazyPath,
+    renderer_authority_source: std.Build.LazyPath,
+    release_signing_authority_source: std.Build.LazyPath,
+) *std.Build.Step.Compile {
+    const supervisor_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+    supervisor_mod.link_libc = true;
+    const sdk_include = if (b.sysroot) |sysroot|
+        b.fmt("-I{s}/usr/include", .{sysroot})
+    else
+        "";
+    const objective_c_flags: []const []const u8 = if (b.sysroot) |sysroot|
+        &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-Wno-unknown-warning-option", "-Wno-deprecated-declarations", "-ObjC", "-mmacosx-version-min=13.0", "-DHRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD=1", "-isysroot", sysroot, sdk_include }
+    else
+        &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-Wno-unknown-warning-option", "-Wno-deprecated-declarations", "-ObjC", "-mmacosx-version-min=13.0", "-DHRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD=1" };
+    const c_flags: []const []const u8 = if (b.sysroot) |sysroot|
+        if (adversarial)
+            &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_ADVERSARIAL_BUILD=1", "-isysroot", sysroot, sdk_include }
+        else
+            &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_CANDIDATE_BUILD=1", "-isysroot", sysroot, sdk_include }
+    else if (adversarial)
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_ADVERSARIAL_BUILD=1" }
+    else
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_CANDIDATE_BUILD=1" };
+    supervisor_mod.addCSourceFile(.{
+        .file = b.path("src/macos_custody_probe_supervisor.c"),
+        .flags = c_flags,
+    });
+    supervisor_mod.addCSourceFile(.{
+        .file = b.path("src/macos_gateway_attestation.m"),
+        .flags = objective_c_flags,
+    });
+    supervisor_mod.addCSourceFile(.{
+        .file = b.path("src/macos_renderer_authority.m"),
+        .flags = objective_c_flags,
+    });
+    supervisor_mod.addCSourceFile(.{
+        .file = b.path("src/macos_self_managed_code_identity.m"),
+        .flags = objective_c_flags,
+    });
+    supervisor_mod.addCSourceFile(.{
+        .file = gateway_file_authority_source,
+        .flags = &.{},
+    });
+    supervisor_mod.addCSourceFile(.{
+        .file = renderer_authority_source,
+        .flags = &.{},
+    });
+    supervisor_mod.addCSourceFile(.{
+        .file = release_signing_authority_source,
+        .flags = &.{},
+    });
+    if (b.sysroot) |sysroot| {
+        supervisor_mod.addFrameworkPath(.{
+            .cwd_relative = b.pathJoin(&.{ sysroot, "System/Library/Frameworks" }),
+        });
+        supervisor_mod.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
+    }
+    supervisor_mod.linkFramework("Foundation", .{});
+    supervisor_mod.linkFramework("Security", .{});
+    supervisor_mod.linkSystemLibrary("c", .{});
+    return b.addExecutable(.{
+        .name = name,
+        .root_module = supervisor_mod,
+    });
+}
+
+fn addCustodyProbeSupervisorTest(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+    require_parent_lease: bool,
+) *std.Build.Step.Compile {
+    const module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+    module.link_libc = true;
+    const sdk_include = if (b.sysroot) |sysroot|
+        b.fmt("-I{s}/usr/include", .{sysroot})
+    else
+        "";
+    const flags: []const []const u8 = if (b.sysroot) |sysroot|
+        if (require_parent_lease)
+            &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD=1", "-DHRA_CUSTODY_PROBE_REQUIRE_PARENT_LEASE=1", "-DHRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS=1500", "-DHRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS=2000", "-isysroot", sysroot, sdk_include }
+        else
+            &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD=1", "-DHRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS=1500", "-DHRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS=2000", "-isysroot", sysroot, sdk_include }
+    else if (require_parent_lease)
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD=1", "-DHRA_CUSTODY_PROBE_REQUIRE_PARENT_LEASE=1", "-DHRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS=1500", "-DHRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS=2000" }
+    else
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-DHRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD=1", "-DHRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS=1500", "-DHRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS=2000" };
+    module.addCSourceFile(.{
+        .file = b.path("src/macos_custody_probe_supervisor.c"),
+        .flags = flags,
+    });
+    return b.addExecutable(.{
+        .name = name,
+        .root_module = module,
+    });
+}
+
+fn addCustodyProbeFixture(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    return addCustodyCFixture(
+        b,
+        target,
+        optimize,
+        "hra-custody-probe-fixture",
+        "src/macos_custody_probe_fixture.c",
+        false,
+        true,
+    );
+}
+
+fn addCustodyCFixture(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+    source_path: []const u8,
+    link_bsm: bool,
+    probe_parent_gate: bool,
+) *std.Build.Step.Compile {
+    const module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+    module.link_libc = true;
+    const sdk_include = if (b.sysroot) |sysroot|
+        b.fmt("-I{s}/usr/include", .{sysroot})
+    else
+        "";
+    const flags: []const []const u8 = if (b.sysroot) |sysroot|
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-isysroot", sysroot, sdk_include }
+    else
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0" };
+    module.addCSourceFile(.{
+        .file = b.path(source_path),
+        .flags = flags,
+    });
+    if (probe_parent_gate) {
+        module.addCSourceFile(.{
+            .file = b.path("src/macos_custody_probe_parent_gate.c"),
+            .flags = flags,
+        });
+    }
+    if (link_bsm) {
+        if (b.sysroot != null) module.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
+        module.linkSystemLibrary("bsm", .{});
+    }
+    return b.addExecutable(.{
+        .name = name,
+        .root_module = module,
+    });
+}
+
+fn addCustodyProbeSignalLauncher(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const module = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+    module.link_libc = true;
+    const sdk_include = if (b.sysroot) |sysroot|
+        b.fmt("-I{s}/usr/include", .{sysroot})
+    else
+        "";
+    const flags: []const []const u8 = if (b.sysroot) |sysroot|
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0", "-isysroot", sysroot, sdk_include }
+    else
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-Wno-nullability-completeness", "-mmacosx-version-min=13.0" };
+    module.addCSourceFile(.{
+        .file = b.path("src/macos_custody_probe_signal_launcher.c"),
+        .flags = flags,
+    });
+    return b.addExecutable(.{
+        .name = "hra-custody-probe-signal-launcher",
+        .root_module = module,
     });
 }
 
@@ -609,17 +1059,33 @@ fn addImageNormalizer(
     });
 }
 
-fn linkPlatform(b: *std.Build, target: std.Build.ResolvedTarget, app_mod: *std.Build.Module, exe: *std.Build.Step.Compile, platform: PlatformOption, web_engine: WebEngineOption, web_layer: bool, native_sdk_path: []const u8, cef_dir: []const u8, cef_auto_install: bool) void {
+fn linkPlatform(b: *std.Build, target: std.Build.ResolvedTarget, app_mod: *std.Build.Module, exe: *std.Build.Step.Compile, platform: PlatformOption, web_engine: WebEngineOption, web_layer: bool, native_sdk_path: []const u8, cef_dir: []const u8, cef_auto_install: bool, gateway_file_authority_source: ?std.Build.LazyPath, renderer_authority_source: ?std.Build.LazyPath, release_signing_authority_source: ?std.Build.LazyPath) void {
     if (platform == .macos) {
         const directory_picker_sdk_include = if (b.sysroot) |sysroot| b.fmt("-I{s}/usr/include", .{sysroot}) else "";
-        const directory_picker_flags: []const []const u8 = if (b.sysroot) |sysroot| &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-ObjC", "-mmacosx-version-min=13.0", "-isysroot", sysroot, directory_picker_sdk_include } else &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-ObjC", "-mmacosx-version-min=13.0" };
+        const directory_picker_flags: []const []const u8 = if (b.sysroot) |sysroot| &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-Wno-unknown-warning-option", "-Wno-deprecated-declarations", "-ObjC", "-mmacosx-version-min=13.0", "-isysroot", sysroot, directory_picker_sdk_include } else &.{ "-fobjc-arc", "-fno-sanitize=builtin", "-Wno-nullability-completeness", "-Wno-availability", "-Wno-unguarded-availability-new", "-Wno-unknown-warning-option", "-Wno-deprecated-declarations", "-ObjC", "-mmacosx-version-min=13.0" };
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_directory_picker.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_updater.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_application_lifecycle.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_code_identity.m"), .flags = directory_picker_flags });
+        app_mod.addCSourceFile(.{ .file = b.path("src/macos_gateway_attestation.m"), .flags = directory_picker_flags });
+        app_mod.addCSourceFile(.{ .file = b.path("src/macos_renderer_authority.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_keychain_custodian.m"), .flags = directory_picker_flags });
+        app_mod.addCSourceFile(.{ .file = b.path("src/macos_custody_probe_parent_gate.c"), .flags = directory_picker_flags });
+        app_mod.addCSourceFile(.{ .file = b.path("src/macos_keychain_access_control.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_self_managed_code_identity.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_instance_guard.m"), .flags = directory_picker_flags });
+        app_mod.addCSourceFile(.{
+            .file = gateway_file_authority_source orelse @panic("macOS host requires generated gateway file authority"),
+            .flags = &.{},
+        });
+        app_mod.addCSourceFile(.{
+            .file = renderer_authority_source orelse @panic("macOS host requires generated renderer authority"),
+            .flags = &.{},
+        });
+        app_mod.addCSourceFile(.{
+            .file = release_signing_authority_source orelse @panic("macOS host requires generated release signing authority"),
+            .flags = &.{},
+        });
         switch (web_engine) {
             .system => {
                 const sdk_include = if (b.sysroot) |sysroot| b.fmt("-I{s}/usr/include", .{sysroot}) else "";
@@ -650,15 +1116,18 @@ fn linkPlatform(b: *std.Build, target: std.Build.ResolvedTarget, app_mod: *std.B
         }
         if (b.sysroot) |sysroot| {
             app_mod.addFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sysroot, "System/Library/Frameworks" }) });
+            app_mod.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
         }
         app_mod.linkFramework("AppKit", .{});
         app_mod.linkFramework("AVFoundation", .{});
         app_mod.linkFramework("MediaToolbox", .{});
         app_mod.linkFramework("Accelerate", .{});
         app_mod.linkFramework("Foundation", .{});
+        app_mod.linkFramework("LocalAuthentication", .{});
         app_mod.linkFramework("CoreText", .{});
         app_mod.linkFramework("UniformTypeIdentifiers", .{});
         app_mod.linkFramework("Security", .{});
+        app_mod.linkSystemLibrary("bsm", .{});
         app_mod.linkFramework("ServiceManagement", .{});
         app_mod.linkFramework("Metal", .{});
         app_mod.linkFramework("QuartzCore", .{});

@@ -86,18 +86,16 @@ The immutable v0.1.14 build 15 publication has three fixed Git identities:
 - Annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3`
   points directly to C.
 
-The seven-asset GitHub prerelease and P's release evidence are immutable. The
-maintained `release-download.json` changes only its repository coordinate from
-the historical `hraness/hra` name to `hraness/hra-v0`, where the same release
-and assets live after the repository rename. Keep
+The seven-asset GitHub prerelease and P's release evidence are immutable in
+`hraness/hra-v0`. While v0.1.15 is a candidate, `release-download.json` names
+the new version and build but carries null publication evidence. The web app
+therefore exposes no candidate DMG, checksum, or manifest URL. Keep
 `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at P in Vercel Production and
-Preview. Set `HRA_V0_SURFACE_COMMIT_ALLOWLIST` to the reviewed archive surface
-commit Q after it reaches `main`. The build proves Q descends from P, replays C
-to P and the annotated tag, and permits exactly one single-parent
-historical-to-archive coordinate migration while requiring every other
-contract byte to remain equal to P. A missing anchor, wrong repository,
-unallowlisted surface, additional contract edit, or Production branch other
-than `main` makes the build refuse.
+Preview through C15. The C15/P15 provider gate consumes only that publication
+allowlist. It strips both publication and archive-surface allowlist records
+before the Next.js child build, and does not require or consume
+`HRA_V0_SURFACE_COMMIT_ALLOWLIST`. Archive-ledger and surface-authority
+promotion belong to a later, separately reviewed Q15 contract.
 
 Rename the existing Vercel project in place from `hra` to `hra-v0`. Preserve
 the existing project identity, READY deployment, and `hra-weld.vercel.app`
@@ -158,12 +156,84 @@ before exercising authentication. Once current HRA has claimed the GitHub,
 Vercel, Convex, and domain names, rollback must preserve the `hra-v0` names.
 It must never evict the current product.
 
+### v0.1.15 recovery publication
+
+The create-only deploy-key and shared-authority procedures above are initialization
+and recovery guidance. They are not v0.1.15 publication steps. Preserve the
+verified v0.1.14 authorities throughout C15, P15, provider readback, installed-app
+acceptance, and the bounded recovery window. Do not create or rotate the HRA
+deploy key, cookie or identity-link secret, Accounts entry, HRA keyring, or
+receipt-key selector for this recovery release.
+
+Use this order for the v0.1.15 recovery publication:
+
+1. Read back that the archived HRA v0 Vercel project remains publication-frozen,
+   has no deployment in flight, and retains its unchanged READY rollback
+   anchor. Preserve its bounded rollback key without rotating or recreating it.
+2. Read back the existing HRA v0 project, its `hraness/hra-v0` Git link, exact build commands,
+   environment-name inventory, and environment scoping. Preserve every existing
+   deploy, cookie, Suite identity, WorkOS, and Convex selector authority without
+   exposing or rewriting its value. Preview must remain free of production-only
+   authority.
+3. Read back the existing Accounts HRA entry, HRA-only identity-link keyring,
+   and receipt-key selector with the checked audits. Treat any drift as a stop;
+   do not repair it by generating or appending a replacement during release.
+4. From exact candidate commit C15 in `hraness/hra-v0`, complete the full package, then follow
+   the desktop release runbook to create and push the
+   direct annotated `v0.1.15` tag and
+   publish the exact seven-asset immutable GitHub prerelease. Fill the
+   working-tree publication contract from C15's emitted evidence and require
+   `bun run verify:remote-release` to read back exact remote names, byte counts,
+   SHA-256 digests, checksum, manifest, DMG binding, and corresponding-source
+   binding before committing P15. Create P15 as the exact contract-only child,
+   push it, and require the green Required CI source-and-remote readback for
+   that exact P15. P15 changes only `release-download.json`. Preserve the
+   v0.1.14 publication allowlist throughout C15. A Git
+   build of candidate C15 may proceed against the unchanged backend authority;
+   it must not create or rotate provider authority. The automatic build of
+   published P15 must then refuse against the retained v0.1.14 allowlist.
+5. Only after Required succeeds for exact P15, replace
+   `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` with P15 in Production and Preview.
+   This allowlist update is the only environment write for v0.1.15. Redeploy
+   exact P15, then read back its canonical Git SHA, complete build commands,
+   unchanged environment inventory and scoping, READY state, production routes,
+   release delivery, discovery, and OIDC endpoints before enabling or exercising
+   the installation handoff.
+6. Preserve all predecessor and HRA backend authorities through installed-app
+   acceptance and the bounded rollback window. Their later disposition is a
+   separate handoff decision, not part of v0.1.15 publication.
+
+Throughout C15 and P15, keep `release-history.json`, `/releases`, and
+`/.well-known/hra.json` anchored to the exact v0.1.14 generation-0 evidence.
+The staged download contract is not archive deployment identity. Adding
+v0.1.15 to the compatibility ledger or changing archive surface authority is a
+future Q15 review, never an implicit side effect of publishing P15.
+
+The existing annotated `v0.1.11` tag object
+`e4c171e33e414d74a36791fc8577cbfbcef8e52e` points directly to
+`5a2a9842cacc75fee42ab8e23ca8c215a643e21e`, but has no GitHub release or
+assets. Treat it as retired tag-only evidence, never as publication or
+installation authority.
+
+The immutable v0.1.14 build 15 prerelease remains the current published
+predecessor while v0.1.15 is a candidate, and remains the frozen forward-recovery
+origin after v0.1.15 publication. Its direct annotated tag object
+`37ed37afb39cacfd6a51044cf7f3c1b873571aa3` points to
+`7b39c459827b2acf45aa2d911c94fdb5d4f37860`, and publication commit
+`6221f79b745f154882080936b961ff431569f33e` records the release evidence. Preserve
+its exact assets and original handoff backup. Do not retire, replace, relabel,
+or launch that app while the v0.1.14-to-v0.1.15 forward recovery is pending.
+
 ## Public product pages
 
 `/download` links to the exact Apple Silicon GitHub prerelease named in
-`app/site.ts`. It publishes the checksum path and discloses that the current
-app is ad-hoc signed, not Developer ID signed or notarized. The web workspace
-never holds signing credentials or release authority.
+`app/site.ts` only when the release contract is published. A candidate exposes
+no download, checksum, or manifest URL. The published surface discloses that the outer app,
+native host, and custody-authorizing helpers use HRA's self-managed CMS authority.
+Other HRA-owned nested executables retain pinned ad-hoc signatures, including
+the exact runtime/JIT gateway. The package is not Developer ID
+signed or notarized. The web workspace never holds signing custody or release
+authority.
 
 `/alternatives` and its static child routes compare HRA with adjacent tools.
 Every positive competitor claim must cite a current first-party source, every

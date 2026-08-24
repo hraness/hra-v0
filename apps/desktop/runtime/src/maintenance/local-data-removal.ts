@@ -79,6 +79,10 @@ import {
   operationReceiptKeyPath,
 } from "../state/operation-receipt-key";
 import { controlPlaneReleaseFencePath } from "../state/release-compatibility";
+import {
+  harnessKeyEnrollmentSidecarCandidatePath,
+  harnessKeyEnrollmentSidecarPath,
+} from "../state/harness-key-enrollment";
 
 export const packagedLocalDataRemoverRelativePath =
   "runtime/bin/oprte-data-remover" as const;
@@ -734,6 +738,11 @@ export async function discoverLocalDataRemovalInventory(
     { path: controlPlaneReleaseFencePath(controlPlanePath), kind: "file" },
     {
       path: `${controlPlaneReleaseFencePath(controlPlanePath)}.tmp`,
+      kind: "file",
+    },
+    { path: harnessKeyEnrollmentSidecarPath(controlPlanePath), kind: "file" },
+    {
+      path: harnessKeyEnrollmentSidecarCandidatePath(controlPlanePath),
       kind: "file",
     },
     ...controlPlaneRestoreRemovalArtifacts(applicationSupportRoot),
@@ -2108,6 +2117,12 @@ async function continueLocalDataRemovalHelperLaunch(
     }, signingKey);
     await options.receipts.write(receipt);
     options.faultInjector?.("after_keychain_receipt", keychainTargetId(target));
+  }
+  if (receipt.keychainTargets.some(target => !target.completed)) {
+    throw new LocalDataRemovalConfirmationError(
+      "operation_conflict",
+      "Filesystem removal requires durable Keychain deletion proof.",
+    );
   }
 
   const requestsRoot = await ensurePrivateDirectChildDirectory(
