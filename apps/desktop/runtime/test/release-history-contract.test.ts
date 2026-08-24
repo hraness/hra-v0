@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   parseReleaseHistoryContract,
   readReleaseHistoryContract,
+  verifyCanonicalRemoteReleaseTagsWithLister,
   verifyRemoteReleaseHistoryState,
+  type CurrentRemoteReleaseHistoryEntry,
   type ReleaseHistoryFetcher,
 } from "../release-history-contract";
 
@@ -17,7 +19,7 @@ describe("HRA v0 remote release history", () => {
       assetCount: 49,
       releaseCount: 7,
       repository,
-      status: "verified_exact_remote_release_history",
+      status: "verified_exact_candidate_remote_release_history",
       tagCount: 8,
       tagOnly: ["v0.1.11"],
     });
@@ -28,6 +30,94 @@ describe("HRA v0 remote release history", () => {
       expect(fixture.requests).toContain(`${apiRepository}/git/tags/${entry.tagObject}`);
     }
     expect(fixture.requests.some((url) => url.includes("/releases/download/"))).toBeFalse();
+  });
+
+  test("reads annotated tag objects sequentially to avoid public API burst throttling", async () => {
+    const fixture = createRemoteHistoryFixture();
+    let tagObjectRequestInFlight = false;
+    const serializedFetcher: ReleaseHistoryFetcher = async (url, init) => {
+      if (!url.startsWith(`${apiRepository}/git/tags/`)) {
+        return await fixture.fetcher(url, init);
+      }
+      if (tagObjectRequestInFlight) {
+        throw new Error("Concurrent public tag-object request.");
+      }
+      tagObjectRequestInFlight = true;
+      try {
+        await new Promise<void>((resolve) => setTimeout(resolve, 1));
+        return await fixture.fetcher(url, init);
+      } finally {
+        tagObjectRequestInFlight = false;
+      }
+    };
+
+    expect(await verifyRemoteReleaseHistoryState(
+      fixture.contract,
+      serializedFetcher,
+    )).toMatchObject({ status: "verified_exact_candidate_remote_release_history" });
+  });
+
+  test("proves every annotated tag and peeled commit from one canonical Git listing", async () => {
+    const contract = readReleaseHistoryContract();
+    const expected = contract.tags.map(({ commit, tag, tagObject }) => ({
+      commit,
+      tag,
+      tagObject,
+    }));
+    const listing = expected.flatMap(({ commit, tag, tagObject }) => [
+      `${tagObject}\trefs/tags/${tag}`,
+      `${commit}\trefs/tags/${tag}^{}`,
+    ]).join("\n") + "\n";
+    await verifyCanonicalRemoteReleaseTagsWithLister(expected, () => Promise.resolve(listing));
+
+    const moved = listing.replace(expected[0]!.commit, "0".repeat(40));
+    await expectRejects(
+      verifyCanonicalRemoteReleaseTagsWithLister(
+        expected,
+        () => Promise.resolve(moved),
+      ),
+      "differs from peeled commit evidence",
+    );
+    await expectRejects(
+      verifyCanonicalRemoteReleaseTagsWithLister(
+        expected,
+        () => Promise.resolve(`${listing}${"1".repeat(40)}\trefs/tags/v0.1.99\n`),
+      ),
+      "different exact HRA v0 annotated tag set",
+    );
+  });
+
+  test("overlays v0.1.15 in memory and proves the exact combined 9/8/56 set", async () => {
+    const current = currentReleaseEntry();
+    const fixture = createRemoteHistoryFixture(current);
+    expect(await verifyRemoteReleaseHistoryState(
+      fixture.contract,
+      fixture.fetcher,
+      current,
+    )).toEqual({
+      assetCount: 56,
+      releaseCount: 8,
+      repository,
+      status: "verified_exact_published_remote_release_history",
+      tagCount: 9,
+      tagOnly: ["v0.1.11"],
+    });
+    expect(fixture.requests).toHaveLength(11);
+
+    const drift = createRemoteHistoryFixture(current);
+    const currentRelease = drift.releases.find(
+      (release) => release["tag_name"] === current.tag,
+    );
+    requireRecord(currentRelease, "current release")["published_at"] =
+      "2026-08-23T00:00:01Z";
+    await expectRejects(
+      verifyRemoteReleaseHistoryState(
+        drift.contract,
+        drift.fetcher,
+        current,
+      ),
+      "differs from the verified current release",
+    );
   });
 
   test("rejects an additional v0.1.11 release, asset drift, and a moved tag", async () => {
@@ -105,7 +195,9 @@ describe("HRA v0 remote release history", () => {
   });
 });
 
-function createRemoteHistoryFixture() {
+function createRemoteHistoryFixture(
+  current?: CurrentRemoteReleaseHistoryEntry,
+) {
   const contract = readReleaseHistoryContract();
   const releases: Record<string, unknown>[] = contract.tags.flatMap((entry) => {
     if (entry.release === null) return [];
@@ -145,6 +237,44 @@ function createRemoteHistoryFixture() {
     sha: entry.tagObject,
     tag: entry.tag,
   }]));
+  if (current !== undefined) {
+    releases.push({
+      assets: current.assets.map((asset) => ({
+        browser_download_url:
+          `${repository}/releases/download/${current.tag}/${asset.name}`,
+        digest: `sha256:${asset.sha256}`,
+        id: asset.id,
+        name: asset.name,
+        size: asset.bytes,
+        state: "uploaded",
+        url: `${apiRepository}/releases/assets/${asset.id}`,
+      })),
+      draft: false,
+      html_url: `${repository}/releases/tag/${current.tag}`,
+      id: current.releaseId,
+      immutable: true,
+      prerelease: true,
+      published_at: current.publishedAt,
+      tag_name: current.tag,
+    });
+    refs.push({
+      object: {
+        sha: current.tagObject,
+        type: "tag",
+        url: `${apiRepository}/git/tags/${current.tagObject}`,
+      },
+      ref: `refs/tags/${current.tag}`,
+    });
+    tagObjects.set(current.tagObject, {
+      object: {
+        sha: current.commit,
+        type: "commit",
+        url: `${apiRepository}/git/commits/${current.commit}`,
+      },
+      sha: current.tagObject,
+      tag: current.tag,
+    });
+  }
   const requests: string[] = [];
   const fetcher: ReleaseHistoryFetcher = (url, init) => {
     requests.push(url);
@@ -161,6 +291,30 @@ function createRemoteHistoryFixture() {
     return Promise.reject(new Error(`Unexpected history request: ${url}`));
   };
   return { contract, fetcher, releases, requests, tagObjects };
+}
+
+function currentReleaseEntry(): CurrentRemoteReleaseHistoryEntry {
+  return Object.freeze({
+    assets: Object.freeze([
+      "HRA-0.1.15-16-macos-arm64.dmg",
+      "HRA-0.1.15-16-macos-arm64.dmg.sha256",
+      "HRA-0.1.15-16-release-manifest.json",
+      "bun-source.tar.gz",
+      "libarchive-source.tar.gz",
+      "native-sdk-source.tar.gz",
+      "zig-source.tar.gz",
+    ].toSorted().map((name, index) => Object.freeze({
+      bytes: 1_000 + index,
+      id: 900_000 + index,
+      name,
+      sha256: String(index + 1).repeat(64),
+    }))),
+    commit: "a".repeat(40),
+    publishedAt: "2026-08-23T00:00:00Z",
+    releaseId: 900_100,
+    tag: "v0.1.15",
+    tagObject: "b".repeat(40),
+  });
 }
 
 function jsonResponse(value: unknown): Response {

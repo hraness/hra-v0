@@ -2,6 +2,7 @@ import {
   constants,
   closeSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   openSync,
 } from "node:fs";
@@ -396,6 +397,221 @@ export async function renameWithPathAuthority(
         ? "Bundle rename leaf identity changed; the observed mutation was compensated."
         : "Bundle rename leaf identity changed and safe compensation could not be proven.",
     );
+  } finally {
+    library.close();
+    closeSync(sourceParent);
+    closeSync(destinationParent);
+  }
+}
+
+/**
+ * Atomically publishes a forward-recovery candidate without ever issuing a
+ * compensating rename after the kernel may have completed RENAME_SWAP. The
+ * caller must classify the two receipt-bound leaves while its recovery locks
+ * remain held when the immediate postcondition is unknown.
+ */
+export async function renameSwapForwardOnly(
+  source: ProspectivePathAuthority,
+  destination: ProspectivePathAuthority,
+  options: Readonly<{
+    beforeRenameForTest?: () => Promise<void> | void;
+  }> = {},
+): Promise<Readonly<{
+  status: "published" | "postcondition_unknown_after_swap";
+}>> {
+  await revalidatePathAuthority(source, "forward swap source");
+  await revalidatePathAuthority(destination, "forward swap destination");
+  const expectedSource = requiredLeafIdentity(source, "forward swap source");
+  const expectedDestination = requiredLeafIdentity(
+    destination,
+    "forward swap destination",
+  );
+  const sourceParent = openVerifiedParent(source, "forward swap source");
+  let destinationParent: number;
+  try {
+    destinationParent = openVerifiedParent(destination, "forward swap destination");
+  } catch (error: unknown) {
+    closeSync(sourceParent);
+    throw error;
+  }
+  if (process.platform !== "darwin") {
+    closeSync(sourceParent);
+    closeSync(destinationParent);
+    throw new InstallationPathAuthorityError(
+      "Atomic forward-only bundle swap is available only on macOS.",
+    );
+  }
+  const library = dlopen("/usr/lib/libSystem.B.dylib", {
+    renameatx_np: {
+      args: [
+        FFIType.i32,
+        FFIType.cstring,
+        FFIType.i32,
+        FFIType.cstring,
+        FFIType.u32,
+      ],
+      returns: FFIType.i32,
+    },
+    openat: {
+      args: [FFIType.i32, FFIType.cstring, FFIType.i32],
+      returns: FFIType.i32,
+    },
+  });
+  const sourceName = Buffer.from(`${basename(source.path)}\u0000`);
+  const destinationName = Buffer.from(`${basename(destination.path)}\u0000`);
+  const inspectLeaf = (
+    parent: number,
+    name: Buffer,
+    path: string,
+  ): PathNodeIdentity | null => {
+    const descriptor = library.symbols.openat(
+      parent,
+      name,
+      constants.O_RDONLY | noFollow | closeOnExec,
+    );
+    if (descriptor < 0) return null;
+    try {
+      const status = fstatSync(descriptor, { bigint: true });
+      return { device: status.dev, inode: status.ino, path };
+    } finally {
+      closeSync(descriptor);
+    }
+  };
+  try {
+    await options.beforeRenameForTest?.();
+    const result = library.symbols.renameatx_np(
+      sourceParent,
+      sourceName,
+      destinationParent,
+      destinationName,
+      RENAME_SWAP | RENAME_NOFOLLOW_ANY,
+    );
+    if (result !== 0) {
+      throw new InstallationPathAuthorityError(
+        "Descriptor-relative forward bundle swap failed before publication was proven.",
+      );
+    }
+    fsyncSync(sourceParent);
+    fsyncSync(destinationParent);
+    const sourceAfter = inspectLeaf(sourceParent, sourceName, source.path);
+    const destinationAfter = inspectLeaf(
+      destinationParent,
+      destinationName,
+      destination.path,
+    );
+    return {
+      status: sameNode(expectedDestination, sourceAfter)
+          && sameNode(expectedSource, destinationAfter)
+        ? "published"
+        : "postcondition_unknown_after_swap",
+    };
+  } finally {
+    library.close();
+    closeSync(sourceParent);
+    closeSync(destinationParent);
+  }
+}
+
+/**
+ * Publishes one validated source into one validated missing destination using
+ * Darwin RENAME_EXCL. Once the syscall may have completed this primitive never
+ * issues a compensating rename; the caller classifies its receipt-bound leaves.
+ */
+export async function renameExclForwardOnly(
+  source: ProspectivePathAuthority,
+  destination: ProspectivePathAuthority,
+  options: Readonly<{
+    beforeRenameForTest?: () => Promise<void> | void;
+  }> = {},
+): Promise<Readonly<{
+  status: "published" | "postcondition_unknown_after_rename";
+}>> {
+  await revalidatePathAuthority(source, "forward rename source");
+  await revalidatePathAuthority(destination, "forward rename destination");
+  const expectedSource = requiredLeafIdentity(source, "forward rename source");
+  if (destination.missing.length !== 1) {
+    throw new InstallationPathAuthorityError(
+      "Forward rename destination must be one validated missing leaf.",
+    );
+  }
+  const sourceParent = openVerifiedParent(source, "forward rename source");
+  let destinationParent: number;
+  try {
+    destinationParent = openVerifiedParent(destination, "forward rename destination");
+  } catch (error: unknown) {
+    closeSync(sourceParent);
+    throw error;
+  }
+  if (process.platform !== "darwin") {
+    closeSync(sourceParent);
+    closeSync(destinationParent);
+    throw new InstallationPathAuthorityError(
+      "Atomic forward-only bundle rename is available only on macOS.",
+    );
+  }
+  const library = dlopen("/usr/lib/libSystem.B.dylib", {
+    renameatx_np: {
+      args: [
+        FFIType.i32,
+        FFIType.cstring,
+        FFIType.i32,
+        FFIType.cstring,
+        FFIType.u32,
+      ],
+      returns: FFIType.i32,
+    },
+    openat: {
+      args: [FFIType.i32, FFIType.cstring, FFIType.i32],
+      returns: FFIType.i32,
+    },
+  });
+  const sourceName = Buffer.from(`${basename(source.path)}\u0000`);
+  const destinationName = Buffer.from(`${basename(destination.path)}\u0000`);
+  const inspectLeaf = (
+    parent: number,
+    name: Buffer,
+    path: string,
+  ): PathNodeIdentity | null => {
+    const descriptor = library.symbols.openat(
+      parent,
+      name,
+      constants.O_RDONLY | noFollow | closeOnExec,
+    );
+    if (descriptor < 0) return null;
+    try {
+      const status = fstatSync(descriptor, { bigint: true });
+      return { device: status.dev, inode: status.ino, path };
+    } finally {
+      closeSync(descriptor);
+    }
+  };
+  try {
+    await options.beforeRenameForTest?.();
+    const result = library.symbols.renameatx_np(
+      sourceParent,
+      sourceName,
+      destinationParent,
+      destinationName,
+      RENAME_EXCL | RENAME_NOFOLLOW_ANY,
+    );
+    if (result !== 0) {
+      throw new InstallationPathAuthorityError(
+        "Descriptor-relative forward bundle rename failed before publication was proven.",
+      );
+    }
+    fsyncSync(sourceParent);
+    fsyncSync(destinationParent);
+    const sourceAfter = inspectLeaf(sourceParent, sourceName, source.path);
+    const destinationAfter = inspectLeaf(
+      destinationParent,
+      destinationName,
+      destination.path,
+    );
+    return {
+      status: sourceAfter === null && sameNode(expectedSource, destinationAfter)
+        ? "published"
+        : "postcondition_unknown_after_rename",
+    };
   } finally {
     library.close();
     closeSync(sourceParent);

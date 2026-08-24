@@ -209,7 +209,7 @@ export default async function ComparisonPage({ params }: ComparisonPageProps) {
             </div>
             <ul>
               <li>HRA&apos;s native host currently supports Apple Silicon Macs only.</li>
-              <li>The downloadable app is ad-hoc signed, not Developer ID signed or notarized.</li>
+              <li>The downloadable app uses self-managed CMS and pinned ad-hoc nested-code signatures, including the runtime/JIT gateway. It is not Developer ID signed or notarized.</li>
               <li>The recursive harness is experimental, and the adaptive optimizer cannot activate policy.</li>
               <li>HRA is Codex-only; it is the wrong choice when provider breadth is the requirement.</li>
               <li>Multiple accounts must be owned or authorized by you and permitted to access the same work.</li>

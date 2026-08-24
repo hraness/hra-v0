@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
 import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+  type BigIntStats,
+} from "node:fs";
+import {
   cp,
   lstat,
   mkdtemp,
@@ -9,10 +17,27 @@ import {
   readlink,
   realpath,
   rm,
+  rmdir,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { isDeepStrictEqual } from "node:util";
+
+import {
+  CString,
+  dlopen,
+  FFIType,
+  ptr,
+  toBuffer,
+} from "bun:ffi";
 
 import { loadBunNativeLicenseInventory } from "./bun-native-licenses";
 import {
@@ -37,6 +62,7 @@ import {
   verifyCorrespondingSourceArchive,
 } from "./corresponding-sources";
 import {
+  custodyProbeSupervisorPackageContract,
   hranessUiStylesheetInput,
   imageNormalizerPackageContract,
   macosPackage,
@@ -44,8 +70,42 @@ import {
   requiredRuntimeBinFileNames,
   trustedThirdPartyTeams,
 } from "./macos-package-config";
+import type {
+  CustodyProbeSupervisorAuthorityEvidence,
+} from "./custody-probe-supervisor-authority";
+export type {
+  CustodyProbeSupervisorAuthorityEvidence,
+} from "./custody-probe-supervisor-authority";
+import {
+  authorizeResidentCustodyCandidate,
+  smokeResidentCustodyCandidate,
+} from "./resident-custody-probe-adapter";
 import { loadGcmDependencyLicenseInventory } from "./gcm-dependency-licenses";
+import { exactGatewayFileSha256 } from "./generate-gateway-file-authority";
 import runtimeVersions from "./runtime-versions.json";
+import {
+  assertReleaseStrictVerification,
+  codeSignatureHasExactRequirement,
+  codeSignatureHasNoEntitlements,
+  type CodeSignature,
+  extractExactReleaseCmsCertificateChain,
+  parseCodeSignatureDetails,
+  verifyReleaseCmsHasNoTime,
+} from "./package-macos";
+import {
+  loadProductionReleaseAuthority,
+  parseReleaseSigningAuthority,
+  productionReleaseAuthorityPins,
+  productionReleaseSigning,
+  releaseDesignatedRequirement,
+  structuralAuthorityDescription,
+  type ReleaseSigningAuthority,
+} from "./release-signing-authority";
+import {
+  packagedRendererAuthorityEntries,
+  rendererAuthorityRoot,
+} from "./renderer-authority";
+import { structuralManifestSigning } from "./structural-release-signing";
 import {
   createShippedJavaScriptLicenseInventory,
   renderShippedJavaScriptLicenseNotices,
@@ -66,11 +126,486 @@ type RuntimeTreeEntry = Readonly<{
   type: "file" | "symlink";
 }>;
 
-type MacOSAppEvidence = Readonly<{
+export type MacOSAppEvidence = Readonly<{
   commit: string;
+  custodyProbeSupervisor: CustodyProbeSupervisorAuthorityEvidence;
   runtimeManifest: unknown;
   treeSha256: string;
 }>;
+
+export interface MacOSPackageResidentProbeDependencies {
+  /** Test-only seam after the resident group is fully quiescent. */
+  readonly afterSmokeForTest?: (smokeRoot: string) => Promise<void> | void;
+  readonly authorizeCandidate: typeof authorizeResidentCustodyCandidate;
+  /** Test-only seam after marker lstat and before descriptor-relative open. */
+  readonly beforeSmokeMarkerOpenForTest?: (
+    markerPath: string,
+  ) => Promise<void> | void;
+  /** Test-only seam after marker open/fstat and before its bounded read. */
+  readonly beforeSmokeMarkerReadForTest?: (
+    markerPath: string,
+  ) => Promise<void> | void;
+  readonly smokeCandidate: typeof smokeResidentCustodyCandidate;
+}
+
+export const defaultMacOSPackageResidentProbeDependencies = Object.freeze({
+  authorizeCandidate: authorizeResidentCustodyCandidate,
+  smokeCandidate: smokeResidentCustodyCandidate,
+} satisfies MacOSPackageResidentProbeDependencies);
+
+const maximumSmokeMarkerBytes = 4_096;
+const maximumSmokeCleanupDepth = 8;
+const maximumSmokeCleanupEntries = 128;
+const maximumSmokeCleanupPasses = 16;
+const darwinDirectoryEntryNameOffset = 21;
+const darwinVnodeFdInfoBytes = 1_200;
+const darwinVnodeFdPathOffset = 176;
+const darwinMaximumPathBytes = 1_024;
+const darwinAtRemoveDirectory = 0x80;
+const darwinOpenCloseOnExec = 0x01000000;
+const darwinOpenNonBlocking = 0x00000004;
+
+const smokeRootNativeLibrary = process.platform === "darwin"
+  ? dlopen("/usr/lib/libSystem.B.dylib", {
+    __error: { args: [], returns: FFIType.ptr },
+    closedir: { args: [FFIType.ptr], returns: FFIType.i32 },
+    dup: { args: [FFIType.i32], returns: FFIType.i32 },
+    fdopendir: { args: [FFIType.i32], returns: FFIType.ptr },
+    openat: {
+      args: [FFIType.i32, FFIType.cstring, FFIType.i32],
+      returns: FFIType.i32,
+    },
+    readdir: { args: [FFIType.ptr], returns: FFIType.ptr },
+    unlinkat: {
+      args: [FFIType.i32, FFIType.cstring, FFIType.i32],
+      returns: FFIType.i32,
+    },
+  })
+  : null;
+
+const smokeRootProcessLibrary = process.platform === "darwin"
+  ? dlopen("/usr/lib/libproc.dylib", {
+    proc_pidfdinfo: {
+      args: [
+        FFIType.i32,
+        FFIType.i32,
+        FFIType.i32,
+        FFIType.ptr,
+        FFIType.i32,
+      ],
+      returns: FFIType.i32,
+    },
+  })
+  : null;
+
+type HeldSmokeRoot = Readonly<{
+  handle: Awaited<ReturnType<typeof open>>;
+  metadata: BigIntStats;
+  path: string;
+}>;
+
+function requireSmokeOpenFlag(name: "O_CLOEXEC" | "O_NONBLOCK"): number {
+  const value: unknown = Reflect.get(constants, name);
+  const expected = name === "O_CLOEXEC"
+    ? darwinOpenCloseOnExec
+    : darwinOpenNonBlocking;
+  if (value !== undefined && value !== expected) {
+    throw new Error(`Package launch smoke found an unexpected Darwin ${name}.`);
+  }
+  return expected;
+}
+
+function smokeFileOpenFlags(): number {
+  return constants.O_RDONLY
+    | constants.O_NOFOLLOW
+    | requireSmokeOpenFlag("O_CLOEXEC")
+    | requireSmokeOpenFlag("O_NONBLOCK");
+}
+
+function smokeDirectoryOpenFlags(): number {
+  return smokeFileOpenFlags() | constants.O_DIRECTORY;
+}
+
+function sameNode(left: BigIntStats, right: BigIntStats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameSmokeRootAuthority(
+  expected: BigIntStats,
+  actual: BigIntStats,
+): boolean {
+  return sameNode(expected, actual)
+    && actual.isDirectory()
+    && !actual.isSymbolicLink()
+    && actual.uid === expected.uid
+    && actual.gid === expected.gid
+    && (actual.mode & 0o777n) === (expected.mode & 0o777n);
+}
+
+function sameSmokeMarkerAuthority(
+  expected: BigIntStats,
+  actual: BigIntStats,
+): boolean {
+  return sameNode(expected, actual)
+    && actual.mode === expected.mode
+    && actual.nlink === expected.nlink
+    && actual.uid === expected.uid
+    && actual.gid === expected.gid
+    && actual.size === expected.size
+    && actual.mtimeNs === expected.mtimeNs
+    && actual.ctimeNs === expected.ctimeNs;
+}
+
+async function holdSmokeRoot(smokeRoot: string): Promise<HeldSmokeRoot> {
+  const before = await lstat(smokeRoot, { bigint: true });
+  const handle = await open(smokeRoot, smokeDirectoryOpenFlags());
+  try {
+    const [held, published, canonical] = await Promise.all([
+      handle.stat({ bigint: true }),
+      lstat(smokeRoot, { bigint: true }),
+      realpath(smokeRoot),
+    ]);
+    const currentUser = process.geteuid?.();
+    if (
+      currentUser === undefined
+      || canonical !== smokeRoot
+      || !before.isDirectory()
+      || before.isSymbolicLink()
+      || before.uid !== BigInt(currentUser)
+      || (before.mode & 0o777n) !== 0o700n
+      || !sameSmokeRootAuthority(before, held)
+      || !sameSmokeRootAuthority(before, published)
+    ) {
+      throw new Error("Package launch smoke root authority is unsafe.");
+    }
+    return Object.freeze({ handle, metadata: held, path: smokeRoot });
+  } catch (error: unknown) {
+    await handle.close();
+    throw error;
+  }
+}
+
+async function revalidateHeldSmokeRoot(root: HeldSmokeRoot): Promise<void> {
+  try {
+    const [held, published, canonical] = await Promise.all([
+      root.handle.stat({ bigint: true }),
+      lstat(root.path, { bigint: true }),
+      realpath(root.path),
+    ]);
+    if (
+      canonical !== root.path
+      || !sameSmokeRootAuthority(root.metadata, held)
+      || !sameSmokeRootAuthority(root.metadata, published)
+    ) throw new Error("changed");
+  } catch {
+    throw new Error("Package launch smoke root authority changed.");
+  }
+}
+
+function requireSmokeRootLibraries(): Readonly<{
+  process: NonNullable<typeof smokeRootProcessLibrary>;
+  system: NonNullable<typeof smokeRootNativeLibrary>;
+}> {
+  if (smokeRootNativeLibrary === null || smokeRootProcessLibrary === null) {
+    throw new Error("Exact package smoke-root custody is available only on macOS.");
+  }
+  return { process: smokeRootProcessLibrary, system: smokeRootNativeLibrary };
+}
+
+function smokeLeaf(name: string): Buffer {
+  if (
+    name.length === 0
+    || name === "."
+    || name === ".."
+    || name.includes("/")
+    || name.includes("\0")
+    || Buffer.byteLength(name, "utf8") > 255
+  ) throw new Error("Package launch smoke cleanup found an invalid leaf.");
+  return Buffer.from(`${name}\0`);
+}
+
+function smokeNativeErrno(): Buffer {
+  const location = requireSmokeRootLibraries().system.symbols.__error();
+  if (location === null) {
+    throw new Error("Package launch smoke cleanup cannot inspect Darwin errno.");
+  }
+  return toBuffer(location, 0, 4);
+}
+
+function listSmokeDirectory(descriptor: number): readonly string[] {
+  const { system } = requireSmokeRootLibraries();
+  const duplicate = system.symbols.dup(descriptor);
+  if (duplicate < 0) {
+    throw new Error("Package launch smoke cleanup cannot duplicate its root.");
+  }
+  const stream = system.symbols.fdopendir(duplicate);
+  if (stream === null) {
+    closeSync(duplicate);
+    throw new Error("Package launch smoke cleanup cannot enumerate its root.");
+  }
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let failure: Error | null = null;
+  try {
+    smokeNativeErrno().writeInt32LE(0, 0);
+    while (true) {
+      const entry = system.symbols.readdir(stream);
+      if (entry === null) break;
+      const name = String(new CString(entry, darwinDirectoryEntryNameOffset));
+      if (name === "." || name === "..") continue;
+      smokeLeaf(name);
+      if (seen.has(name) || names.length >= maximumSmokeCleanupEntries) {
+        throw new Error("Package launch smoke cleanup inventory is not bounded.");
+      }
+      seen.add(name);
+      names.push(name);
+    }
+    if (smokeNativeErrno().readInt32LE(0) !== 0) {
+      throw new Error("Package launch smoke cleanup enumeration was incomplete.");
+    }
+  } catch (error: unknown) {
+    failure = error instanceof Error ? error : new Error(String(error));
+  } finally {
+    if (system.symbols.closedir(stream) !== 0 && failure === null) {
+      failure = new Error("Package launch smoke cleanup could not close its inventory.");
+    }
+  }
+  if (failure !== null) throw failure;
+  return names.sort((left, right) => left.localeCompare(right));
+}
+
+function openSmokeDirectoryAt(parent: number, name: string): number | null {
+  const descriptor = requireSmokeRootLibraries().system.symbols.openat(
+    parent,
+    smokeLeaf(name),
+    smokeDirectoryOpenFlags(),
+  );
+  return descriptor < 0 ? null : descriptor;
+}
+
+function cleanHeldSmokeDirectory(
+  descriptor: number,
+  depth = 0,
+): void {
+  if (depth > maximumSmokeCleanupDepth) {
+    throw new Error("Package launch smoke cleanup tree is too deep.");
+  }
+  const { system } = requireSmokeRootLibraries();
+  for (let pass = 0; pass < maximumSmokeCleanupPasses; pass += 1) {
+    const names = listSmokeDirectory(descriptor);
+    if (names.length === 0) return;
+    for (const name of names) {
+      const child = openSmokeDirectoryAt(descriptor, name);
+      if (child === null) {
+        // This removes only the current non-directory leaf. A concurrent swap
+        // to a directory makes unlinkat fail rather than traversing it.
+        system.symbols.unlinkat(descriptor, smokeLeaf(name), 0);
+        continue;
+      }
+      try {
+        const childAuthority = fstatSync(child, { bigint: true });
+        cleanHeldSmokeDirectory(child, depth + 1);
+        const rebound = openSmokeDirectoryAt(descriptor, name);
+        if (rebound === null) continue;
+        let exact = false;
+        try {
+          exact = sameNode(
+            childAuthority,
+            fstatSync(rebound, { bigint: true }),
+          );
+        } finally {
+          closeSync(rebound);
+        }
+        if (exact) {
+          system.symbols.unlinkat(
+            descriptor,
+            smokeLeaf(name),
+            darwinAtRemoveDirectory,
+          );
+        }
+      } finally {
+        closeSync(child);
+      }
+    }
+  }
+  throw new Error("Package launch smoke cleanup did not reach an empty root.");
+}
+
+function heldSmokeRootPath(root: HeldSmokeRoot): string {
+  const { process: processNative } = requireSmokeRootLibraries();
+  const bytes = Buffer.alloc(darwinVnodeFdInfoBytes);
+  const count = processNative.symbols.proc_pidfdinfo(
+    process.pid,
+    root.handle.fd,
+    2,
+    ptr(bytes),
+    bytes.byteLength,
+  );
+  if (count !== bytes.byteLength) {
+    throw new Error("Package launch smoke root path authority is unavailable.");
+  }
+  const pathBytes = bytes.subarray(
+    darwinVnodeFdPathOffset,
+    darwinVnodeFdPathOffset + darwinMaximumPathBytes,
+  );
+  const terminator = pathBytes.indexOf(0);
+  if (terminator <= 0) {
+    throw new Error("Package launch smoke root path authority is invalid.");
+  }
+  const path = new TextDecoder("utf-8", { fatal: true }).decode(
+    pathBytes.subarray(0, terminator),
+  );
+  if (
+    !isAbsolute(path)
+    || resolve(path) !== path
+    || path === sep
+    || path.includes("\0")
+  ) throw new Error("Package launch smoke root path authority is invalid.");
+  return path;
+}
+
+async function lstatOrNull(path: string): Promise<BigIntStats | null> {
+  try {
+    return await lstat(path, { bigint: true });
+  } catch (error: unknown) {
+    if (
+      error instanceof Error
+      && "code" in error
+      && (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) return null;
+    throw error;
+  }
+}
+
+async function unlinkHeldSmokeRoot(root: HeldSmokeRoot): Promise<void> {
+  const { system } = requireSmokeRootLibraries();
+  for (let pass = 0; pass < maximumSmokeCleanupPasses; pass += 1) {
+    cleanHeldSmokeDirectory(root.handle.fd);
+    const currentPath = heldSmokeRootPath(root);
+    const current = await lstatOrNull(currentPath);
+    if (current === null || !sameSmokeRootAuthority(root.metadata, current)) {
+      const repeatedPath = heldSmokeRootPath(root);
+      const repeated = await lstatOrNull(repeatedPath);
+      if (repeated === null || !sameSmokeRootAuthority(root.metadata, repeated)) {
+        return;
+      }
+      continue;
+    }
+    const parent = openSync(dirname(currentPath), smokeDirectoryOpenFlags());
+    try {
+      const leaf = basename(currentPath);
+      const rebound = openSmokeDirectoryAt(parent, leaf);
+      if (rebound === null) continue;
+      let exact = false;
+      try {
+        exact = sameNode(root.metadata, fstatSync(rebound, { bigint: true }));
+      } finally {
+        closeSync(rebound);
+      }
+      if (!exact) continue;
+      system.symbols.unlinkat(parent, smokeLeaf(leaf), darwinAtRemoveDirectory);
+    } finally {
+      closeSync(parent);
+    }
+  }
+  throw new Error("Package launch smoke original root could not be removed exactly.");
+}
+
+async function removeHeldSmokeRootExactly(root: HeldSmokeRoot): Promise<void> {
+  let failure: Error | null = null;
+  try {
+    await unlinkHeldSmokeRoot(root);
+    const published = await lstatOrNull(root.path);
+    if (published !== null) {
+      if (sameSmokeRootAuthority(root.metadata, published)) {
+        throw new Error("Package launch smoke left its original root published.");
+      }
+      // The smoke name was replaced. Never recurse through a root that is not
+      // the held original vnode; surface the residue for explicit inspection.
+      throw new Error("Package launch smoke root was replaced during cleanup.");
+    }
+  } catch (error: unknown) {
+    failure = error instanceof Error ? error : new Error(String(error));
+  } finally {
+    try {
+      await root.handle.close();
+    } catch (closeError: unknown) {
+      failure ??= closeError instanceof Error
+        ? closeError
+        : new Error(String(closeError));
+    }
+  }
+  if (failure !== null) throw failure;
+}
+
+async function readHeldSmokeMarker(
+  root: HeldSmokeRoot,
+  dependencies: MacOSPackageResidentProbeDependencies,
+): Promise<Record<string, unknown>> {
+  await revalidateHeldSmokeRoot(root);
+  const markerName = "gateway-ready.json";
+  const markerPath = join(root.path, markerName);
+  const before = await lstat(markerPath, { bigint: true });
+  const currentUser = process.geteuid?.();
+  if (
+    currentUser === undefined
+    || !before.isFile()
+    || before.isSymbolicLink()
+    || before.uid !== BigInt(currentUser)
+    || before.nlink !== 1n
+    || (before.mode & 0o777n) !== 0o600n
+    || before.size < 1n
+    || before.size > BigInt(maximumSmokeMarkerBytes)
+  ) throw new Error("Package launch smoke marker authority is unsafe.");
+  await dependencies.beforeSmokeMarkerOpenForTest?.(markerPath);
+  const descriptor = requireSmokeRootLibraries().system.symbols.openat(
+    root.handle.fd,
+    smokeLeaf(markerName),
+    smokeFileOpenFlags(),
+  );
+  if (descriptor < 0) {
+    throw new Error("Package launch smoke marker could not be opened exactly.");
+  }
+  const bytes = Buffer.alloc(maximumSmokeMarkerBytes + 1);
+  try {
+    const held = fstatSync(descriptor, { bigint: true });
+    if (!sameSmokeMarkerAuthority(before, held)) {
+      throw new Error("Package launch smoke marker authority changed before open.");
+    }
+    await dependencies.beforeSmokeMarkerReadForTest?.(markerPath);
+    let total = 0;
+    while (total < bytes.byteLength) {
+      const count = readSync(
+        descriptor,
+        bytes,
+        total,
+        bytes.byteLength - total,
+        total,
+      );
+      if (count === 0) break;
+      total += count;
+    }
+    if (total !== Number(held.size) || total > maximumSmokeMarkerBytes) {
+      throw new Error("Package launch smoke marker size changed during read.");
+    }
+    const [after, namedAfter] = await Promise.all([
+      Promise.resolve(fstatSync(descriptor, { bigint: true })),
+      lstat(markerPath, { bigint: true }),
+      revalidateHeldSmokeRoot(root),
+    ]);
+    if (
+      !sameSmokeMarkerAuthority(held, after)
+      || !sameSmokeMarkerAuthority(held, namedAfter)
+    ) throw new Error("Package launch smoke marker authority changed during read.");
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(
+      bytes.subarray(0, total),
+    );
+    return record(JSON.parse(text), "package smoke marker");
+  } finally {
+    bytes.fill(0);
+    closeSync(descriptor);
+  }
+}
 
 function inside(root: string, path: string): boolean {
   const fromRoot = relative(root, path);
@@ -118,6 +653,130 @@ export async function sha256File(path: string): Promise<string> {
     await handle.close();
   }
   return hasher.digest("hex");
+}
+
+type DmgSnapshot = Readonly<{
+  bytes: number;
+  path: string;
+  remove: () => Promise<void>;
+  sha256: string;
+}>;
+
+function sameRegularFileAuthority(
+  expected: BigIntStats,
+  actual: BigIntStats,
+): boolean {
+  return expected.dev === actual.dev
+    && expected.ino === actual.ino
+    && expected.mode === actual.mode
+    && expected.nlink === actual.nlink
+    && expected.uid === actual.uid
+    && expected.gid === actual.gid
+    && expected.size === actual.size
+    && expected.mtimeNs === actual.mtimeNs
+    && expected.ctimeNs === actual.ctimeNs
+    && actual.isFile()
+    && !actual.isSymbolicLink();
+}
+
+async function snapshotDmg(dmgPath: string): Promise<DmgSnapshot> {
+  if (
+    !isAbsolute(dmgPath)
+    || resolve(dmgPath) !== dmgPath
+    || await realpath(dmgPath) !== dmgPath
+  ) throw new Error("Release DMG path must be absolute and canonical.");
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "hra-dmg-snapshot-"));
+  const snapshotPath = join(temporaryRoot, "release.dmg");
+  let source: Awaited<ReturnType<typeof open>> | undefined;
+  let destination: Awaited<ReturnType<typeof open>> | undefined;
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    const before = await lstat(dmgPath, { bigint: true });
+    source = await open(
+      dmgPath,
+      constants.O_RDONLY
+        | constants.O_NOFOLLOW
+        | requireSmokeOpenFlag("O_CLOEXEC"),
+    );
+    const held = await source.stat({ bigint: true });
+    const currentUser = process.geteuid?.();
+    if (
+      currentUser === undefined
+      || held.uid !== BigInt(currentUser)
+      || held.nlink !== 1n
+      || held.size <= 0n
+      || held.size > BigInt(Number.MAX_SAFE_INTEGER)
+      || !sameRegularFileAuthority(before, held)
+    ) throw new Error("Release DMG source authority is unsafe.");
+    destination = await open(
+      snapshotPath,
+      constants.O_WRONLY
+        | constants.O_CREAT
+        | constants.O_EXCL
+        | requireSmokeOpenFlag("O_CLOEXEC"),
+      0o400,
+    );
+    const hasher = createHash("sha256");
+    let offset = 0;
+    while (offset < Number(held.size)) {
+      const requested = Math.min(buffer.length, Number(held.size) - offset);
+      const { bytesRead } = await source.read(buffer, 0, requested, offset);
+      if (bytesRead <= 0) {
+        throw new Error("Release DMG ended before its held size.");
+      }
+      hasher.update(buffer.subarray(0, bytesRead));
+      let written = 0;
+      while (written < bytesRead) {
+        const result = await destination.write(
+          buffer,
+          written,
+          bytesRead - written,
+          offset + written,
+        );
+        if (result.bytesWritten <= 0) {
+          throw new Error("Release DMG snapshot write did not progress.");
+        }
+        written += result.bytesWritten;
+      }
+      offset += bytesRead;
+    }
+    await destination.sync();
+    const [heldAfter, namedAfter, snapshotStatus] = await Promise.all([
+      source.stat({ bigint: true }),
+      lstat(dmgPath, { bigint: true }),
+      destination.stat({ bigint: true }),
+    ]);
+    if (
+      !sameRegularFileAuthority(held, heldAfter)
+      || !sameRegularFileAuthority(held, namedAfter)
+      || !snapshotStatus.isFile()
+      || snapshotStatus.isSymbolicLink()
+      || snapshotStatus.uid !== BigInt(currentUser)
+      || snapshotStatus.nlink !== 1n
+      || (snapshotStatus.mode & 0o777n) !== 0o400n
+      || snapshotStatus.size !== held.size
+    ) throw new Error("Release DMG changed while taking its exact snapshot.");
+    await destination.close();
+    destination = undefined;
+    await source.close();
+    source = undefined;
+    const sha256 = hasher.digest("hex");
+    return Object.freeze({
+      bytes: Number(held.size),
+      path: snapshotPath,
+      remove: async () => {
+        await rm(temporaryRoot, { force: true, recursive: true });
+      },
+      sha256,
+    });
+  } catch (error: unknown) {
+    await destination?.close().catch(() => undefined);
+    await source?.close().catch(() => undefined);
+    await rm(temporaryRoot, { force: true, recursive: true });
+    throw error;
+  } finally {
+    buffer.fill(0);
+  }
 }
 
 export async function verifyRegularReleaseEntries(
@@ -205,59 +864,172 @@ function number(value: unknown, label: string): number {
   return Number(value);
 }
 
-async function codeSignature(path: string): Promise<Readonly<{
+type VerifiedCodeSignature = CodeSignature & Readonly<{
   cdHash: string;
-  flags: readonly string[];
-  hashChoices: readonly string[];
-  hashType: string | null;
   identifier: string;
-  infoPlistBound: boolean | null;
-  internalRequirementsCount: number | null;
-  pageSize: number | null;
-  runtimeVersion: string | null;
-  sealedResources: string | null;
-  signatureKind: string | null;
-  teamIdentifier: string | null;
-  timestamp: string | null;
-}>> {
+}>;
+
+type InspectedCodeSignature = Readonly<{
+  display: CommandResult;
+  signature: VerifiedCodeSignature;
+}>;
+
+async function inspectCodeSignature(path: string): Promise<InspectedCodeSignature> {
   const result = await run([
     "/usr/bin/codesign",
     "--display",
     "--verbose=4",
     path,
   ]);
-  const details = `${result.stdout}\n${result.stderr}`;
-  const value = (pattern: RegExp): string | null =>
-    pattern.exec(details)?.[1]?.trim() ?? null;
-  const cdHash = value(/^CDHash=([0-9a-fA-F]+)$/mu)?.toLowerCase() ?? null;
-  const identifier = value(/^Identifier=(.+)$/mu);
-  const rawTeam = value(/^TeamIdentifier=(.+)$/mu);
-  const rawFlags = value(/^CodeDirectory .* flags=0x[0-9a-fA-F]+\(([^)]*)\)/mu);
-  const rawHashChoices = value(/^Hash choices=(.+)$/mu);
-  const rawInfoPlist = value(/^Info\.plist=(.+)$/mu);
-  const rawRequirementsCount = value(/^Internal requirements count=([0-9]+) size=/mu);
-  const rawPageSize = value(/^Page size=([0-9]+)$/mu);
-  if (cdHash === null || identifier === null) {
+  const signature = parseCodeSignatureDetails(
+    `${result.stdout}\n${result.stderr}`,
+  );
+  if (signature.cdHash === null || signature.identifier === null) {
     throw new Error(`Missing code signature metadata: ${path}`);
   }
+  return Object.freeze({
+    display: result,
+    signature: Object.freeze({
+      ...signature,
+      cdHash: signature.cdHash,
+      identifier: signature.identifier,
+    }),
+  });
+}
+
+async function codeSignature(path: string): Promise<VerifiedCodeSignature> {
+  return (await inspectCodeSignature(path)).signature;
+}
+
+function exactCodeCertificateChain(
+  cms: Buffer,
+): Readonly<{ leaf: Buffer; root: Buffer }> {
+  const [leaf, root] = extractExactReleaseCmsCertificateChain(cms);
+  return Object.freeze({ leaf, root });
+}
+
+function certificateRecord(bytes: Buffer): Readonly<{
+  derBase64: string;
+  sha1: string;
+  sha256: string;
+}> {
   return {
-    cdHash,
-    flags: rawFlags === null || rawFlags.length === 0 ? [] : rawFlags.split(","),
-    hashChoices: rawHashChoices === null || rawHashChoices.length === 0
-      ? []
-      : rawHashChoices.split(","),
-    hashType: value(/^Hash type=([^ ]+) size=/mu),
-    identifier,
-    infoPlistBound: rawInfoPlist === null ? null : rawInfoPlist !== "not bound",
-    internalRequirementsCount:
-      rawRequirementsCount === null ? null : Number(rawRequirementsCount),
-    pageSize: rawPageSize === null ? null : Number(rawPageSize),
-    runtimeVersion: value(/^Runtime Version=(.+)$/mu),
-    sealedResources: value(/^Sealed Resources=(.+)$/mu),
-    signatureKind: value(/^Signature=(.+)$/mu),
-    teamIdentifier: rawTeam === "not set" ? null : rawTeam,
-    timestamp: value(/^Timestamp=(.+)$/mu),
+    derBase64: bytes.toString("base64"),
+    sha1: createHash("sha1").update(bytes).digest("hex"),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
   };
+}
+
+async function structuralAuthorityFromCodeIdentity(
+  path: string,
+): Promise<ReleaseSigningAuthority> {
+  const inspected = await inspectCodeSignature(path);
+  const { cms } = await verifyReleaseCmsHasNoTime(inspected.display, path);
+  const certificates = exactCodeCertificateChain(cms);
+  const authority = parseReleaseSigningAuthority({
+    description: structuralAuthorityDescription,
+    leaf: certificateRecord(certificates.leaf),
+    policy: {
+      architecture: "arm64",
+      codeDirectoryHash: "sha256",
+      cmsSigningTime: "none",
+      hardenedRuntime: true,
+      pageSize: 16_384,
+      secureTimestamp: "none",
+    },
+    root: certificateRecord(certificates.root),
+    schemaVersion: 1,
+  }, undefined, new Date(), "structural");
+  if (
+    authority.leaf.sha1 === productionReleaseAuthorityPins.leafSha1
+    || authority.leaf.sha256 === productionReleaseAuthorityPins.leafSha256
+    || authority.root.sha1 === productionReleaseAuthorityPins.rootSha1
+    || authority.root.sha256 === productionReleaseAuthorityPins.rootSha256
+  ) {
+    throw new Error("Structural signing authority collides with production pins.");
+  }
+  return authority;
+}
+
+async function verifyReleaseCodeIdentity(
+  path: string,
+  identifier: string,
+  authority: ReleaseSigningAuthority,
+): Promise<void> {
+  const inspected = await inspectCodeSignature(path);
+  const signature = inspected.signature;
+  if (
+    signature.identifier !== identifier
+    || signature.teamIdentifier !== null
+    || signature.signatureKind === null
+    || signature.signatureKind === "adhoc"
+    || signature.hashType !== "sha256"
+    || signature.hashChoices.length !== 1
+    || signature.hashChoices[0] !== "sha256"
+    || signature.pageSize !== 16_384
+    || signature.timestamp !== null
+    || signature.flags.length !== 1
+    || signature.flags[0] !== "runtime"
+  ) {
+    throw new Error(`Release code-signing posture differs: ${path}`);
+  }
+  const { cms, executable } = await verifyReleaseCmsHasNoTime(
+    inspected.display,
+    path,
+  );
+  const entitlements = await run([
+    "/usr/bin/codesign",
+    "--display",
+    "--entitlements",
+    "-",
+    path,
+  ]);
+  if (!codeSignatureHasNoEntitlements(entitlements, executable)) {
+    throw new Error(`Release code must not carry entitlements: ${path}`);
+  }
+  const strictVerification = await run([
+    "/usr/bin/codesign",
+    "--verify",
+    "--all-architectures",
+    "--strict",
+    "--verbose=6",
+    path,
+  ], { allowFailure: true });
+  assertReleaseStrictVerification(path, strictVerification);
+  const requirements = await run([
+    "/usr/bin/codesign",
+    "--display",
+    "--requirements",
+    "-",
+    path,
+  ]);
+  if (
+    !codeSignatureHasExactRequirement(
+      requirements,
+      executable,
+      releaseDesignatedRequirement(identifier, {
+        leafSha1: authority.leaf.sha1,
+        rootSha1: authority.root.sha1,
+      }),
+    )
+  ) {
+    throw new Error(`Release designated requirement differs: ${path}`);
+  }
+  const certificates = exactCodeCertificateChain(cms);
+  if (
+    !certificates.leaf.equals(authority.leaf.der)
+    || !certificates.root.equals(authority.root.der)
+    || createHash("sha1").update(certificates.leaf).digest("hex")
+      !== authority.leaf.sha1
+    || createHash("sha256").update(certificates.leaf).digest("hex")
+      !== authority.leaf.sha256
+    || createHash("sha1").update(certificates.root).digest("hex")
+      !== authority.root.sha1
+    || createHash("sha256").update(certificates.root).digest("hex")
+      !== authority.root.sha256
+  ) {
+    throw new Error(`Release certificate chain differs: ${path}`);
+  }
 }
 
 async function codeSignatureEntitlements(
@@ -267,7 +1039,8 @@ async function codeSignatureEntitlements(
     "/usr/bin/codesign",
     "--display",
     "--entitlements",
-    ":-",
+    "-",
+    "--xml",
     path,
   ]);
   return parseCodexSignatureNormalizationEntitlements(
@@ -275,8 +1048,164 @@ async function codeSignatureEntitlements(
   );
 }
 
+export function parseCustodyProbeSupervisorAuthorityEvidence(
+  value: unknown,
+  expectedSigning: Readonly<Record<string, unknown>>,
+  expectedAuthority: ReleaseSigningAuthority,
+): CustodyProbeSupervisorAuthorityEvidence {
+  const authority = record(value, "runtime custody probe supervisor");
+  const actualFields = Object.keys(authority).sort();
+  const expectedFields = [
+    "architecture",
+    "cdHash",
+    "codeDirectoryFlags",
+    "designatedRequirement",
+    "entitlements",
+    "identifier",
+    "pageSize",
+    "runtimeRelativePath",
+    "sha256",
+    "signing",
+    "timestamp",
+  ].sort();
+  const cdHash = string(
+    authority["cdHash"],
+    "custody probe supervisor CodeDirectory hash",
+  );
+  const sha256 = string(
+    authority["sha256"],
+    "custody probe supervisor SHA-256",
+  );
+  const expectedDesignatedRequirement = releaseDesignatedRequirement(
+    custodyProbeSupervisorPackageContract.identifier,
+    {
+      leafSha1: expectedAuthority.leaf.sha1,
+      rootSha1: expectedAuthority.root.sha1,
+    },
+  );
+  if (
+    !isDeepStrictEqual(actualFields, expectedFields)
+    || authority["architecture"] !== macosPackage.architecture
+    || authority["identifier"]
+      !== custodyProbeSupervisorPackageContract.identifier
+    || authority["runtimeRelativePath"]
+      !== custodyProbeSupervisorPackageContract.runtimeRelativePath
+    || !/^[0-9a-f]{40}$/u.test(cdHash)
+    || !/^[0-9a-f]{64}$/u.test(sha256)
+    || !isDeepStrictEqual(authority["codeDirectoryFlags"], ["runtime"])
+    || authority["designatedRequirement"] !== expectedDesignatedRequirement
+    || !isDeepStrictEqual(authority["entitlements"], {})
+    || authority["pageSize"] !== 16_384
+    || !isDeepStrictEqual(authority["signing"], expectedSigning)
+    || authority["timestamp"] !== null
+  ) {
+    throw new Error("Custody probe supervisor manifest authority differs.");
+  }
+  return Object.freeze({
+    architecture: "arm64",
+    cdHash,
+    codeDirectoryFlags: Object.freeze(["runtime"] as const),
+    designatedRequirement: expectedDesignatedRequirement,
+    entitlements: Object.freeze({}),
+    identifier: custodyProbeSupervisorPackageContract.identifier,
+    pageSize: 16_384,
+    runtimeRelativePath:
+      custodyProbeSupervisorPackageContract.runtimeRelativePath,
+    sha256,
+    signing: Object.freeze({ ...expectedSigning }),
+    timestamp: null,
+  });
+}
+
+export const custodyProbeSupervisorDependencies = Object.freeze([
+  "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+  "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+  "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+  "/usr/lib/libSystem.B.dylib",
+  "/usr/lib/libobjc.A.dylib",
+] as const);
+
+export function parseCustodyProbeSupervisorDependencies(
+  path: string,
+  dependencyOutput: string,
+): readonly string[] {
+  const lines = dependencyOutput.trimEnd().split("\n");
+  if (lines[0] !== `${path}:` || lines.length < 2) {
+    throw new Error(`Release helper dependency inventory is invalid: ${path}`);
+  }
+  const dependencies = lines.slice(1).map((line) => {
+    const match = /^\t(\/\S+) \(compatibility version [^)]+\)$/u.exec(line);
+    if (match?.[1] === undefined) {
+      throw new Error(`Release helper has an invalid load command: ${path}`);
+    }
+    return match[1];
+  }).sort();
+  if (!isDeepStrictEqual(dependencies, custodyProbeSupervisorDependencies)) {
+    throw new Error(`Release helper dependency allowlist differs: ${path}`);
+  }
+  return Object.freeze(dependencies);
+}
+
+async function verifyThinArm64SystemMachO(path: string): Promise<void> {
+  const architectures = (await run([
+    "/usr/bin/lipo",
+    "-archs",
+    path,
+  ])).stdout.trim();
+  if (architectures !== "arm64") {
+    throw new Error(`Release helper is not thin arm64 code: ${path}`);
+  }
+  const dependencyOutput = (await run([
+    "/usr/bin/otool",
+    "-L",
+    path,
+  ])).stdout;
+  parseCustodyProbeSupervisorDependencies(path, dependencyOutput);
+}
+
+export async function verifyExactAdHocGatewayPosture(path: string): Promise<void> {
+  const architectures = (await run([
+    "/usr/bin/lipo",
+    "-archs",
+    path,
+  ])).stdout.trim();
+  const gateway = await codeSignature(path);
+  if (
+    architectures !== "arm64"
+    || gateway.identifier !== "oprte-gateway"
+    || gateway.teamIdentifier !== null
+    || gateway.signatureKind !== "adhoc"
+    || gateway.hashType !== "sha256"
+    || gateway.pageSize !== 16_384
+    || gateway.timestamp !== null
+    || gateway.flags.length !== 2
+    || !gateway.flags.includes("runtime")
+    || !gateway.flags.includes("adhoc")
+  ) {
+    throw new Error("Gateway code-signing posture differs.");
+  }
+  const gatewayEntitlements = await codeSignatureEntitlements(path);
+  if (
+    Object.keys(gatewayEntitlements).length !== 1
+    || gatewayEntitlements[
+      "com.apple.security.cs.allow-unsigned-executable-memory"
+    ] !== true
+  ) {
+    throw new Error("Gateway entitlements differ from the exact JIT policy.");
+  }
+  await run([
+    "/usr/bin/codesign",
+    "--verify",
+    "--strict",
+    "--verbose=6",
+    path,
+  ]);
+}
+
 async function verifyRuntimeManifest(
   appPath: string,
+  expectedSigning: Readonly<Record<string, unknown>>,
+  expectedAuthority: ReleaseSigningAuthority,
 ): Promise<MacOSAppEvidence> {
   const runtimeRoot = join(appPath, "Contents/Resources/runtime");
   const manifestPath = join(runtimeRoot, "manifest.json");
@@ -294,7 +1223,7 @@ async function verifyRuntimeManifest(
     || number(release["build"], "release build") !== macosPackage.build
     || release["architecture"] !== macosPackage.architecture
     || release["minimumMacOS"] !== macosPackage.minimumMacOS
-    || release["signing"] !== "adhoc"
+    || !isDeepStrictEqual(release["signing"], expectedSigning)
   ) {
     throw new Error("Runtime manifest release identity differs from the package.");
   }
@@ -304,6 +1233,11 @@ async function verifyRuntimeManifest(
   }
 
   const gateway = record(runtime["gateway"], "runtime gateway");
+  const custodyProbeSupervisor = parseCustodyProbeSupervisorAuthorityEvidence(
+    runtime["custodyProbeSupervisor"],
+    expectedSigning,
+    expectedAuthority,
+  );
   const dataRemover = record(runtime["dataRemover"], "runtime data remover");
   const gitExecutor = record(runtime["gitExecutor"], "runtime Git executor");
   const imageNormalizer = record(runtime["imageNormalizer"], "runtime image normalizer");
@@ -317,6 +1251,10 @@ async function verifyRuntimeManifest(
   const gitLfs = record(runtime["gitLfs"], "runtime Git LFS");
   const ripgrep = record(runtime["ripgrep"], "runtime ripgrep");
   const expectedHashes = new Map([
+    [
+      custodyProbeSupervisorPackageContract.runtimeRelativePath,
+      custodyProbeSupervisor.sha256,
+    ],
     [
       imageNormalizerPackageContract.runtimeRelativePath,
       string(imageNormalizer["sha256"], "image normalizer SHA-256"),
@@ -473,7 +1411,12 @@ async function verifyRuntimeManifest(
   if (actualTreeSha256 !== treeSha256) {
     throw new Error("Runtime tree hash differs from the manifest.");
   }
-  return { commit, runtimeManifest: manifest, treeSha256 };
+  return {
+    commit,
+    custodyProbeSupervisor,
+    runtimeManifest: manifest,
+    treeSha256,
+  };
 }
 
 async function verifyReconstructedCodexSourcePayloads(
@@ -548,6 +1491,7 @@ async function verifyReconstructedCodexSourcePayloads(
 
 export async function verifyMacOSApp(
   appPath = macosPackage.appBundlePath,
+  options: Readonly<{ profile?: "production" | "structural" }> = {},
 ): Promise<MacOSAppEvidence> {
   const stat = await lstat(appPath);
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -560,6 +1504,17 @@ export async function verifyMacOSApp(
   const contentsRoot = join(canonical, "Contents");
   const runtimeRoot = join(contentsRoot, "Resources/runtime");
   const plist = join(contentsRoot, "Info.plist");
+  const hostExecutable = join(
+    contentsRoot,
+    `MacOS/${macosPackage.executableName}`,
+  );
+  const profile = options.profile ?? "production";
+  const releaseAuthority = profile === "production"
+    ? await loadProductionReleaseAuthority()
+    : await structuralAuthorityFromCodeIdentity(hostExecutable);
+  const expectedReleaseSigning = profile === "production"
+    ? productionReleaseSigning
+    : structuralManifestSigning(releaseAuthority);
   const expectedPlist = new Map([
     ["CFBundleDisplayName", macosPackage.displayName],
     ["CFBundleExecutable", macosPackage.executableName],
@@ -656,7 +1611,11 @@ export async function verifyMacOSApp(
   if (stagedCodexNotices !== renderCodexNativeLicenseNotices(stagedCodexInventory)) {
     throw new Error("Staged Codex native license notices differ from their inventory.");
   }
-  const release = await verifyRuntimeManifest(canonical);
+  const release = await verifyRuntimeManifest(
+    canonical,
+    expectedReleaseSigning,
+    releaseAuthority,
+  );
   await verifyReconstructedCodexSourcePayloads(
     canonical,
     stagedCodexInventory,
@@ -681,6 +1640,47 @@ export async function verifyMacOSApp(
   if (custodian.identifier !== "oprte-keychain-custodian") {
     throw new Error("Keychain custodian code identifier differs.");
   }
+  await verifyReleaseCodeIdentity(
+    join(runtimeRoot, "bin/oprte-keychain-custodian"),
+    "oprte-keychain-custodian",
+    releaseAuthority,
+  );
+  const custodyProbeSupervisorPath = join(
+    runtimeRoot,
+    custodyProbeSupervisorPackageContract.runtimeRelativePath,
+  );
+  const custodyProbeSupervisor = await codeSignature(
+    custodyProbeSupervisorPath,
+  );
+  const verifiedRuntimeManifest = record(
+    release.runtimeManifest,
+    "verified runtime manifest",
+  );
+  const verifiedRuntime = record(
+    verifiedRuntimeManifest["runtime"],
+    "verified runtime manifest runtime",
+  );
+  const verifiedCustodyProbeSupervisor = record(
+    verifiedRuntime["custodyProbeSupervisor"],
+    "verified runtime custody probe supervisor",
+  );
+  if (
+    custodyProbeSupervisor.identifier
+      !== custodyProbeSupervisorPackageContract.identifier
+    || custodyProbeSupervisor.cdHash
+      !== string(
+        verifiedCustodyProbeSupervisor["cdHash"],
+        "verified custody probe supervisor CodeDirectory hash",
+      )
+  ) {
+    throw new Error("Custody probe supervisor code identity differs from its manifest.");
+  }
+  await verifyReleaseCodeIdentity(
+    custodyProbeSupervisorPath,
+    custodyProbeSupervisorPackageContract.identifier,
+    releaseAuthority,
+  );
+  await verifyThinArm64SystemMachO(custodyProbeSupervisorPath);
   const imageNormalizerPath = join(
     runtimeRoot,
     imageNormalizerPackageContract.runtimeRelativePath,
@@ -697,11 +1697,12 @@ export async function verifyMacOSApp(
     "/usr/bin/codesign",
     "--display",
     "--entitlements",
-    ":-",
+    "-",
     imageNormalizerPath,
   ], { allowFailure: true });
-  if (/<key>/u.test(
-    `${imageNormalizerEntitlements.stdout}\n${imageNormalizerEntitlements.stderr}`,
+  if (!codeSignatureHasNoEntitlements(
+    imageNormalizerEntitlements,
+    imageNormalizerPath,
   )) {
     throw new Error("Image normalizer must not carry entitlements.");
   }
@@ -714,28 +1715,19 @@ export async function verifyMacOSApp(
     .test(imageNormalizerImports.stdout)) {
     throw new Error("Image normalizer must not import network operations.");
   }
-  const gateway = await codeSignature(join(runtimeRoot, "bin/oprte-gateway"));
-  if (gateway.identifier !== "oprte-gateway") {
-    throw new Error("Gateway code identifier differs.");
-  }
-  const entitlements = await run([
-    "/usr/bin/codesign",
-    "--display",
-    "--entitlements",
-    ":-",
+  await verifyExactAdHocGatewayPosture(
     join(runtimeRoot, "bin/oprte-gateway"),
-  ]);
-  const entitlementText = `${entitlements.stdout}\n${entitlements.stderr}`;
-  if (
-    !entitlementText.includes("com.apple.security.cs.allow-unsigned-executable-memory")
-    || !entitlementText.includes("<true/>")
-  ) {
-    throw new Error("Gateway JIT entitlement is missing.");
-  }
-  const host = await codeSignature(join(contentsRoot, `MacOS/${macosPackage.executableName}`));
-  if (host.identifier !== macosPackage.bundleIdentifier || host.teamIdentifier !== null) {
-    throw new Error("Ad-hoc host code identity differs.");
-  }
+  );
+  await verifyReleaseCodeIdentity(
+    hostExecutable,
+    macosPackage.bundleIdentifier,
+    releaseAuthority,
+  );
+  await verifyReleaseCodeIdentity(
+    canonical,
+    macosPackage.bundleIdentifier,
+    releaseAuthority,
+  );
   await run([
     "/usr/bin/codesign",
     "--verify",
@@ -786,130 +1778,43 @@ export async function verifyMacOSApp(
   return release;
 }
 
-function processExists(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM";
-  }
-}
-
-type ObservedProcess = Readonly<{
-  command: string;
-  pgid: number;
-  pid: number;
-}>;
-
-async function processTable(): Promise<readonly ObservedProcess[]> {
-  const result = await run([
-    "/bin/ps",
-    "-axo",
-    "pid=,ppid=,pgid=,command=",
-  ]);
-  return result.stdout.split("\n").flatMap((line) => {
-    const match = /^\s*([1-9][0-9]*)\s+[1-9][0-9]*\s+([1-9][0-9]*)\s+(.+)$/u.exec(line);
-    if (match === null) return [];
-    return [{
-      command: match[3]!,
-      pgid: Number(match[2]),
-      pid: Number(match[1]),
-    }];
-  });
-}
-
-async function signalExactGatewayGroups(
-  observed: ReadonlyMap<number, ObservedProcess>,
-  expectedGateway: string,
-  signal: NodeJS.Signals,
-): Promise<void> {
-  const current = new Map((await processTable()).map((entry) => [entry.pid, entry]));
-  for (const prior of observed.values()) {
-    const live = current.get(prior.pid);
-    if (
-      live === undefined
-      || live.pgid !== prior.pgid
-      || !live.command.includes(expectedGateway)
-    ) continue;
-    try {
-      process.kill(-live.pgid, signal);
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-        throw error;
-      }
-    }
-  }
-}
-
 export async function launchSmokeMacOSApp(
   appPath: string,
   dwellMilliseconds = 8_000,
+  authority?: CustodyProbeSupervisorAuthorityEvidence,
+  dependencies: MacOSPackageResidentProbeDependencies =
+    defaultMacOSPackageResidentProbeDependencies,
 ): Promise<void> {
-  const executable = join(appPath, `Contents/MacOS/${macosPackage.executableName}`);
+  const exactAuthority = authority
+    ?? (await verifyMacOSApp(appPath)).custodyProbeSupervisor;
   const smokeRoot = await realpath(
     await mkdtemp(join(tmpdir(), "hra-package-smoke-")),
   );
-  const child = Bun.spawn([executable], {
-    cwd: dirname(appPath),
-    detached: true,
-    env: {
-      ...process.env,
-      HRA_PACKAGE_SMOKE_ROOT: smokeRoot,
-    },
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  if (!Number.isSafeInteger(child.pid) || child.pid <= 1) {
-    child.kill("SIGKILL");
-    await rm(smokeRoot, { force: true, recursive: true });
-    throw new Error("Package launch smoke could not establish an owned process group.");
-  }
-  let exited = false;
-  const exit = child.exited.then((code) => {
-    exited = true;
-    return code;
-  });
-  const expectedGateway = join(
-    appPath,
-    "Contents/Resources/runtime/bin/oprte-gateway",
-  );
-  const deadline = Date.now() + dwellMilliseconds;
-  const observedGateways = new Map<number, ObservedProcess>();
-  let cleanupError: unknown;
+  let heldRoot: HeldSmokeRoot | null = null;
   try {
-    while (!exited && Date.now() < deadline) {
-      for (const entry of await processTable()) {
-        if (entry.command.includes(expectedGateway)) {
-          observedGateways.set(entry.pid, entry);
-        }
-      }
-      await Bun.sleep(Math.min(250, Math.max(1, deadline - Date.now())));
-    }
-    if (exited || !processExists(child.pid)) {
-      const [code, stdout, stderr] = await Promise.all([
-        exit,
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-      ]);
-      throw new Error(
-        `Packaged app exited during launch smoke (${code}): ${stdout}\n${stderr}`,
-      );
-    }
-    if (observedGateways.size === 0) {
-      throw new Error(
-        "Packaged app did not launch its bundled gateway process during the smoke window.",
-      );
-    }
-    const markerPath = join(smokeRoot, "gateway-ready.json");
-    const markerStatus = await lstat(markerPath);
-    const marker = record(
-      JSON.parse(await readFile(markerPath, "utf8")),
-      "package smoke marker",
-    );
+    heldRoot = await holdSmokeRoot(smokeRoot);
     if (
-      !markerStatus.isFile()
-      || markerStatus.isSymbolicLink()
-      || markerStatus.mode & 0o077
+      !Number.isSafeInteger(dwellMilliseconds)
+      || dwellMilliseconds <= 0
+      || dwellMilliseconds > 30_000
+    ) {
+      throw new Error("Package launch smoke dwell is outside its native bound.");
+    }
+    await dependencies.smokeCandidate(
+      appPath,
+      exactAuthority,
+      smokeRoot,
+      dwellMilliseconds,
+    );
+    await dependencies.afterSmokeForTest?.(smokeRoot);
+    const marker = await readHeldSmokeMarker(heldRoot, dependencies);
+    if (
+      !isDeepStrictEqual(Object.keys(marker).sort(), [
+        "bunVersion",
+        "codexVersion",
+        "gitVersion",
+        "schemaVersion",
+      ])
       || marker["schemaVersion"] !== 1
       || marker["bunVersion"] !== "1.3.14"
       || marker["codexVersion"] !== `codex-cli ${runtimeVersions.codex.version}`
@@ -918,54 +1823,73 @@ export async function launchSmokeMacOSApp(
       throw new Error("Packaged gateway did not prove its isolated runtime identity.");
     }
   } finally {
-    try {
-      if (!exited) {
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch (error) {
-          if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-            cleanupError = error;
-          }
-        }
-      }
-      await signalExactGatewayGroups(observedGateways, expectedGateway, "SIGTERM");
-      const settled = await Promise.race([
-        exit.then(() => true),
-        Bun.sleep(3_000).then(() => false),
-      ]);
-      if (!settled) {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch (error) {
-          if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-            cleanupError = error;
-          }
-        }
-        await signalExactGatewayGroups(observedGateways, expectedGateway, "SIGKILL");
-        await exit;
-      } else {
-        await Bun.sleep(250);
-        await signalExactGatewayGroups(observedGateways, expectedGateway, "SIGKILL");
-      }
-    } catch (error) {
-      cleanupError ??= error;
+    if (heldRoot === null) {
+      // No descriptor authority was established, so cleanup must not recurse
+      // through whatever may now occupy the freshly allocated path.
+      await rmdir(smokeRoot);
+    } else {
+      await removeHeldSmokeRootExactly(heldRoot);
     }
-    try {
-      await rm(smokeRoot, { force: true, recursive: true });
-    } catch (error) {
-      cleanupError ??= error;
-    }
-  }
-  if (cleanupError !== undefined) {
-    throw cleanupError instanceof Error
-      ? cleanupError
-      : new Error("Package launch smoke cleanup failed.");
   }
 }
 
-export async function verifyMacOSDmg(
+export async function probePackagedCustodyAuthorization(
+  appPath: string,
+  authority?: CustodyProbeSupervisorAuthorityEvidence,
+  dependencies: MacOSPackageResidentProbeDependencies =
+    defaultMacOSPackageResidentProbeDependencies,
+): Promise<void> {
+  const exactAuthority = authority
+    ?? (await verifyMacOSApp(appPath)).custodyProbeSupervisor;
+  const gatewayFileSha256 = await exactGatewayFileSha256(join(
+    appPath,
+    "Contents/Resources/runtime/bin/oprte-gateway",
+  ));
+  const rendererAuthoritySha256 = rendererAuthorityRoot(
+    await packagedRendererAuthorityEntries(join(
+      appPath,
+      "Contents/Resources/frontend/dist",
+    )),
+  );
+  const expectedReceipt =
+    `{"authorization":"hra-parent-v1",` +
+    `"gatewayFileSha256":"${gatewayFileSha256}",` +
+    `"keychainAccessed":false,"ok":true,` +
+    `"rendererAuthoritySha256":"${rendererAuthoritySha256}",` +
+    `"version":1}\n`;
+  await dependencies.authorizeCandidate(
+    appPath,
+    exactAuthority,
+    expectedReceipt,
+  );
+  // The helper bound its response to the exact authority that it revalidated;
+  // independently recompute the final package again after the probe so a
+  // same-user mutation cannot win between the verifier's first read and the
+  // authorize-only response.
+  const gatewayAfter = await exactGatewayFileSha256(join(
+    appPath,
+    "Contents/Resources/runtime/bin/oprte-gateway",
+  ));
+  const rendererAfter = rendererAuthorityRoot(
+    await packagedRendererAuthorityEntries(join(
+      appPath,
+      "Contents/Resources/frontend/dist",
+    )),
+  );
+  if (
+    gatewayAfter !== gatewayFileSha256
+    || rendererAfter !== rendererAuthoritySha256
+  ) {
+    throw new Error("Packaged custody authority changed across its native probe.");
+  }
+}
+
+async function verifyMacOSDmgSnapshot(
   dmgPath: string,
-  options: Readonly<{ launchSmoke?: boolean }> = {},
+  options: Readonly<{
+    custodyAuthorizationProbe?: boolean;
+    launchSmoke?: boolean;
+  }> = {},
 ): Promise<MacOSAppEvidence> {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "hra-dmg-verify-"));
   const mountPoint = join(temporaryRoot, "mount");
@@ -994,8 +1918,18 @@ export async function verifyMacOSDmg(
     }
     const mountedApp = join(mountPoint, "HRA.app");
     evidence = await verifyMacOSApp(mountedApp);
+    if (options.custodyAuthorizationProbe === true) {
+      await probePackagedCustodyAuthorization(
+        mountedApp,
+        evidence.custodyProbeSupervisor,
+      );
+    }
     if (options.launchSmoke === true) {
-      await launchSmokeMacOSApp(mountedApp);
+      await launchSmokeMacOSApp(
+        mountedApp,
+        8_000,
+        evidence.custodyProbeSupervisor,
+      );
     }
   } finally {
     if (attached) {
@@ -1007,6 +1941,21 @@ export async function verifyMacOSDmg(
     throw new Error("DMG verification produced no application evidence.");
   }
   return evidence;
+}
+
+export async function verifyMacOSDmg(
+  dmgPath: string,
+  options: Readonly<{
+    custodyAuthorizationProbe?: boolean;
+    launchSmoke?: boolean;
+  }> = {},
+): Promise<MacOSAppEvidence> {
+  const snapshot = await snapshotDmg(dmgPath);
+  try {
+    return await verifyMacOSDmgSnapshot(snapshot.path, options);
+  } finally {
+    await snapshot.remove();
+  }
 }
 
 export async function verifyMacOSReleaseArtifacts(
@@ -1032,7 +1981,7 @@ export async function verifyMacOSReleaseArtifacts(
   }
   await verifyRegularReleaseEntries(releaseDirectory, expectedEntries);
 
-  const { dmgEvidence, dmgSha256, dmgStatus } = await verifyDmgAndChecksum(
+  const { dmgBytes, dmgEvidence, dmgSha256 } = await verifyDmgAndChecksum(
     releaseDirectory,
   );
   const rawManifest: unknown = JSON.parse(
@@ -1046,7 +1995,7 @@ export async function verifyMacOSReleaseArtifacts(
   if (
     artifact["name"] !== dmgName
     || artifact["sha256"] !== dmgSha256
-    || number(artifact["bytes"], "release artifact bytes") !== dmgStatus.size
+    || number(artifact["bytes"], "release artifact bytes") !== dmgBytes
   ) {
     throw new Error("Release artifact evidence differs from the DMG.");
   }
@@ -1057,7 +2006,7 @@ export async function verifyMacOSReleaseArtifacts(
     || release["commit"] !== dmgEvidence.commit
     || release["minimumMacOS"] !== macosPackage.minimumMacOS
     || release["notarized"] !== false
-    || release["signing"] !== "adhoc"
+    || !isDeepStrictEqual(release["signing"], productionReleaseSigning)
     || release["version"] !== macosPackage.version
   ) {
     throw new Error("Release identity differs from the mounted app.");
@@ -1105,27 +2054,27 @@ export async function verifyMacOSReleaseArtifacts(
 async function verifyDmgAndChecksum(
   releaseDirectory: string,
 ): Promise<Readonly<{
+  dmgBytes: number;
   dmgEvidence: MacOSAppEvidence;
   dmgSha256: string;
-  dmgStatus: Awaited<ReturnType<typeof lstat>>;
 }>> {
   const dmgName = `${macosPackage.artifactBaseName}.dmg`;
   const dmgPath = join(releaseDirectory, dmgName);
   const checksumName = `${dmgName}.sha256`;
-  const dmgStatus = await lstat(dmgPath);
-  if (!dmgStatus.isFile() || dmgStatus.isSymbolicLink()) {
-    throw new Error("Release DMG must be a regular file.");
+  const snapshot = await snapshotDmg(dmgPath);
+  try {
+    const checksum = await readFile(join(releaseDirectory, checksumName), "utf8");
+    if (checksum !== `${snapshot.sha256}  ${dmgName}\n`) {
+      throw new Error("Release checksum file differs from the DMG.");
+    }
+    return {
+      dmgBytes: snapshot.bytes,
+      dmgEvidence: await verifyMacOSDmgSnapshot(snapshot.path),
+      dmgSha256: snapshot.sha256,
+    };
+  } finally {
+    await snapshot.remove();
   }
-  const dmgSha256 = await sha256File(dmgPath);
-  const checksum = await readFile(join(releaseDirectory, checksumName), "utf8");
-  if (checksum !== `${dmgSha256}  ${dmgName}\n`) {
-    throw new Error("Release checksum file differs from the DMG.");
-  }
-  return {
-    dmgEvidence: await verifyMacOSDmg(dmgPath),
-    dmgSha256,
-    dmgStatus,
-  };
 }
 
 export async function verifyMacOSCoreArtifacts(
@@ -1145,43 +2094,148 @@ export async function verifyMacOSCoreArtifacts(
   await verifyDmgAndChecksum(releaseDirectory);
 }
 
-function argumentValue(name: string): string | undefined {
-  const index = process.argv.indexOf(name);
-  return index === -1 ? undefined : process.argv[index + 1];
+type VerificationArguments = Readonly<{
+  app: string | undefined;
+  coreReleaseDirectory: string | undefined;
+  custodyAuthorizationProbe: boolean;
+  dmg: string | undefined;
+  launchSmoke: boolean;
+  releaseDirectory: string | undefined;
+  structural: boolean;
+}>;
+
+export function parseVerificationArguments(
+  argv: readonly string[],
+): VerificationArguments {
+  const values = new Map<string, string>();
+  const flags = new Set<string>();
+  const valueOptions = new Set([
+    "--app",
+    "--core-release-directory",
+    "--dmg",
+    "--release-directory",
+  ]);
+  const flagOptions = new Set([
+    "--custody-authorization-probe",
+    "--launch-smoke",
+    "--structural",
+  ]);
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (valueOptions.has(argument)) {
+      const value = argv[index + 1];
+      if (
+        values.has(argument)
+        || value === undefined
+        || value.length === 0
+        || value.startsWith("--")
+      ) {
+        throw new Error(`Verifier option ${argument} is duplicated or missing its value.`);
+      }
+      values.set(argument, value);
+      index += 1;
+      continue;
+    }
+    if (flagOptions.has(argument)) {
+      if (flags.has(argument)) {
+        throw new Error(`Verifier flag ${argument} is duplicated.`);
+      }
+      flags.add(argument);
+      continue;
+    }
+    throw new Error(`Verifier argument is unsupported: ${argument}`);
+  }
+  const parsed: VerificationArguments = {
+    app: values.get("--app"),
+    coreReleaseDirectory: values.get("--core-release-directory"),
+    custodyAuthorizationProbe: flags.has("--custody-authorization-probe"),
+    dmg: values.get("--dmg"),
+    launchSmoke: flags.has("--launch-smoke"),
+    releaseDirectory: values.get("--release-directory"),
+    structural: flags.has("--structural"),
+  };
+  const primaryModes = [
+    parsed.app === undefined ? undefined : "app",
+    parsed.coreReleaseDirectory === undefined ? undefined : "core",
+    parsed.dmg === undefined ? undefined : "dmg",
+    parsed.releaseDirectory === undefined ? undefined : "release",
+  ].filter((value): value is string => value !== undefined);
+  if (primaryModes.length > 1) {
+    throw new Error("Verifier app, DMG, core-release, and release modes are mutually exclusive.");
+  }
+  if (
+    (parsed.coreReleaseDirectory !== undefined
+      || parsed.releaseDirectory !== undefined)
+    && (parsed.custodyAuthorizationProbe || parsed.launchSmoke)
+  ) {
+    throw new Error("Release-directory verification cannot include executable probes.");
+  }
+  if (
+    parsed.structural
+    && (
+      parsed.app === undefined
+      || parsed.coreReleaseDirectory !== undefined
+      || parsed.dmg !== undefined
+      || parsed.releaseDirectory !== undefined
+      || parsed.custodyAuthorizationProbe
+      || parsed.launchSmoke
+    )
+  ) {
+    throw new Error("Structural verification requires only one explicit app path.");
+  }
+  return parsed;
 }
 
 async function main(): Promise<void> {
-  const appPath = resolve(argumentValue("--app") ?? macosPackage.appBundlePath);
-  const coreReleaseDirectory = argumentValue("--core-release-directory");
-  const dmg = argumentValue("--dmg");
-  const releaseDirectory = argumentValue("--release-directory");
-  const launchSmoke = process.argv.includes("--launch-smoke");
-  if (coreReleaseDirectory !== undefined) {
-    if (
-      releaseDirectory !== undefined
-      || dmg !== undefined
-      || process.argv.includes("--app")
-      || launchSmoke
-    ) {
-      throw new Error("Core release verification cannot be combined with app, DMG, release, or launch options.");
+  const arguments_ = parseVerificationArguments(process.argv.slice(2));
+  const appPath = resolve(arguments_.app ?? macosPackage.appBundlePath);
+  const {
+    coreReleaseDirectory,
+    custodyAuthorizationProbe,
+    dmg,
+    launchSmoke,
+    releaseDirectory,
+    structural,
+  } = arguments_;
+  if (structural) {
+    const expectedStructuralApp = resolve(
+      macosPackage.desktopRoot,
+      "zig-out/structural/package/HRA-structural.app",
+    );
+    if (appPath !== expectedStructuralApp) {
+      throw new Error("Structural verifier app path differs from its isolated root.");
     }
+    await verifyMacOSApp(appPath, { profile: "structural" });
+    process.stdout.write(`${appPath}\n`);
+    return;
+  }
+  if (coreReleaseDirectory !== undefined) {
     const resolvedCoreReleaseDirectory = resolve(coreReleaseDirectory);
     await verifyMacOSCoreArtifacts(resolvedCoreReleaseDirectory);
     process.stdout.write(`${resolvedCoreReleaseDirectory}\n`);
     return;
   }
   if (releaseDirectory !== undefined) {
-    if (dmg !== undefined || process.argv.includes("--app") || launchSmoke) {
-      throw new Error("Release-directory verification cannot be combined with app, DMG, or launch options.");
-    }
     const resolvedReleaseDirectory = resolve(releaseDirectory);
     await verifyMacOSReleaseArtifacts(resolvedReleaseDirectory);
     process.stdout.write(`${resolvedReleaseDirectory}\n`);
     return;
   }
   if (dmg === undefined) {
-    await verifyMacOSApp(appPath);
-    if (launchSmoke) await launchSmokeMacOSApp(appPath);
+    const evidence = await verifyMacOSApp(appPath);
+    if (custodyAuthorizationProbe) {
+      await probePackagedCustodyAuthorization(
+        appPath,
+        evidence.custodyProbeSupervisor,
+      );
+    }
+    if (launchSmoke) {
+      await launchSmokeMacOSApp(
+        appPath,
+        8_000,
+        evidence.custodyProbeSupervisor,
+      );
+    }
     process.stdout.write(`${appPath}\n`);
     return;
   }
@@ -1189,7 +2243,7 @@ async function main(): Promise<void> {
   if (basename(dmgPath) !== `${macosPackage.artifactBaseName}.dmg`) {
     throw new Error(`Unexpected DMG name: ${basename(dmgPath)}`);
   }
-  await verifyMacOSDmg(dmgPath, { launchSmoke });
+  await verifyMacOSDmg(dmgPath, { custodyAuthorizationProbe, launchSmoke });
   process.stdout.write(`${dmgPath}\n`);
 }
 
