@@ -573,7 +573,7 @@ describe("release and download convergence", () => {
     }
   });
 
-  test("binds published v0.1.15 to exact same-coordinate C15-to-P15", async () => {
+  test("binds published v0.1.15 to the exact Q14-to-base-to-repaired-C15-to-P15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
     );
@@ -599,18 +599,25 @@ describe("release and download convergence", () => {
       join(repositoryRoot, "release-download.json"),
       `${JSON.stringify(candidateContractFixture, null, 2)}\n`,
     );
-    await writeFile(join(repositoryRoot, "source.txt"), "candidate C15\n");
+    await writeFile(join(repositoryRoot, "source.txt"), "base C15\n");
     await runSetupGit(repositoryRoot, [
       "add",
       "release-download.json",
       "source.txt",
     ]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "repair.txt"), "repaired C15\n");
+    await runSetupGit(repositoryRoot, ["add", "repair.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
     expect(await verifyReleaseSourceState(candidateContractFixture, {
-      candidateParentCommit: q14Commit,
+      candidateBaseCommit: baseCommit,
+      candidateQ14Commit: q14Commit,
       environment: {},
       repositoryRoot,
     })).toMatchObject({
@@ -675,7 +682,10 @@ describe("release and download convergence", () => {
     const verified = await verifyPublishedReleaseSourceEvidence(
       published,
       repository,
-      q14Commit,
+      {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+      },
     );
     expect(verified.publication).toMatchObject({
       candidateCommit,
@@ -725,7 +735,10 @@ describe("release and download convergence", () => {
       repositoryRoot,
     });
     await expectRejection(
-      verifyPublishedReleaseSourceEvidence(published, descendant, q14Commit),
+      verifyPublishedReleaseSourceEvidence(published, descendant, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+      }),
       "only direct parent",
     );
   });

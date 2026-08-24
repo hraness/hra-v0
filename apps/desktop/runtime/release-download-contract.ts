@@ -30,6 +30,7 @@ import {
 import {
   HRA_CANONICAL_REPOSITORY,
   HRA_HISTORICAL_PUBLICATION_REPOSITORY,
+  HRA_V0_C15_BASE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
@@ -267,7 +268,8 @@ export type RemoteReleaseStateEvidence =
 export type RemoteReleaseGateEvidence = RemoteReleaseStateEvidence;
 
 type ReleaseSourceStateOptions = Readonly<{
-  candidateParentCommit?: string;
+  candidateBaseCommit?: string;
+  candidateQ14Commit?: string;
   environment?: Readonly<Record<string, string | undefined>>;
   publicationCommit?: string;
   repositoryRoot?: string;
@@ -687,8 +689,10 @@ export async function verifyReleaseSourceState(
   if (contract.release.availability === "candidate") {
     const repository = await inspectReleaseSourceRepository(options);
     await inspectReleaseCandidateLineage(repository, {
-      expectedParentCommit:
-        options.candidateParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+      expectedBaseCommit:
+        options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+      expectedQ14Commit:
+        options.candidateQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
     });
     return Object.freeze({
       availability: "candidate",
@@ -707,7 +711,12 @@ export async function verifyReleaseSourceState(
     : await verifyPublishedReleaseSourceEvidence(
         publishedContract,
         repository,
-        options.candidateParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+        {
+          expectedBaseCommit:
+            options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+          expectedQ14Commit:
+            options.candidateQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
+        },
       );
   return Object.freeze({
     ...published,
@@ -783,7 +792,10 @@ export async function verifyArchivedReleaseSourceEvidence(
 export async function verifyPublishedReleaseSourceEvidence(
   contract: PublishedReleaseDownloadContract,
   repository: ReleaseRepositoryEvidence,
-  candidateParentCommit: string = HRA_V0_Q14_SURFACE_COMMIT,
+  expectations: Readonly<{
+    expectedBaseCommit?: string;
+    expectedQ14Commit?: string;
+  }> = {},
 ): Promise<PublishedReleaseSourceEvidence> {
   const publication = await inspectReleasePublicationTransition(
     repository,
@@ -793,7 +805,10 @@ export async function verifyPublishedReleaseSourceEvidence(
   if (contract.release.version === "0.1.15") {
     await inspectReleaseCandidateLineage(repository, {
       candidateCommit: contract.release.source.commit,
-      expectedParentCommit: candidateParentCommit,
+      expectedBaseCommit:
+        expectations.expectedBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+      expectedQ14Commit:
+        expectations.expectedQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
     });
   }
   const tag = await inspectReleaseTag(repository, contract.release.tag);

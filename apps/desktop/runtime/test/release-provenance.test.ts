@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  HRA_V0_C15_BASE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
@@ -275,7 +276,10 @@ describe("hermetic release provenance", () => {
     expect(tag?.object).toMatch(/^[0-9a-f]{40}$/u);
   });
 
-  test("binds C15 to exact Q14 as its sole direct parent", async () => {
+  test("binds repaired C15 to exact base C15 and Q14 sole-parent edges", async () => {
+    expect(HRA_V0_C15_BASE_COMMIT).toBe(
+      "a2948a21eb524e89960cfcbd7b68d7c52ab028b4",
+    );
     expect(HRA_V0_Q14_SURFACE_COMMIT).toBe(
       "ceb647f7a4a68546fc68ce5e70e770b73c8863eb",
     );
@@ -284,28 +288,51 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
-    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
+    await writeFile(join(repositoryRoot, "base.txt"), "base C15\n");
+    await runSetupGit(repositoryRoot, ["add", "base.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "repaired C15\n");
     await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
     const repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
     });
 
     expect(await inspectReleaseCandidateLineage(repository, {
-      expectedParentCommit: q14Commit,
+      expectedBaseCommit: baseCommit,
+      expectedQ14Commit: q14Commit,
     })).toEqual({
+      baseCommit,
       candidateCommit: repository.commit,
-      parentCommit: q14Commit,
-      status: "exact_q14_candidate_child",
+      q14Commit,
+      status: "exact_q14_base_c15_repaired_candidate_chain",
     });
   });
 
-  test("rejects a C15 candidate with the wrong direct parent", async () => {
+  test("rejects a repaired C15 candidate with the wrong direct parent", async () => {
     const repositoryRoot = await createRepository();
-    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "base.txt"), "base C15\n");
+    await runSetupGit(repositoryRoot, ["add", "base.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "wrong-parent.txt"), "wrong parent\n");
+    await runSetupGit(repositoryRoot, ["add", "wrong-parent.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "wrong parent"]);
+    await writeFile(join(repositoryRoot, "candidate.txt"), "repaired C15\n");
     await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
     const repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
@@ -313,15 +340,23 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       inspectReleaseCandidateLineage(repository, {
-        expectedParentCommit: "a".repeat(40),
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact base C15 as its only direct parent",
     );
   });
 
-  test("rejects a merge commit as C15", async () => {
+  test("rejects a merge commit as repaired C15", async () => {
     const repositoryRoot = await createRepository();
     const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "base.txt"), "base C15\n");
+    await runSetupGit(repositoryRoot, ["add", "base.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
@@ -335,7 +370,7 @@ describe("hermetic release provenance", () => {
       "--no-ff",
       "candidate-side",
       "-m",
-      "merge candidate C15",
+      "merge repaired C15",
     ]);
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -344,21 +379,29 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       inspectReleaseCandidateLineage(repository, {
-        expectedParentCommit: q14Commit,
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact base C15 as its only direct parent",
     );
   });
 
-  test("rejects a multi-commit Q14-to-C15 range", async () => {
+  test("rejects a multi-commit base-C15-to-repaired-C15 range", async () => {
     const repositoryRoot = await createRepository();
     const q14Commit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
+    await writeFile(join(repositoryRoot, "base.txt"), "base C15\n");
+    await runSetupGit(repositoryRoot, ["add", "base.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
     for (const [path, message] of [
       ["intermediate.txt", "intermediate"],
-      ["candidate.txt", "candidate C15"],
+      ["candidate.txt", "repaired C15"],
     ] as const) {
       await writeFile(join(repositoryRoot, path), `${message}\n`);
       await runSetupGit(repositoryRoot, ["add", path]);
@@ -371,9 +414,115 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       inspectReleaseCandidateLineage(repository, {
-        expectedParentCommit: q14Commit,
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact base C15 as its only direct parent",
+    );
+  });
+
+  test("rejects a base C15 with the wrong Q14 direct parent", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "wrong-q14-parent.txt"), "wrong parent\n");
+    await runSetupGit(repositoryRoot, ["add", "wrong-q14-parent.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "wrong Q14 parent"]);
+    await writeFile(join(repositoryRoot, "base.txt"), "base C15\n");
+    await runSetupGit(repositoryRoot, ["add", "base.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "repaired C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+      }),
+      "base commit must have exact Q14 as its only direct parent",
+    );
+  });
+
+  test("rejects a merge commit as base C15", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await runSetupGit(repositoryRoot, ["switch", "-c", "base-side"]);
+    await writeFile(join(repositoryRoot, "base-side.txt"), "side\n");
+    await runSetupGit(repositoryRoot, ["add", "base-side.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base side"]);
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "base-side",
+      "-m",
+      "merge base C15",
+    ]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "repaired C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+      }),
+      "base commit must have exact Q14 as its only direct parent",
+    );
+  });
+
+  test("rejects a multi-commit Q14-to-base-C15 range", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "intermediate.txt"), "intermediate\n");
+    await runSetupGit(repositoryRoot, ["add", "intermediate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "intermediate"]);
+    await writeFile(join(repositoryRoot, "base.txt"), "base C15\n");
+    await runSetupGit(repositoryRoot, ["add", "base.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "base C15"]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "repaired C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+      }),
+      "base commit must have exact Q14 as its only direct parent",
     );
   });
 
