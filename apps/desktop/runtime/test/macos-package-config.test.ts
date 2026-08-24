@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { consumeUtf8Lines, correspondingSourceSpecs } from "../corresponding-sources";
 import {
+  custodyProbeSupervisorPackageContract,
   hranessUiStylesheetInput,
   imageNormalizerPackageContract,
   macosPackage,
@@ -19,10 +20,88 @@ import {
   requiredRuntimeBinFileNames,
   trustedThirdPartyTeams,
 } from "../macos-package-config";
+import { parseCanonicalMacOSCustodyStatus } from "../macos-custody-probe";
+import {
+  loadProductionReleaseAuthority,
+  productionReleaseSigning,
+  releaseDesignatedRequirement,
+} from "../release-signing-authority";
 import runtimeVersions from "../runtime-versions.json";
-import { verifyRegularReleaseEntries } from "../verify-macos-package";
+import {
+  custodyProbeSupervisorDependencies,
+  parseCustodyProbeSupervisorAuthorityEvidence,
+  parseCustodyProbeSupervisorDependencies,
+  parseVerificationArguments,
+  verifyRegularReleaseEntries,
+} from "../verify-macos-package";
 
-describe("macOS ad-hoc package contract", () => {
+describe("macOS package contract", () => {
+  test("parses only canonical pathless custody status receipts", () => {
+    expect(parseCanonicalMacOSCustodyStatus(
+      '{"schemaVersion":1,"state":"absent"}\n',
+    )).toEqual({ schemaVersion: 1, state: "absent" });
+    expect(parseCanonicalMacOSCustodyStatus(
+      `{"envelopeSha256":"${"a".repeat(64)}","schemaVersion":1,"state":"present","strictAcl":true}\n`,
+    )).toEqual({
+      envelopeSha256: "a".repeat(64),
+      schemaVersion: 1,
+      state: "present",
+      strictAcl: true,
+    });
+    for (const invalid of [
+      '{"schemaVersion":1,"state":"absent"}',
+      '{"state":"absent","schemaVersion":1}\n',
+      `{"envelopeSha256":"${"A".repeat(64)}","schemaVersion":1,"state":"present","strictAcl":true}\n`,
+      `{"envelopeSha256":"${"a".repeat(64)}","schemaVersion":1,"state":"present","strictAcl":false}\n`,
+      `{"envelopeSha256":"${"a".repeat(64)}","schemaVersion":1,"state":"present","strictAcl":true,"value":"secret"}\n`,
+    ]) {
+      expect(() => parseCanonicalMacOSCustodyStatus(invalid)).toThrow();
+    }
+  });
+
+  test("parses verifier modes as a closed mutually exclusive grammar", () => {
+    expect(parseVerificationArguments([])).toEqual({
+      app: undefined,
+      coreReleaseDirectory: undefined,
+      custodyAuthorizationProbe: false,
+      dmg: undefined,
+      launchSmoke: false,
+      releaseDirectory: undefined,
+      structural: false,
+    });
+    expect(parseVerificationArguments([
+      "--dmg",
+      "/tmp/HRA.dmg",
+      "--custody-authorization-probe",
+      "--launch-smoke",
+    ])).toMatchObject({
+      custodyAuthorizationProbe: true,
+      dmg: "/tmp/HRA.dmg",
+      launchSmoke: true,
+    });
+    expect(parseVerificationArguments([
+      "--structural",
+      "--app",
+      "/tmp/HRA-structural.app",
+    ])).toMatchObject({
+      app: "/tmp/HRA-structural.app",
+      structural: true,
+    });
+    for (const invalid of [
+      ["--unknown"],
+      ["--app"],
+      ["--app", "--launch-smoke"],
+      ["--app", "/tmp/a", "--app", "/tmp/b"],
+      ["--launch-smoke", "--launch-smoke"],
+      ["--app", "/tmp/a", "--dmg", "/tmp/a.dmg"],
+      ["--release-directory", "/tmp/release", "--launch-smoke"],
+      ["--structural"],
+      ["--structural", "--app", "/tmp/a", "--custody-authorization-probe"],
+    ]) {
+      expect(() => parseVerificationArguments(invalid)).toThrow();
+    }
+  });
+
   test("streams large archive listings with bounded line memory", async () => {
     const encoder = new TextEncoder();
     const totalLines = 200_000;
@@ -88,16 +167,98 @@ describe("macOS ad-hoc package contract", () => {
     expect(macosPackage).toMatchObject({
       appBundleName: "HRA",
       architecture: "arm64",
-      artifactBaseName: "HRA-0.1.14-15-macos-arm64",
-      build: 15,
+      artifactBaseName: "HRA-0.1.15-16-macos-arm64",
+      build: 16,
       bundleIdentifier: "kitchen.hraness",
       executableName: "hra",
       minimumMacOS: "13.0",
-      version: "0.1.14",
+      version: "0.1.15",
     });
     expect(macosPackage.appBundlePath).toEndWith(
-      "/zig-out/package/HRA-0.1.14-15-macos-arm64.app",
+      "/zig-out/package/HRA-0.1.15-16-macos-arm64.app",
     );
+  });
+
+  test("binds the candidate-owned custody supervisor to one package path and identity", () => {
+    expect(custodyProbeSupervisorPackageContract).toEqual({
+      identifier: "hra-custody-probe-supervisor",
+      runtimeRelativePath: "bin/hra-custody-probe-supervisor",
+      sourceRelativePath: "zig-out/bin/hra-custody-probe-supervisor-candidate",
+    });
+    expect(requiredRuntimeBinFileNames).toContain(
+      custodyProbeSupervisorPackageContract.identifier,
+    );
+  });
+
+  test("accepts only the exact duplicate-free custody supervisor load surface", () => {
+    const path = "/tmp/hra-custody-probe-supervisor";
+    const render = (dependencies: readonly string[]) => [
+      `${path}:`,
+      ...dependencies.map(dependency =>
+        `\t${dependency} (compatibility version 1.0.0, current version 1.0.0)`),
+      "",
+    ].join("\n");
+    expect(parseCustodyProbeSupervisorDependencies(
+      path,
+      render([...custodyProbeSupervisorDependencies].reverse()),
+    )).toEqual(custodyProbeSupervisorDependencies);
+    for (const invalid of [
+      [...custodyProbeSupervisorDependencies, custodyProbeSupervisorDependencies[0]],
+      custodyProbeSupervisorDependencies.slice(1),
+      custodyProbeSupervisorDependencies.map((dependency, index) =>
+        index === 0 ? "/usr/lib/../../tmp/attacker.dylib" : dependency),
+      custodyProbeSupervisorDependencies.map((dependency, index) =>
+        index === 0 ? "@rpath/attacker.dylib" : dependency),
+    ]) {
+      expect(() => parseCustodyProbeSupervisorDependencies(
+        path,
+        render(invalid),
+      )).toThrow();
+    }
+  });
+
+  test("strictly parses the signed custody supervisor manifest authority", async () => {
+    const authority = await loadProductionReleaseAuthority();
+    const evidence = {
+      architecture: "arm64",
+      cdHash: "a".repeat(40),
+      codeDirectoryFlags: ["runtime"],
+      designatedRequirement: releaseDesignatedRequirement(
+        custodyProbeSupervisorPackageContract.identifier,
+      ),
+      entitlements: {},
+      identifier: custodyProbeSupervisorPackageContract.identifier,
+      pageSize: 16_384,
+      runtimeRelativePath:
+        custodyProbeSupervisorPackageContract.runtimeRelativePath,
+      sha256: "b".repeat(64),
+      signing: productionReleaseSigning,
+      timestamp: null,
+    } as const;
+    expect(parseCustodyProbeSupervisorAuthorityEvidence(
+      evidence,
+      productionReleaseSigning,
+      authority,
+    )).toEqual(evidence);
+    for (const invalid of [
+      { ...evidence, extra: true },
+      { ...evidence, architecture: "x86_64" },
+      { ...evidence, cdHash: "a".repeat(64) },
+      { ...evidence, codeDirectoryFlags: ["runtime", "adhoc"] },
+      { ...evidence, designatedRequirement: "designated => true" },
+      { ...evidence, entitlements: { "get-task-allow": true } },
+      { ...evidence, identifier: "attacker" },
+      { ...evidence, runtimeRelativePath: "bin/attacker" },
+      { ...evidence, sha256: "B".repeat(64) },
+      { ...evidence, signing: { ...productionReleaseSigning, mode: "adhoc" } },
+      { ...evidence, timestamp: "now" },
+    ]) {
+      expect(() => parseCustodyProbeSupervisorAuthorityEvidence(
+        invalid,
+        productionReleaseSigning,
+        authority,
+      )).toThrow("manifest authority differs");
+    }
   });
 
   test("keeps the license set exact, unique, and sorted", () => {

@@ -55,7 +55,8 @@ const allowedEnvironmentFilePattern = /(?:^|\/)\.env\.(?:example|sample)$/u;
 const providerIdentifierPattern = /\b(?:dpl|prj|team)_[A-Za-z0-9]{8,}\b/gu;
 const numericRepositoryIdentifierPattern =
   /(?:repository(?:Id|_id)|repository ID)[^\n]{0,24}\b\d{8,}\b/giu;
-const githubSecretPattern = /\bsecrets\.[A-Z0-9_]+\b/gu;
+const githubSecretPattern =
+  /\$\{\{[^}]{0,4096}\bsecrets\s*(?:\.|\[)/giu;
 const privateUserPathPattern = /\/Users\/([^/\s"'`]+)\//gu;
 const placeholderUserNames = new Set([
   "alice",

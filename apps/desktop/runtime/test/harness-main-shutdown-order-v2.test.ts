@@ -7,6 +7,28 @@ const mainSource = await readFile(
 );
 
 describe("Main harness shutdown ordering", () => {
+  test("enrolls only after canonical activation, lifetime lock, restore recovery, and compatibility proof", () => {
+    const initialization = sourceBetween(
+      "async function initializeGateway(): Promise<void>",
+      "async function quiesceGatewayForLocalDataRemoval(): Promise<void>",
+    );
+    expect(initialization).not.toContain(
+      "nativeHarnessKeyCustody.ensureMigrated()",
+    );
+    expectOrdered(initialization, [
+      "applicationSupport.activate();",
+      "lifetimeLock = acquireControlPlaneLifetimeLock(databasePath);",
+      "recoverInterruptedControlPlaneRestore(databasePath);",
+      "preflightControlPlaneRelease(databasePath, hraReleaseIdentity);",
+      "await inspectFreshHarnessKeyEnrollmentRoot(databasePath);",
+      "const harnessKeyEnrollment = await ensureHarnessKeyEnrollment({",
+      "keychain: nativeHarnessKeyCustody.enrollmentKeychainAdapter(),",
+      "establishedSecrets: nativeHarnessKeyCustody.establishedSecretReader(",
+      "database = openControlPlane(databasePath, {",
+      "const harnessGraph = createHarnessProductionGraphV2({",
+    ]);
+  });
+
   test("uses the canonical HRA promoted-runner binding kind", () => {
     expect(mainSource).toContain('kind: "hra";');
     expect(mainSource).toContain('kind: "hra",');

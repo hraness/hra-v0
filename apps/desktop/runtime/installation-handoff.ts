@@ -59,6 +59,8 @@ import {
   inspectProspectivePathAuthority,
   renameWithPathAuthority,
 } from "./installation-path-authority";
+import { harnessKeyEnrollmentSidecarFileName } from
+  "./src/state/harness-key-enrollment";
 import { quitInstalledApplicationRoots } from "./installation-process-authority";
 import { verifyPublishedReleaseCandidate } from "./release-download-contract";
 import { fixedLocalDataRemovalPaths } from "./src/maintenance/local-data-removal-inventory";
@@ -181,7 +183,7 @@ export interface BundleContinuityEvidence {
   readonly tree: TreeEvidence;
 }
 
-interface KeychainEvidence {
+export interface KeychainEvidence {
   readonly descriptors: readonly string[];
   readonly fingerprints: ReadonlyMap<string, Buffer | null>;
   readonly key: Buffer;
@@ -222,7 +224,7 @@ export interface InstallationHandoffCleanupInput {
   readonly onCheckpoint?: (point: InstallationHandoffFaultPoint) => void;
 }
 
-interface HandoffJournal {
+export interface HandoffJournal {
   readonly schemaVersion: 2;
   readonly createdAt: number;
   readonly operationId: string;
@@ -246,7 +248,7 @@ interface HandoffJournal {
   readonly keychainDescriptors: readonly string[];
 }
 
-interface HeldLock {
+export interface HeldLock {
   release(): void;
 }
 
@@ -281,7 +283,7 @@ export interface InstallationHandoffDependencies {
   readonly verifyCandidate: (path: string) => Promise<Readonly<{ commit: string }>>;
 }
 
-const defaultDependencies: InstallationHandoffDependencies = {
+export const defaultInstallationHandoffDependencies: InstallationHandoffDependencies = {
   acquireControlPlaneLock: acquireControlPlaneLifetimeLock,
   acquireNativeLock: acquireNativeInstallationLock,
   copyTree: copyTreeWithDitto,
@@ -352,7 +354,7 @@ export function installationHandoffPaths(
 
 export async function performInstallationHandoff(
   input: InstallationHandoffInput,
-  dependencies: InstallationHandoffDependencies = defaultDependencies,
+  dependencies: InstallationHandoffDependencies = defaultInstallationHandoffDependencies,
 ): Promise<Readonly<{
   operationId: string;
   backupDirectory: string;
@@ -616,7 +618,7 @@ export async function performInstallationHandoff(
  */
 export async function resumeCommittedInstallationHandoffCleanup(
   input: InstallationHandoffCleanupInput,
-  dependencies: InstallationHandoffDependencies = defaultDependencies,
+  dependencies: InstallationHandoffDependencies = defaultInstallationHandoffDependencies,
 ): Promise<Readonly<{ operationId: string; status: "clean" }>> {
   if (input.confirmation !== committedCleanupConfirmation) {
     throw new InstallationHandoffError(
@@ -706,7 +708,7 @@ async function cleanupCommittedInstallationStages(
 
 export async function rollbackInstallationHandoff(
   input: InstallationRollbackInput,
-  dependencies: InstallationHandoffDependencies = defaultDependencies,
+  dependencies: InstallationHandoffDependencies = defaultInstallationHandoffDependencies,
 ): Promise<Readonly<{ operationId: string; status: "rolled_back" }>> {
   if (input.confirmation !== rollbackConfirmation) {
     throw new InstallationHandoffError(
@@ -1156,10 +1158,41 @@ function validateFixedHandoffPaths(paths: InstallationHandoffPaths): void {
   }
 }
 
-async function inspectStateContinuity(
+export async function inspectStateContinuity(
   stateRoot: string,
   controlPlanePath: string,
   checkpoint = true,
+): Promise<StateContinuityEvidence> {
+  return await inspectStateContinuityWithFixedTreePolicy(
+    stateRoot,
+    controlPlanePath,
+    checkpoint,
+    false,
+  );
+}
+
+/**
+ * Forward v0.1.15 recovery only: prove every protected state byte except the
+ * single exact enrollment sidecar whose vnode/content is bound separately.
+ */
+export async function inspectStateContinuityWithoutHarnessEnrollmentSidecar(
+  stateRoot: string,
+  controlPlanePath: string,
+  checkpoint = false,
+): Promise<StateContinuityEvidence> {
+  return await inspectStateContinuityWithFixedTreePolicy(
+    stateRoot,
+    controlPlanePath,
+    checkpoint,
+    true,
+  );
+}
+
+async function inspectStateContinuityWithFixedTreePolicy(
+  stateRoot: string,
+  controlPlanePath: string,
+  checkpoint: boolean,
+  excludeHarnessEnrollmentSidecar: boolean,
 ): Promise<StateContinuityEvidence> {
   const rootStatus = await lstat(stateRoot);
   if (
@@ -1231,6 +1264,9 @@ async function inspectStateContinuity(
       "control-plane.sqlite-journal",
       "control-plane.sqlite-shm",
       "control-plane.sqlite-wal",
+      ...(excludeHarnessEnrollmentSidecar
+        ? [harnessKeyEnrollmentSidecarFileName]
+        : []),
     ]),
   });
   const entries = await collectRelativeDirectories(stateRoot);
@@ -1289,7 +1325,7 @@ async function inspectSQLiteSidecarAuthorities(controlPlanePath: string): Promis
   }
 }
 
-function assertStateContinuity(
+export function assertStateContinuity(
   expected: StateContinuityEvidence,
   actual: StateContinuityEvidence,
   label: string,
@@ -1302,7 +1338,7 @@ function assertStateContinuity(
   }
 }
 
-async function inspectKeychainContinuity(
+export async function inspectKeychainContinuity(
   controlPlanePath: string,
   dependencies: InstallationHandoffDependencies,
 ): Promise<KeychainEvidence> {
@@ -1446,7 +1482,7 @@ function requireKnownCustodyService(service: string): void {
   }
 }
 
-async function assertKeychainContinuity(
+export async function assertKeychainContinuity(
   before: KeychainEvidence,
   dependencies: InstallationHandoffDependencies,
 ): Promise<void> {
@@ -1486,7 +1522,7 @@ async function assertKeychainContinuity(
   }
 }
 
-function eraseKeychainEvidence(evidence: KeychainEvidence | null): void {
+export function eraseKeychainEvidence(evidence: KeychainEvidence | null): void {
   if (evidence === null) return;
   evidence.key.fill(0);
   for (const digest of evidence.fingerprints.values()) digest?.fill(0);
@@ -1729,7 +1765,7 @@ async function removeVerifiedStage(
   await syncDirectory(dirname(staging));
 }
 
-async function publishBundleWithPathAuthority(
+export async function publishBundleWithPathAuthority(
   source: string,
   destination: string,
   exchange: boolean,
@@ -1789,7 +1825,7 @@ async function copyTreeWithDitto(source: string, destination: string): Promise<v
   }
 }
 
-async function quitExactApplicationProcesses(bundleRoots: readonly string[]): Promise<void> {
+export async function quitExactApplicationProcesses(bundleRoots: readonly string[]): Promise<void> {
   const bundles = bundleRoots.map(root => {
     const name = basename(root);
     if (name !== "HRA.app" && name !== "OPRTE.app") {
@@ -1851,7 +1887,7 @@ export function lsofResultIsQuiescent(
     && result.stderr.length === 0;
 }
 
-async function inspectUpdaterQuiescence(paths: InstallationHandoffPaths): Promise<boolean> {
+export async function inspectUpdaterQuiescence(paths: InstallationHandoffPaths): Promise<boolean> {
   if (await exists(paths.updateHazardPath) || await exists(paths.updateHazardTemporaryPath)) {
     return false;
   }
@@ -1885,7 +1921,7 @@ async function inspectUpdaterQuiescence(paths: InstallationHandoffPaths): Promis
       command.trim().startsWith(`${root}${sep}`)));
 }
 
-function acquireNativeInstallationLock(pathValue: string): HeldLock {
+export function acquireNativeInstallationLock(pathValue: string): HeldLock {
   const path = requireAbsoluteNormalized(pathValue, "native instance lock");
   const parent = dirname(path);
   const parentStatus = lstatSync(parent);
@@ -2376,75 +2412,3 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-async function main(): Promise<void> {
-  try {
-    const [command, ...args] = process.argv.slice(2);
-    if (command === "handoff" && args.length === 6) {
-      const values = flagValues(args);
-      const result = await performInstallationHandoff({
-        backupDirectory: requireFlag(values, "--backup-directory"),
-        candidateApp: requireFlag(values, "--candidate-app"),
-        confirmation: requireFlag(values, "--confirm"),
-      });
-      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...result })}\n`);
-      return;
-    }
-    if (command === "rollback" && args.length === 4) {
-      const values = flagValues(args);
-      const result = await rollbackInstallationHandoff({
-        backupDirectory: requireFlag(values, "--backup-directory"),
-        confirmation: requireFlag(values, "--confirm"),
-      });
-      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...result })}\n`);
-      return;
-    }
-    if (command === "cleanup" && args.length === 4) {
-      const values = flagValues(args);
-      const result = await resumeCommittedInstallationHandoffCleanup({
-        backupDirectory: requireFlag(values, "--backup-directory"),
-        confirmation: requireFlag(values, "--confirm"),
-      });
-      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...result })}\n`);
-      return;
-    }
-    throw new InstallationHandoffError(
-      "invalid_arguments",
-      "Usage: installation-handoff.ts handoff --candidate-app ABS --backup-directory ABS --confirm RETIRE-OPRTE-IN-FAVOR-OF-HRA | cleanup --backup-directory ABS --confirm CLEAN-COMMITTED-HRA-HANDOFF-STAGING | rollback --backup-directory ABS --confirm ROLL-BACK-HRA-TO-OPRTE",
-    );
-  } catch (error: unknown) {
-    const failure = error instanceof InstallationHandoffError
-      ? error
-      : new InstallationHandoffError("continuity_failed", message(error));
-    process.stderr.write(`${JSON.stringify({
-      schemaVersion: 1,
-      status: "error",
-      code: failure.code,
-      message: failure.message,
-    })}\n`);
-    process.exitCode = 1;
-  }
-}
-
-function flagValues(args: readonly string[]): ReadonlyMap<string, string> {
-  const values = new Map<string, string>();
-  for (let index = 0; index < args.length; index += 2) {
-    const name = args[index];
-    const value = args[index + 1];
-    if (name === undefined || value === undefined || !name.startsWith("--") || values.has(name)) {
-      throw new InstallationHandoffError("invalid_arguments", "Handoff flags are invalid.");
-    }
-    values.set(name, value);
-  }
-  return values;
-}
-
-function requireFlag(values: ReadonlyMap<string, string>, name: string): string {
-  const value = values.get(name);
-  if (value === undefined || value.length === 0) {
-    throw new InstallationHandoffError("invalid_arguments", `Missing ${name}.`);
-  }
-  return value;
-}
-
-if (import.meta.main) await main();

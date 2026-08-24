@@ -109,6 +109,43 @@ describe("public repository boundary", () => {
       },
     ])).toEqual([]);
   });
+
+  test("allows the automatic GitHub token context but rejects repository secrets", () => {
+    expect(publicBoundaryErrors([{
+      kind: "file",
+      path: ".github/workflows/ci.yml",
+      source: ["token: $", "{{ github.token }}"].join(""),
+    }])).toEqual([]);
+    for (const source of [
+      [
+        "token: $",
+        "{{ ",
+        ["secr", "ets"].join(""),
+        ".GITHUB_TOKEN",
+        " }}",
+      ].join(""),
+      [
+        "token: $",
+        "{{ true && ",
+        ["SeCr", "EtS"].join(""),
+        "['GitHub_Token'] }}",
+      ].join(""),
+      [
+        "token: $",
+        "{{ ",
+        ["SEC", "RETS"].join(""),
+        "[\"GITHUB_TOKEN\"] }}",
+      ].join(""),
+    ]) {
+      expect(publicBoundaryErrors([{
+        kind: "file",
+        path: ".github/workflows/ci.yml",
+        source,
+      }])).toEqual([
+        ".github/workflows/ci.yml: contains a GitHub Actions secret reference",
+      ]);
+    }
+  });
 });
 
 describe("reviewed runtime compatibility bytes", () => {

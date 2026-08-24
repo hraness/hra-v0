@@ -1,15 +1,24 @@
 #import "macos_keychain_custodian.h"
+#import "macos_gateway_attestation.h"
+#import "macos_keychain_access_control.h"
+#import "macos_custody_probe_parent_gate.h"
+#import "macos_renderer_authority.h"
 #import "macos_self_managed_code_identity.h"
 
+#import <bsm/libbsm.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <crt_externs.h>
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 #import <errno.h>
 #import <fcntl.h>
 #import <limits.h>
 #import <libproc.h>
+#import <mach/mach.h>
+#import <mach/task_info.h>
 #import <os/lock.h>
 #import <poll.h>
+#import <pwd.h>
 #import <signal.h>
 #import <spawn.h>
 #import <stdatomic.h>
@@ -106,6 +115,47 @@ static bool HRALegacyGatewayGenerationCancelled = true;
 static bool HRACustodianUntrackedRetirementUnproven = false;
 static bool HRALegacyUntrackedRetirementUnproven = false;
 static pid_t HRAAuthorizedParentProcess = -1;
+static audit_token_t HRAAuthorizedParentAuditToken;
+static bool HRAAuthorizedParentAuditTokenPresent = false;
+
+typedef enum {
+  HRAChildLeaseAmbiguous = 0,
+  HRAChildLeaseRetained = 1,
+  HRAChildLeaseLost = 2,
+} HRAChildLeaseObservation;
+static pid_t HRAAuthorizedGatewayProcess = -1;
+static uint64_t HRAAuthorizedGatewayStartSeconds = 0;
+static uint64_t HRAAuthorizedGatewayStartMicroseconds = 0;
+static int HRAAuthorizedParentDescriptor = -1;
+static struct stat HRAAuthorizedParentMetadata;
+static int HRAAuthorizedHelperDescriptor = -1;
+static struct stat HRAAuthorizedHelperMetadata;
+static int HRAAuthorizedOuterDescriptor = -1;
+static struct stat HRAAuthorizedOuterMetadata;
+static int HRAAuthorizedInfoDescriptor = -1;
+static struct stat HRAAuthorizedInfoMetadata;
+static int HRAAuthorizedCodeResourcesDescriptor = -1;
+static struct stat HRAAuthorizedCodeResourcesMetadata;
+static int HRAAuthorizedRendererDescriptor = -1;
+static struct stat HRAAuthorizedRendererMetadata;
+static uint8_t HRAAuthorizedParentCDHash[HRA_MACOS_CDHASH_LENGTH];
+static NSString *_Nullable HRAAuthorizedOuterPath = nil;
+static NSString *_Nullable HRAAuthorizedHelperPath = nil;
+static NSString *_Nullable HRAAuthorizedParentPath = nil;
+static NSString *_Nullable HRAAuthorizedGatewayPath = nil;
+static NSString *_Nullable HRAAuthorizedInfoPath = nil;
+static NSString *_Nullable HRAAuthorizedCodeResourcesPath = nil;
+static NSString *_Nullable HRAAuthorizedRendererPath = nil;
+static int HRAAuthorizedLoginKeychainDescriptor = -1;
+static struct stat HRAAuthorizedLoginKeychainMetadata;
+static NSString *_Nullable HRAAuthorizedLoginKeychainPath = nil;
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+extern const char HRAExpectedGatewayFileSHA256Hex[65];
+#endif
+extern const uint8_t HRAReleaseLeafCertificateSHA1[20];
+extern const uint8_t HRAReleaseLeafCertificateSHA256[32];
+extern const uint8_t HRAReleaseRootCertificateSHA1[20];
+extern const uint8_t HRAReleaseRootCertificateSHA256[32];
 
 
 typedef NS_ENUM(NSUInteger, HRAKeychainReadState) {
@@ -166,8 +216,388 @@ static NSArray<NSData *> *_Nullable HRACertificateChain(
   return chain;
 }
 
-static bool HRAParentIdentityIsAuthorized(pid_t parentProcess) {
-  if (parentProcess <= 1 || getppid() != parentProcess) return false;
+static bool HRAOuterBundleIsSealed(void);
+
+static bool HRAAuditTokenNamesExactParent(
+    const audit_token_t *token,
+    pid_t parentProcess) {
+  return token != NULL && parentProcess > 1 && getppid() == parentProcess &&
+      audit_token_to_pid(*token) == parentProcess &&
+      audit_token_to_pidversion(*token) > 0;
+}
+
+static NSData *_Nullable HRAExactCodeDirectoryHash(
+    NSDictionary *information) {
+  id value = information[(__bridge NSString *)kSecCodeInfoUnique];
+  return [value isKindOfClass:[NSData class]] &&
+          [value length] == HRA_MACOS_CDHASH_LENGTH
+      ? value
+      : nil;
+}
+
+static bool HRAAdHocSignaturePostureIsExact(
+    NSDictionary *information,
+    NSString *identifier,
+    bool emptyEntitlements) {
+  id team = information[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
+  id flags = information[(__bridge NSString *)kSecCodeInfoFlags];
+  id certificates =
+      information[(__bridge NSString *)kSecCodeInfoCertificates];
+  id entitlements =
+      information[(__bridge NSString *)kSecCodeInfoEntitlementsDict];
+  return [information[(__bridge NSString *)kSecCodeInfoIdentifier]
+              isEqualToString:identifier] &&
+      team == nil && [flags isKindOfClass:[NSNumber class]] &&
+      [(NSNumber *)flags unsignedIntValue] ==
+          (kSecCodeSignatureAdhoc | kSecCodeSignatureRuntime) &&
+      (certificates == nil ||
+       ([certificates isKindOfClass:[NSArray class]] &&
+        [(NSArray *)certificates count] == 0)) &&
+      [entitlements isKindOfClass:[NSDictionary class]] &&
+      (!emptyEntitlements || [(NSDictionary *)entitlements count] == 0) &&
+      HRAExactCodeDirectoryHash(information) != nil;
+}
+
+static NSString *_Nullable HRAProcessPath(pid_t processIdentifier) {
+  char path[PROC_PIDPATHINFO_MAXSIZE];
+  memset(path, 0, sizeof(path));
+  int length = proc_pidpath(processIdentifier, path, sizeof(path));
+  if (length <= 0 || (size_t)length >= sizeof(path) ||
+      path[length] != '\0') return nil;
+  return [[NSFileManager defaultManager]
+      stringWithFileSystemRepresentation:path length:(NSUInteger)length];
+}
+
+static bool HRAReleaseBundlePathsAreExact(
+    pid_t parentProcess,
+    NSString **outOuterPath,
+    NSString **outHelperPath,
+    NSString **outParentPath,
+    NSString **outGatewayPath) {
+  NSString *helperPath = HRAProcessPath(getpid());
+  NSString *parentPath = HRAProcessPath(parentProcess);
+  static NSString *const helperSuffix =
+      @"/Contents/Resources/runtime/bin/oprte-keychain-custodian";
+  if (helperPath == nil || parentPath == nil ||
+      ![helperPath hasSuffix:helperSuffix] ||
+      helperPath.length <= helperSuffix.length) return false;
+  NSString *outerPath = [helperPath
+      substringToIndex:helperPath.length - helperSuffix.length];
+  if (![outerPath.pathExtension.lowercaseString isEqualToString:@"app"])
+    return false;
+  NSString *expectedParent = [outerPath
+      stringByAppendingString:@"/Contents/MacOS/hra"];
+  NSString *gatewayPath = [outerPath stringByAppendingString:
+      @"/Contents/Resources/runtime/bin/oprte-gateway"];
+  char resolvedOuter[PATH_MAX];
+  char resolvedHelper[PATH_MAX];
+  char resolvedParent[PATH_MAX];
+  char resolvedGateway[PATH_MAX];
+  memset(resolvedOuter, 0, sizeof(resolvedOuter));
+  memset(resolvedHelper, 0, sizeof(resolvedHelper));
+  memset(resolvedParent, 0, sizeof(resolvedParent));
+  memset(resolvedGateway, 0, sizeof(resolvedGateway));
+  const char *outer = outerPath.fileSystemRepresentation;
+  const char *helper = helperPath.fileSystemRepresentation;
+  const char *parent = parentPath.fileSystemRepresentation;
+  const char *expected = expectedParent.fileSystemRepresentation;
+  const char *gateway = gatewayPath.fileSystemRepresentation;
+  if (outer == NULL || helper == NULL || parent == NULL || expected == NULL ||
+      gateway == NULL || strcmp(parent, expected) != 0 ||
+      realpath(outer, resolvedOuter) == NULL || strcmp(outer, resolvedOuter) != 0 ||
+      realpath(helper, resolvedHelper) == NULL || strcmp(helper, resolvedHelper) != 0 ||
+      realpath(parent, resolvedParent) == NULL || strcmp(parent, resolvedParent) != 0 ||
+      realpath(gateway, resolvedGateway) == NULL || strcmp(gateway, resolvedGateway) != 0)
+    return false;
+  *outParentPath = parentPath;
+  *outGatewayPath = gatewayPath;
+  *outOuterPath = outerPath;
+  *outHelperPath = helperPath;
+  return true;
+}
+
+static bool HRAReleaseCertificateDataMatches(
+    NSData *certificate,
+    const uint8_t expectedSHA1[CC_SHA1_DIGEST_LENGTH],
+    const uint8_t expectedSHA256[CC_SHA256_DIGEST_LENGTH]) {
+  if (![certificate isKindOfClass:[NSData class]] || certificate.length == 0 ||
+      certificate.length > UINT32_MAX) return false;
+  uint8_t sha1[CC_SHA1_DIGEST_LENGTH];
+  uint8_t sha256[CC_SHA256_DIGEST_LENGTH];
+  memset(sha1, 0, sizeof(sha1));
+  memset(sha256, 0, sizeof(sha256));
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  bool exact = CC_SHA1(
+          certificate.bytes, (CC_LONG)certificate.length, sha1) != NULL &&
+      CC_SHA256(
+          certificate.bytes, (CC_LONG)certificate.length, sha256) != NULL &&
+      memcmp(sha1, expectedSHA1, sizeof(sha1)) == 0 &&
+      memcmp(sha256, expectedSHA256, sizeof(sha256)) == 0;
+#pragma clang diagnostic pop
+  HRASecureZero(sha1, sizeof(sha1));
+  HRASecureZero(sha256, sizeof(sha256));
+  return exact;
+}
+
+static bool HRAReleaseCodeInformationIsExact(
+    NSDictionary *information,
+    NSString *identifier) {
+  NSArray<NSData *> *certificates = HRACertificateChain(information);
+  id team = information[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
+  id flags = information[(__bridge NSString *)kSecCodeInfoFlags];
+  id entitlements =
+      information[(__bridge NSString *)kSecCodeInfoEntitlementsDict];
+  return [information[(__bridge NSString *)kSecCodeInfoIdentifier]
+              isEqualToString:identifier] &&
+      team == nil && [flags isKindOfClass:[NSNumber class]] &&
+      [(NSNumber *)flags unsignedIntValue] == kSecCodeSignatureRuntime &&
+      (entitlements == nil ||
+       ([entitlements isKindOfClass:[NSDictionary class]] &&
+        [(NSDictionary *)entitlements count] == 0)) &&
+      certificates.count == 2 &&
+      HRAReleaseCertificateDataMatches(
+          certificates[0],
+          HRAReleaseLeafCertificateSHA1,
+          HRAReleaseLeafCertificateSHA256) &&
+      HRAReleaseCertificateDataMatches(
+          certificates[1],
+          HRAReleaseRootCertificateSHA1,
+          HRAReleaseRootCertificateSHA256) &&
+      HRAExactCodeDirectoryHash(information) != nil;
+}
+
+static bool HRAExactFileMetadataMatches(
+    const struct stat *left,
+    const struct stat *right) {
+  return left != NULL && right != NULL &&
+      left->st_dev == right->st_dev && left->st_ino == right->st_ino &&
+      left->st_mode == right->st_mode && left->st_nlink == right->st_nlink &&
+      left->st_uid == right->st_uid && left->st_gid == right->st_gid &&
+      left->st_size == right->st_size &&
+      left->st_mtimespec.tv_sec == right->st_mtimespec.tv_sec &&
+      left->st_mtimespec.tv_nsec == right->st_mtimespec.tv_nsec &&
+      left->st_ctimespec.tv_sec == right->st_ctimespec.tv_sec &&
+      left->st_ctimespec.tv_nsec == right->st_ctimespec.tv_nsec;
+}
+
+static bool HRAOpenStableAuthorityPath(
+    NSString *path,
+    bool directory,
+    int *outDescriptor,
+    struct stat *outMetadata) {
+  if (path == nil || outDescriptor == NULL || outMetadata == NULL) return false;
+  const char *canonical = path.fileSystemRepresentation;
+  if (canonical == NULL) return false;
+  struct stat pathBefore;
+  struct stat opened;
+  struct stat pathAfter;
+  memset(&pathBefore, 0, sizeof(pathBefore));
+  memset(&opened, 0, sizeof(opened));
+  memset(&pathAfter, 0, sizeof(pathAfter));
+  if (lstat(canonical, &pathBefore) != 0 ||
+      (directory ? !S_ISDIR(pathBefore.st_mode)
+                 : (!S_ISREG(pathBefore.st_mode) || pathBefore.st_nlink != 1))) {
+    return false;
+  }
+  int flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC;
+  if (directory) flags |= O_DIRECTORY;
+  int descriptor = open(canonical, flags);
+  char descriptorPath[PATH_MAX];
+  memset(descriptorPath, 0, sizeof(descriptorPath));
+  if (descriptor < 0 || fstat(descriptor, &opened) != 0 ||
+      lstat(canonical, &pathAfter) != 0 ||
+      fcntl(descriptor, F_GETPATH, descriptorPath) != 0 ||
+      strcmp(descriptorPath, canonical) != 0 ||
+      !HRAExactFileMetadataMatches(&pathBefore, &opened) ||
+      !HRAExactFileMetadataMatches(&pathBefore, &pathAfter)) {
+    if (descriptor >= 0) close(descriptor);
+    return false;
+  }
+  *outDescriptor = descriptor;
+  *outMetadata = opened;
+  return true;
+}
+
+static bool HRAHeldAuthorityPathRemainsExact(
+    NSString *path,
+    int descriptor,
+    const struct stat *expectedMetadata) {
+  if (path == nil || descriptor < 0 || expectedMetadata == NULL) return false;
+  const char *canonical = path.fileSystemRepresentation;
+  struct stat opened;
+  struct stat named;
+  char descriptorPath[PATH_MAX];
+  memset(&opened, 0, sizeof(opened));
+  memset(&named, 0, sizeof(named));
+  memset(descriptorPath, 0, sizeof(descriptorPath));
+  return canonical != NULL &&
+      fstat(descriptor, &opened) == 0 && lstat(canonical, &named) == 0 &&
+      fcntl(descriptor, F_GETPATH, descriptorPath) == 0 &&
+      strcmp(descriptorPath, canonical) == 0 &&
+      HRAExactFileMetadataMatches(expectedMetadata, &opened) &&
+      HRAExactFileMetadataMatches(expectedMetadata, &named);
+}
+
+static bool HRAInstallAuthorizedParentCache(
+    NSString *outerPath,
+    NSString *helperPath,
+    NSString *parentPath,
+    NSString *gatewayPath,
+    const uint8_t parentCDHash[HRA_MACOS_CDHASH_LENGTH]) {
+  if (outerPath == nil || helperPath == nil || parentPath == nil ||
+      gatewayPath == nil || parentCDHash == NULL) return false;
+  NSString *infoPath = [outerPath
+      stringByAppendingString:@"/Contents/Info.plist"];
+  NSString *codeResourcesPath = [outerPath stringByAppendingString:
+      @"/Contents/_CodeSignature/CodeResources"];
+  NSString *rendererPath = [outerPath stringByAppendingString:
+      @"/Contents/Resources/frontend/dist"];
+  int parentDescriptor = -1;
+  int helperDescriptor = -1;
+  int outerDescriptor = -1;
+  int infoDescriptor = -1;
+  int codeResourcesDescriptor = -1;
+  int rendererDescriptor = -1;
+  struct stat parentMetadata;
+  struct stat helperMetadata;
+  struct stat outerMetadata;
+  struct stat infoMetadata;
+  struct stat codeResourcesMetadata;
+  struct stat rendererMetadata;
+  memset(&parentMetadata, 0, sizeof(parentMetadata));
+  memset(&helperMetadata, 0, sizeof(helperMetadata));
+  memset(&outerMetadata, 0, sizeof(outerMetadata));
+  memset(&infoMetadata, 0, sizeof(infoMetadata));
+  memset(&codeResourcesMetadata, 0, sizeof(codeResourcesMetadata));
+  memset(&rendererMetadata, 0, sizeof(rendererMetadata));
+  bool exact = HRAOpenStableAuthorityPath(
+          parentPath, false, &parentDescriptor, &parentMetadata) &&
+      HRAOpenStableAuthorityPath(
+          helperPath, false, &helperDescriptor, &helperMetadata) &&
+      HRAOpenStableAuthorityPath(
+          outerPath, true, &outerDescriptor, &outerMetadata) &&
+      HRAOpenStableAuthorityPath(
+          infoPath, false, &infoDescriptor, &infoMetadata) &&
+      HRAOpenStableAuthorityPath(
+          codeResourcesPath,
+          false,
+          &codeResourcesDescriptor,
+          &codeResourcesMetadata) &&
+      HRAOpenStableAuthorityPath(
+          rendererPath, true, &rendererDescriptor, &rendererMetadata);
+  if (!exact) {
+    if (parentDescriptor >= 0) close(parentDescriptor);
+    if (helperDescriptor >= 0) close(helperDescriptor);
+    if (outerDescriptor >= 0) close(outerDescriptor);
+    if (infoDescriptor >= 0) close(infoDescriptor);
+    if (codeResourcesDescriptor >= 0) close(codeResourcesDescriptor);
+    if (rendererDescriptor >= 0) close(rendererDescriptor);
+    return false;
+  }
+  if (HRAAuthorizedParentDescriptor >= 0) close(HRAAuthorizedParentDescriptor);
+  if (HRAAuthorizedHelperDescriptor >= 0) close(HRAAuthorizedHelperDescriptor);
+  if (HRAAuthorizedOuterDescriptor >= 0) close(HRAAuthorizedOuterDescriptor);
+  if (HRAAuthorizedInfoDescriptor >= 0) close(HRAAuthorizedInfoDescriptor);
+  if (HRAAuthorizedCodeResourcesDescriptor >= 0)
+    close(HRAAuthorizedCodeResourcesDescriptor);
+  if (HRAAuthorizedRendererDescriptor >= 0)
+    close(HRAAuthorizedRendererDescriptor);
+  HRAAuthorizedParentDescriptor = parentDescriptor;
+  HRAAuthorizedHelperDescriptor = helperDescriptor;
+  HRAAuthorizedOuterDescriptor = outerDescriptor;
+  HRAAuthorizedInfoDescriptor = infoDescriptor;
+  HRAAuthorizedCodeResourcesDescriptor = codeResourcesDescriptor;
+  HRAAuthorizedRendererDescriptor = rendererDescriptor;
+  HRAAuthorizedParentMetadata = parentMetadata;
+  HRAAuthorizedHelperMetadata = helperMetadata;
+  HRAAuthorizedOuterMetadata = outerMetadata;
+  HRAAuthorizedInfoMetadata = infoMetadata;
+  HRAAuthorizedCodeResourcesMetadata = codeResourcesMetadata;
+  HRAAuthorizedRendererMetadata = rendererMetadata;
+  memcpy(HRAAuthorizedParentCDHash,
+         parentCDHash,
+         sizeof(HRAAuthorizedParentCDHash));
+  HRAAuthorizedOuterPath = [outerPath copy];
+  HRAAuthorizedHelperPath = [helperPath copy];
+  HRAAuthorizedParentPath = [parentPath copy];
+  HRAAuthorizedGatewayPath = [gatewayPath copy];
+  HRAAuthorizedInfoPath = [infoPath copy];
+  HRAAuthorizedCodeResourcesPath = [codeResourcesPath copy];
+  HRAAuthorizedRendererPath = [rendererPath copy];
+  return true;
+}
+
+static bool HRAAuthorizedBundlePathsRemainStable(void) {
+  return HRAHeldAuthorityPathRemainsExact(
+          HRAAuthorizedParentPath,
+          HRAAuthorizedParentDescriptor,
+          &HRAAuthorizedParentMetadata) &&
+      HRAHeldAuthorityPathRemainsExact(
+          HRAAuthorizedHelperPath,
+          HRAAuthorizedHelperDescriptor,
+          &HRAAuthorizedHelperMetadata) &&
+      HRAHeldAuthorityPathRemainsExact(
+          HRAAuthorizedOuterPath,
+          HRAAuthorizedOuterDescriptor,
+          &HRAAuthorizedOuterMetadata) &&
+      HRAHeldAuthorityPathRemainsExact(
+          HRAAuthorizedInfoPath,
+          HRAAuthorizedInfoDescriptor,
+          &HRAAuthorizedInfoMetadata) &&
+      HRAHeldAuthorityPathRemainsExact(
+          HRAAuthorizedCodeResourcesPath,
+          HRAAuthorizedCodeResourcesDescriptor,
+          &HRAAuthorizedCodeResourcesMetadata) &&
+      HRAHeldAuthorityPathRemainsExact(
+          HRAAuthorizedRendererPath,
+          HRAAuthorizedRendererDescriptor,
+          &HRAAuthorizedRendererMetadata);
+}
+
+static bool HRAParentIdentityIsAuthorized(
+    pid_t parentProcess,
+    const audit_token_t *parentAuditToken,
+    pid_t gatewayProcess,
+    uint64_t gatewayStartSeconds,
+    uint64_t gatewayStartMicroseconds,
+    bool installSessionCache) {
+  if (!HRAAuditTokenNamesExactParent(parentAuditToken, parentProcess))
+    return false;
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+  NSString *outerPath = nil;
+  NSString *helperPath = nil;
+  NSString *parentPath = nil;
+  NSString *gatewayPath = nil;
+  if (!HRAReleaseBundlePathsAreExact(
+          parentProcess,
+          &outerPath,
+          &helperPath,
+          &parentPath,
+          &gatewayPath)) return false;
+  const char *outerBytes = outerPath.fileSystemRepresentation;
+  const char *helperBytes = helperPath.fileSystemRepresentation;
+  const char *parentBytes = parentPath.fileSystemRepresentation;
+  const char *gatewayBytes = gatewayPath.fileSystemRepresentation;
+  if (outerBytes == NULL || helperBytes == NULL || parentBytes == NULL ||
+      gatewayBytes == NULL) return false;
+  uint8_t helperDescriptorCDHash[HRA_MACOS_CDHASH_LENGTH];
+  uint8_t parentDescriptorCDHash[HRA_MACOS_CDHASH_LENGTH];
+  memset(helperDescriptorCDHash, 0, sizeof(helperDescriptorCDHash));
+  memset(parentDescriptorCDHash, 0, sizeof(parentDescriptorCDHash));
+  if (!hra_macos_release_helper_identity_is_exact(
+          helperBytes,
+          strlen(helperBytes),
+          helperDescriptorCDHash) ||
+      !hra_macos_parent_payload_identity_is_exact(
+          parentBytes,
+          strlen(parentBytes),
+          parentDescriptorCDHash)) {
+    HRASecureZero(helperDescriptorCDHash, sizeof(helperDescriptorCDHash));
+    HRASecureZero(parentDescriptorCDHash, sizeof(parentDescriptorCDHash));
+    return false;
+  }
+#endif
   SecCodeRef selfCode = NULL;
   if (SecCodeCopySelf(kSecCSDefaultFlags, &selfCode) != errSecSuccess ||
       selfCode == NULL) {
@@ -180,13 +610,27 @@ static bool HRAParentIdentityIsAuthorized(pid_t parentProcess) {
       : nil;
   CFRelease(selfCode);
   if (selfInformation == nil ||
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+      !HRAReleaseCodeInformationIsExact(
+          selfInformation, HRAKeychainCustodianIdentifier) ||
+      memcmp(HRAExactCodeDirectoryHash(selfInformation).bytes,
+             helperDescriptorCDHash,
+             sizeof(helperDescriptorCDHash)) != 0 ||
+#endif
       ![selfInformation[(__bridge NSString *)kSecCodeInfoIdentifier]
           isEqualToString:HRAKeychainCustodianIdentifier]) {
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+    HRASecureZero(helperDescriptorCDHash, sizeof(helperDescriptorCDHash));
+    HRASecureZero(parentDescriptorCDHash, sizeof(parentDescriptorCDHash));
+#endif
     return false;
   }
 
+  NSData *auditTokenData = [NSData
+      dataWithBytes:parentAuditToken length:sizeof(*parentAuditToken)];
   NSDictionary *attributes = @{
     (__bridge NSString *)kSecGuestAttributePid: @(parentProcess),
+    (__bridge NSString *)kSecGuestAttributeAudit: auditTokenData,
   };
   SecCodeRef parentCode = NULL;
   if (SecCodeCopyGuestWithAttributes(
@@ -202,26 +646,75 @@ static bool HRAParentIdentityIsAuthorized(pid_t parentProcess) {
       ? HRACopySigningInformationForCode(parentCode)
       : nil;
   CFRelease(parentCode);
-  if (parentInformation == nil || getppid() != parentProcess) return false;
-
-  NSString *parentIdentifier =
-      parentInformation[(__bridge NSString *)kSecCodeInfoIdentifier];
-  NSArray<NSData *> *selfCertificates =
-      HRACertificateChain(selfInformation);
-  NSArray<NSData *> *parentCertificates =
-      HRACertificateChain(parentInformation);
-  if (selfCertificates == nil || parentCertificates == nil) return false;
-  if (selfCertificates.count > 0) {
-    return [parentIdentifier isEqualToString:@"kitchen.hraness"] &&
-        [parentCertificates isEqualToArray:selfCertificates];
+  if (parentInformation == nil ||
+      !HRAAuditTokenNamesExactParent(parentAuditToken, parentProcess)) {
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+    HRASecureZero(helperDescriptorCDHash, sizeof(helperDescriptorCDHash));
+    HRASecureZero(parentDescriptorCDHash, sizeof(parentDescriptorCDHash));
+#endif
+    return false;
   }
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+  NSData *dynamicCDHash = HRAExactCodeDirectoryHash(parentInformation);
+  bool exact = HRAReleaseCodeInformationIsExact(
+          parentInformation, @"kitchen.hraness") &&
+      dynamicCDHash.length == sizeof(parentDescriptorCDHash) &&
+      memcmp(dynamicCDHash.bytes,
+             parentDescriptorCDHash,
+             sizeof(parentDescriptorCDHash)) == 0 &&
+      hra_macos_gateway_generation_is_exact(
+          gatewayBytes,
+          strlen(gatewayBytes),
+          gatewayProcess,
+          parentProcess,
+          gatewayStartSeconds,
+          gatewayStartMicroseconds) &&
+      hra_macos_release_outer_bundle_is_exact(
+          outerBytes, strlen(outerBytes)) &&
+      HRAAuditTokenNamesExactParent(parentAuditToken, parentProcess);
+  if (exact && installSessionCache) {
+    exact = HRAInstallAuthorizedParentCache(
+        outerPath,
+        helperPath,
+        parentPath,
+        gatewayPath,
+        parentDescriptorCDHash);
+  }
+  HRASecureZero(helperDescriptorCDHash, sizeof(helperDescriptorCDHash));
+  HRASecureZero(parentDescriptorCDHash, sizeof(parentDescriptorCDHash));
+  return exact;
+#endif
   return false;
 }
 
 static bool HRAAuthorizedParentRemainsLive(void) {
   pid_t expected = HRAAuthorizedParentProcess;
-  return expected > 1 && getppid() == expected &&
-      HRAParentIdentityIsAuthorized(expected) && getppid() == expected;
+  if (expected <= 1 || !HRAAuthorizedParentAuditTokenPresent ||
+      HRAAuthorizedParentDescriptor < 0 || HRAAuthorizedParentPath == nil ||
+      HRAAuthorizedGatewayPath == nil ||
+      !HRAAuditTokenNamesExactParent(
+          &HRAAuthorizedParentAuditToken, expected)) return false;
+  if (!HRAAuthorizedBundlePathsRemainStable() ||
+      ![HRAProcessPath(expected) isEqualToString:HRAAuthorizedParentPath]) {
+    return false;
+  }
+  bool exact = HRAParentIdentityIsAuthorized(
+      expected,
+      &HRAAuthorizedParentAuditToken,
+      HRAAuthorizedGatewayProcess,
+      HRAAuthorizedGatewayStartSeconds,
+      HRAAuthorizedGatewayStartMicroseconds,
+      false);
+  return exact && HRAAuthorizedBundlePathsRemainStable() &&
+      HRAAuditTokenNamesExactParent(
+          &HRAAuthorizedParentAuditToken, expected) &&
+      hra_macos_gateway_generation_remains_exact(
+          HRAAuthorizedGatewayPath.fileSystemRepresentation,
+          strlen(HRAAuthorizedGatewayPath.fileSystemRepresentation),
+          HRAAuthorizedGatewayProcess,
+          expected,
+          HRAAuthorizedGatewayStartSeconds,
+          HRAAuthorizedGatewayStartMicroseconds);
 }
 
 static bool HRAWriteAll(int descriptor, const uint8_t *bytes, size_t length) {
@@ -331,20 +824,190 @@ static NSString *_Nullable HRACanonicalInstallEnvelope(id _Nullable value) {
   return [canonical isEqualToString:text] ? canonical : nil;
 }
 
-static NSDictionary *HRAKeychainQueryForAccount(NSString *account) {
-  return @{
-    (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-    (__bridge id)kSecAttrService: HRAHarnessKeychainService,
-    (__bridge id)kSecAttrAccount: account,
-  };
+static bool HRAAuthorizedLoginKeychainRemainsStable(void) {
+  if (HRAAuthorizedLoginKeychainDescriptor < 0 ||
+      HRAAuthorizedLoginKeychainPath == nil) return false;
+  const char *canonical =
+      HRAAuthorizedLoginKeychainPath.fileSystemRepresentation;
+  struct stat opened;
+  struct stat named;
+  char descriptorPath[PATH_MAX];
+  memset(&opened, 0, sizeof(opened));
+  memset(&named, 0, sizeof(named));
+  memset(descriptorPath, 0, sizeof(descriptorPath));
+  if (canonical == NULL ||
+      fstat(HRAAuthorizedLoginKeychainDescriptor, &opened) != 0 ||
+      lstat(canonical, &named) != 0 ||
+      fcntl(
+          HRAAuthorizedLoginKeychainDescriptor,
+          F_GETPATH,
+          descriptorPath) != 0 ||
+      strcmp(descriptorPath, canonical) != 0) return false;
+  const struct stat *expected = &HRAAuthorizedLoginKeychainMetadata;
+#define HRA_KEYCHAIN_STABLE_FIELDS_MATCH(candidate) \
+  ((candidate).st_dev == expected->st_dev && \
+   (candidate).st_ino == expected->st_ino && \
+   (candidate).st_mode == expected->st_mode && \
+   (candidate).st_nlink == expected->st_nlink && \
+   (candidate).st_uid == expected->st_uid && \
+   (candidate).st_gid == expected->st_gid && \
+   (candidate).st_flags == expected->st_flags)
+  bool exact = HRA_KEYCHAIN_STABLE_FIELDS_MATCH(opened) &&
+      HRA_KEYCHAIN_STABLE_FIELDS_MATCH(named);
+#undef HRA_KEYCHAIN_STABLE_FIELDS_MATCH
+  return exact;
 }
 
-static NSDictionary *HRAKeychainQuery(void) {
+static SecKeychainRef _Nullable HRACopyExactLoginKeychain(void) {
+  struct passwd passwordEntry;
+  struct passwd *passwordResult = NULL;
+  char passwordBuffer[16384];
+  memset(&passwordEntry, 0, sizeof(passwordEntry));
+  memset(passwordBuffer, 0, sizeof(passwordBuffer));
+  if (getpwuid_r(
+          geteuid(),
+          &passwordEntry,
+          passwordBuffer,
+          sizeof(passwordBuffer),
+          &passwordResult) != 0 ||
+      passwordResult != &passwordEntry || passwordEntry.pw_dir == NULL ||
+      passwordEntry.pw_dir[0] != '/' ||
+      strnlen(passwordEntry.pw_dir, PATH_MAX) >= PATH_MAX) {
+    return NULL;
+  }
+  char canonicalHome[PATH_MAX];
+  char expectedPath[PATH_MAX];
+  memset(canonicalHome, 0, sizeof(canonicalHome));
+  memset(expectedPath, 0, sizeof(expectedPath));
+  if (realpath(passwordEntry.pw_dir, canonicalHome) == NULL ||
+      strcmp(passwordEntry.pw_dir, canonicalHome) != 0) return NULL;
+  static const char suffix[] = "/Library/Keychains/login.keychain-db";
+  size_t homeLength = strlen(canonicalHome);
+  if (homeLength > sizeof(expectedPath) - sizeof(suffix)) return NULL;
+  memcpy(expectedPath, canonicalHome, homeLength);
+  memcpy(expectedPath + homeLength, suffix, sizeof(suffix));
+
+  SecKeychainRef keychain = NULL;
+  UInt32 actualPathCapacity = sizeof(expectedPath);
+  char actualPath[PATH_MAX];
+  memset(actualPath, 0, sizeof(actualPath));
+  if (SecKeychainCopyDefault(&keychain) != errSecSuccess || keychain == NULL ||
+      SecKeychainGetPath(
+          keychain, &actualPathCapacity, actualPath) != errSecSuccess ||
+      actualPathCapacity == 0 || actualPathCapacity > sizeof(actualPath) ||
+      strnlen(actualPath, sizeof(actualPath)) >= sizeof(actualPath) ||
+      strcmp(actualPath, expectedPath) != 0) {
+    if (keychain != NULL) CFRelease(keychain);
+    return NULL;
+  }
+  NSString *path = [[NSFileManager defaultManager]
+      stringWithFileSystemRepresentation:expectedPath
+                                  length:strlen(expectedPath)];
+  if (path == nil) {
+    CFRelease(keychain);
+    return NULL;
+  }
+  if (HRAAuthorizedLoginKeychainDescriptor < 0) {
+    int descriptor = -1;
+    struct stat metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    if (!HRAOpenStableAuthorityPath(path, false, &descriptor, &metadata) ||
+        metadata.st_uid != geteuid() ||
+        (((uint32_t)metadata.st_mode & 0022u) != 0)) {
+      if (descriptor >= 0) close(descriptor);
+      CFRelease(keychain);
+      return NULL;
+    }
+    HRAAuthorizedLoginKeychainDescriptor = descriptor;
+    HRAAuthorizedLoginKeychainMetadata = metadata;
+    HRAAuthorizedLoginKeychainPath = [path copy];
+  } else if (![path isEqualToString:HRAAuthorizedLoginKeychainPath] ||
+      !HRAAuthorizedLoginKeychainRemainsStable()) {
+    CFRelease(keychain);
+    return NULL;
+  }
+  return keychain;
+}
+
+static NSDictionary *_Nullable HRAKeychainQueryForAccount(NSString *account) {
+  SecKeychainRef keychain = HRACopyExactLoginKeychain();
+  if (keychain == NULL) return nil;
+  CFDictionaryRef query = hra_macos_copy_no_ui_generic_password_query(
+      keychain,
+      (__bridge CFStringRef)HRAHarnessKeychainService,
+      (__bridge CFStringRef)account);
+  CFRelease(keychain);
+  return query == NULL ? nil : CFBridgingRelease(query);
+}
+
+static NSMutableDictionary *HRAKeychainAddAttributes(
+    NSDictionary *query) {
+  if (query == nil) return nil;
+  CFMutableDictionaryRef attributes =
+      hra_macos_copy_generic_password_add_attributes(
+          (__bridge CFDictionaryRef)query);
+  return attributes == NULL ? nil : CFBridgingRelease(attributes);
+}
+
+static NSDictionary *_Nullable HRAKeychainQuery(void) {
   return HRAKeychainQueryForAccount(HRAHarnessKeychainAccount);
 }
 
-static NSDictionary *HRAReconciliationKeychainQuery(void) {
+static NSDictionary *_Nullable HRAReconciliationKeychainQuery(void) {
   return HRAKeychainQueryForAccount(HRAHarnessReconciliationAccount);
+}
+
+static bool HRAInstallEnvelopeItemAccessIsStrict(SecKeychainItemRef item) {
+  if (item == NULL || CFGetTypeID(item) != SecKeychainItemGetTypeID() ||
+      !HRAAuthorizedParentRemainsLive()) {
+    return false;
+  }
+  bool exact = hra_macos_install_envelope_item_access_is_strict(item);
+  return exact && HRAAuthorizedParentRemainsLive();
+}
+
+static OSStatus HRAAuthorizedSecItemCopyMatching(
+    CFDictionaryRef query,
+    CFTypeRef _Nullable *_Nullable result) {
+  if (query == NULL || !HRAAuthorizedParentRemainsLive() ||
+      !HRAAuthorizedLoginKeychainRemainsStable()) return errSecAuthFailed;
+  OSStatus status = SecItemCopyMatching(query, result);
+  if (!HRAAuthorizedLoginKeychainRemainsStable() ||
+      !HRAAuthorizedParentRemainsLive()) {
+    if (result != NULL && *result != NULL) {
+      CFRelease(*result);
+      *result = NULL;
+    }
+    return errSecAuthFailed;
+  }
+  return status;
+}
+
+static OSStatus HRAAuthorizedSecItemAdd(CFDictionaryRef attributes) {
+  if (attributes == NULL || !HRAAuthorizedParentRemainsLive() ||
+      !HRAAuthorizedLoginKeychainRemainsStable()) return errSecAuthFailed;
+  OSStatus status = SecItemAdd(attributes, NULL);
+  return HRAAuthorizedLoginKeychainRemainsStable() &&
+      HRAAuthorizedParentRemainsLive() ? status : errSecAuthFailed;
+}
+
+static OSStatus HRAAuthorizedSecItemUpdate(
+    CFDictionaryRef query,
+    CFDictionaryRef attributes) {
+  if (query == NULL || attributes == NULL ||
+      !HRAAuthorizedParentRemainsLive() ||
+      !HRAAuthorizedLoginKeychainRemainsStable()) return errSecAuthFailed;
+  OSStatus status = SecItemUpdate(query, attributes);
+  return HRAAuthorizedLoginKeychainRemainsStable() &&
+      HRAAuthorizedParentRemainsLive() ? status : errSecAuthFailed;
+}
+
+static OSStatus HRAAuthorizedSecItemDelete(CFDictionaryRef query) {
+  if (query == NULL || !HRAAuthorizedParentRemainsLive() ||
+      !HRAAuthorizedLoginKeychainRemainsStable()) return errSecAuthFailed;
+  OSStatus status = SecItemDelete(query);
+  return HRAAuthorizedLoginKeychainRemainsStable() &&
+      HRAAuthorizedParentRemainsLive() ? status : errSecAuthFailed;
 }
 
 static HRAKeychainReadState HRAReadInstallEnvelope(
@@ -353,16 +1016,25 @@ static HRAKeychainReadState HRAReadInstallEnvelope(
   if (!HRAAuthorizedParentRemainsLive()) return HRAKeychainReadFailure;
   NSMutableDictionary *query = [HRAKeychainQuery() mutableCopy];
   query[(__bridge id)kSecReturnData] = @YES;
+  query[(__bridge id)kSecReturnRef] = @YES;
   query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
   CFTypeRef raw = NULL;
-  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &raw);
+  OSStatus status = HRAAuthorizedSecItemCopyMatching(
+      (__bridge CFDictionaryRef)query, &raw);
   if (status == errSecItemNotFound) return HRAKeychainReadAbsent;
   if (status != errSecSuccess || raw == NULL ||
-      CFGetTypeID(raw) != CFDataGetTypeID()) {
+      CFGetTypeID(raw) != CFDictionaryGetTypeID()) {
     if (raw != NULL) CFRelease(raw);
     return HRAKeychainReadFailure;
   }
-  NSData *data = CFBridgingRelease(raw);
+  NSDictionary *result = CFBridgingRelease(raw);
+  NSData *data = result[(__bridge id)kSecValueData];
+  SecKeychainItemRef item = (__bridge SecKeychainItemRef)
+      result[(__bridge id)kSecValueRef];
+  if (![data isKindOfClass:[NSData class]] ||
+      !HRAInstallEnvelopeItemAccessIsStrict(item)) {
+    return HRAKeychainReadFailure;
+  }
   NSString *text = [[NSString alloc] initWithData:data
                                          encoding:NSUTF8StringEncoding];
   NSString *canonical = HRACanonicalInstallEnvelope(text);
@@ -378,10 +1050,15 @@ static bool HRASetInstallEnvelopeIfAbsent(
   NSString *canonical = HRACanonicalInstallEnvelope(value);
   if (canonical == nil) return false;
   if (!HRAAuthorizedParentRemainsLive()) return false;
-  NSMutableDictionary *item = [HRAKeychainQuery() mutableCopy];
+  NSMutableDictionary *item = HRAKeychainAddAttributes(HRAKeychainQuery());
   item[(__bridge id)kSecValueData] =
       [canonical dataUsingEncoding:NSUTF8StringEncoding];
-  OSStatus status = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
+  SecAccessRef access = hra_macos_copy_strict_install_envelope_access();
+  if (access == NULL) return false;
+  item[(__bridge id)kSecAttrAccess] = (__bridge id)access;
+  OSStatus status = HRAAuthorizedSecItemAdd(
+      (__bridge CFDictionaryRef)item);
+  CFRelease(access);
   if (status != errSecSuccess && status != errSecDuplicateItem) return false;
   *outCreated = status == errSecSuccess;
   NSString *authoritative = nil;
@@ -395,7 +1072,8 @@ static bool HRASetInstallEnvelopeIfAbsent(
 
 static bool HRADeleteInstallEnvelope(bool *outDeleted) {
   if (!HRAAuthorizedParentRemainsLive()) return false;
-  OSStatus status = SecItemDelete((__bridge CFDictionaryRef)HRAKeychainQuery());
+  OSStatus status = HRAAuthorizedSecItemDelete(
+      (__bridge CFDictionaryRef)HRAKeychainQuery());
   if (status != errSecSuccess && status != errSecItemNotFound) return false;
   *outDeleted = status == errSecSuccess;
   NSString *unexpected = nil;
@@ -484,7 +1162,8 @@ static HRAKeychainReadState HRAReadReconciliationMarker(
   query[(__bridge id)kSecReturnData] = @YES;
   query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
   CFTypeRef raw = NULL;
-  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &raw);
+  OSStatus status = HRAAuthorizedSecItemCopyMatching(
+      (__bridge CFDictionaryRef)query, &raw);
   if (status == errSecItemNotFound) return HRAKeychainReadAbsent;
   if (status != errSecSuccess || raw == NULL ||
       CFGetTypeID(raw) != CFDataGetTypeID()) {
@@ -618,18 +1297,19 @@ static bool HRAWriteReconciliationMarker(
   if (!prepareAction && !HRACommittedMarkerMatchesInstallEnvelope(desired))
     return false;
   if (state == HRAKeychainReadAbsent) {
-    NSMutableDictionary *item =
-        [HRAReconciliationKeychainQuery() mutableCopy];
+    NSMutableDictionary *item = HRAKeychainAddAttributes(
+        HRAReconciliationKeychainQuery());
     item[(__bridge id)kSecValueData] =
         [desired dataUsingEncoding:NSUTF8StringEncoding];
-    if (SecItemAdd((__bridge CFDictionaryRef)item, NULL) != errSecSuccess)
+    if (HRAAuthorizedSecItemAdd(
+            (__bridge CFDictionaryRef)item) != errSecSuccess)
       return false;
   } else if (![existing isEqualToString:desired]) {
     NSDictionary *attributes = @{
       (__bridge id)kSecValueData:
           [desired dataUsingEncoding:NSUTF8StringEncoding],
     };
-    if (SecItemUpdate(
+    if (HRAAuthorizedSecItemUpdate(
             (__bridge CFDictionaryRef)HRAReconciliationKeychainQuery(),
             (__bridge CFDictionaryRef)attributes) != errSecSuccess) {
       return false;
@@ -647,7 +1327,7 @@ static bool HRAWriteReconciliationMarker(
 
 static bool HRADeleteReconciliationMarker(bool *outDeleted) {
   if (!HRAAuthorizedParentRemainsLive()) return false;
-  OSStatus status = SecItemDelete(
+  OSStatus status = HRAAuthorizedSecItemDelete(
       (__bridge CFDictionaryRef)HRAReconciliationKeychainQuery());
   if (status != errSecSuccess && status != errSecItemNotFound) return false;
   *outDeleted = status == errSecSuccess;
@@ -657,13 +1337,15 @@ static bool HRADeleteReconciliationMarker(bool *outDeleted) {
   query[(__bridge id)kSecReturnData] = @YES;
   query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
   CFTypeRef raw = NULL;
-  OSStatus readStatus = SecItemCopyMatching(
+  OSStatus readStatus = HRAAuthorizedSecItemCopyMatching(
       (__bridge CFDictionaryRef)query, &raw);
   if (raw != NULL) CFRelease(raw);
   return readStatus == errSecItemNotFound;
 }
 
 static bool HRAWriteJSONResponse(NSDictionary *response) {
+  if ([response[@"ok"] isEqual:@YES] &&
+      !HRAAuthorizedParentRemainsLive()) return false;
   if (![NSJSONSerialization isValidJSONObject:response]) return false;
   NSData *data = [NSJSONSerialization dataWithJSONObject:response
                                                   options:0
@@ -674,11 +1356,153 @@ static bool HRAWriteJSONResponse(NSDictionary *response) {
   return HRAWriteAll(STDOUT_FILENO, data.bytes, data.length);
 }
 
+static int HRAHexNibble(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  return -1;
+}
+
+static bool HRAParseAuditToken(const char *text, audit_token_t *outToken) {
+  if (text == NULL || outToken == NULL || strlen(text) != sizeof(*outToken) * 2)
+    return false;
+  uint8_t bytes[sizeof(*outToken)];
+  memset(bytes, 0, sizeof(bytes));
+  for (size_t index = 0; index < sizeof(bytes); index += 1) {
+    int high = HRAHexNibble(text[index * 2]);
+    int low = HRAHexNibble(text[index * 2 + 1]);
+    if (high < 0 || low < 0) {
+      HRASecureZero(bytes, sizeof(bytes));
+      return false;
+    }
+    bytes[index] = (uint8_t)((high << 4) | low);
+  }
+  memcpy(outToken, bytes, sizeof(bytes));
+  HRASecureZero(bytes, sizeof(bytes));
+  return true;
+}
+
+static bool HRAParseCanonicalUInt64(
+    const char *text,
+    uint64_t maximum,
+    uint64_t *outValue) {
+  if (text == NULL || outValue == NULL || text[0] == '\0' ||
+      (text[0] == '0' && text[1] != '\0')) return false;
+  uint64_t value = 0;
+  for (size_t index = 0; text[index] != '\0'; index += 1) {
+    if (text[index] < '0' || text[index] > '9') return false;
+    uint64_t digit = (uint64_t)(text[index] - '0');
+    if (value > (maximum - digit) / 10) return false;
+    value = value * 10 + digit;
+  }
+  *outValue = value;
+  return true;
+}
+
+static bool HRAReadParentAuthorizationArguments(
+    audit_token_t *outToken,
+    pid_t *outGatewayProcess,
+    uint64_t *outGatewayStartSeconds,
+    uint64_t *outGatewayStartMicroseconds) {
+  int argumentCount = *_NSGetArgc();
+  char **arguments = *_NSGetArgv();
+  uint64_t process = 0;
+  return argumentCount == 6 && arguments != NULL &&
+      strcmp(arguments[1], "--hra-parent-audit-token-v1") == 0 &&
+      HRAParseAuditToken(arguments[2], outToken) &&
+      HRAParseCanonicalUInt64(arguments[3], INT_MAX, &process) && process > 1 &&
+      HRAParseCanonicalUInt64(
+          arguments[4], UINT64_MAX, outGatewayStartSeconds) &&
+      *outGatewayStartSeconds > 0 &&
+      HRAParseCanonicalUInt64(
+          arguments[5], 999999, outGatewayStartMicroseconds) &&
+      (*outGatewayProcess = (pid_t)process) > 1;
+}
+
+static void HRAClearAuthorizedParent(void) {
+  HRAAuthorizedParentProcess = -1;
+  HRASecureZero(
+      &HRAAuthorizedParentAuditToken,
+      sizeof(HRAAuthorizedParentAuditToken));
+  HRAAuthorizedParentAuditTokenPresent = false;
+  HRAAuthorizedGatewayProcess = -1;
+  HRAAuthorizedGatewayStartSeconds = 0;
+  HRAAuthorizedGatewayStartMicroseconds = 0;
+  if (HRAAuthorizedParentDescriptor >= 0)
+    close(HRAAuthorizedParentDescriptor);
+  if (HRAAuthorizedHelperDescriptor >= 0)
+    close(HRAAuthorizedHelperDescriptor);
+  if (HRAAuthorizedOuterDescriptor >= 0)
+    close(HRAAuthorizedOuterDescriptor);
+  if (HRAAuthorizedInfoDescriptor >= 0)
+    close(HRAAuthorizedInfoDescriptor);
+  if (HRAAuthorizedCodeResourcesDescriptor >= 0)
+    close(HRAAuthorizedCodeResourcesDescriptor);
+  if (HRAAuthorizedRendererDescriptor >= 0)
+    close(HRAAuthorizedRendererDescriptor);
+  if (HRAAuthorizedLoginKeychainDescriptor >= 0)
+    close(HRAAuthorizedLoginKeychainDescriptor);
+  HRAAuthorizedParentDescriptor = -1;
+  HRAAuthorizedHelperDescriptor = -1;
+  HRAAuthorizedOuterDescriptor = -1;
+  HRAAuthorizedInfoDescriptor = -1;
+  HRAAuthorizedCodeResourcesDescriptor = -1;
+  HRAAuthorizedRendererDescriptor = -1;
+  HRAAuthorizedLoginKeychainDescriptor = -1;
+  memset(&HRAAuthorizedParentMetadata, 0, sizeof(HRAAuthorizedParentMetadata));
+  memset(&HRAAuthorizedHelperMetadata, 0, sizeof(HRAAuthorizedHelperMetadata));
+  memset(&HRAAuthorizedOuterMetadata, 0, sizeof(HRAAuthorizedOuterMetadata));
+  memset(&HRAAuthorizedInfoMetadata, 0, sizeof(HRAAuthorizedInfoMetadata));
+  memset(&HRAAuthorizedCodeResourcesMetadata,
+         0,
+         sizeof(HRAAuthorizedCodeResourcesMetadata));
+  memset(&HRAAuthorizedRendererMetadata,
+         0,
+         sizeof(HRAAuthorizedRendererMetadata));
+  memset(&HRAAuthorizedLoginKeychainMetadata,
+         0,
+         sizeof(HRAAuthorizedLoginKeychainMetadata));
+  HRASecureZero(
+      HRAAuthorizedParentCDHash, sizeof(HRAAuthorizedParentCDHash));
+  HRAAuthorizedOuterPath = nil;
+  HRAAuthorizedHelperPath = nil;
+  HRAAuthorizedParentPath = nil;
+  HRAAuthorizedGatewayPath = nil;
+  HRAAuthorizedInfoPath = nil;
+  HRAAuthorizedCodeResourcesPath = nil;
+  HRAAuthorizedRendererPath = nil;
+  HRAAuthorizedLoginKeychainPath = nil;
+}
+
 int hra_keychain_custodian_main(void) {
   @autoreleasepool {
+    audit_token_t parentAuditToken;
+    memset(&parentAuditToken, 0, sizeof(parentAuditToken));
+    pid_t gatewayProcess = -1;
+    uint64_t gatewayStartSeconds = 0;
+    uint64_t gatewayStartMicroseconds = 0;
+    if (!HRAReadParentAuthorizationArguments(
+            &parentAuditToken,
+            &gatewayProcess,
+            &gatewayStartSeconds,
+            &gatewayStartMicroseconds)) return 1;
     pid_t parentProcess = getppid();
-    if (!HRAParentIdentityIsAuthorized(parentProcess)) return 1;
+    if (!HRAParentIdentityIsAuthorized(
+            parentProcess,
+            &parentAuditToken,
+            gatewayProcess,
+            gatewayStartSeconds,
+            gatewayStartMicroseconds,
+            true)) {
+      HRASecureZero(&parentAuditToken, sizeof(parentAuditToken));
+      return 1;
+    }
     HRAAuthorizedParentProcess = parentProcess;
+    HRAAuthorizedParentAuditToken = parentAuditToken;
+    HRAAuthorizedParentAuditTokenPresent = true;
+    HRAAuthorizedGatewayProcess = gatewayProcess;
+    HRAAuthorizedGatewayStartSeconds = gatewayStartSeconds;
+    HRAAuthorizedGatewayStartMicroseconds = gatewayStartMicroseconds;
+    HRASecureZero(&parentAuditToken, sizeof(parentAuditToken));
     NSMutableData *input = HRAReadBoundedStandardInput();
     id parsed = input == nil
         ? nil
@@ -686,37 +1510,82 @@ int hra_keychain_custodian_main(void) {
     if (input.length > 0) HRASecureZero(input.mutableBytes, input.length);
     if (![parsed isKindOfClass:[NSDictionary class]]) {
       HRAWriteJSONResponse(@{ @"ok": @NO, @"version": @1 });
-      HRAAuthorizedParentProcess = -1;
+      HRAClearAuthorizedParent();
       return 1;
     }
     NSDictionary *request = parsed;
     if (!HRAJSONIntegerIsExactlyOne(request[@"version"]) ||
         ![request[@"action"] isKindOfClass:[NSString class]]) {
       HRAWriteJSONResponse(@{ @"ok": @NO, @"version": @1 });
-      HRAAuthorizedParentProcess = -1;
+      HRAClearAuthorizedParent();
       return 1;
     }
     NSString *action = request[@"action"];
-    if ([action isEqual:@"read"] && request.count == 2) {
+    if ([action isEqual:@"authorize"] && request.count == 2) {
+#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)
+      int status = HRAWriteJSONResponse(@{
+        @"authorization": @"hra-parent-v1",
+        @"gatewayFileSha256":
+            [NSString stringWithUTF8String:
+                HRAExpectedGatewayFileSHA256Hex],
+        @"ok": @YES,
+        @"rendererAuthoritySha256":
+            [NSString stringWithUTF8String:
+                HRAExpectedRendererAuthorityRootSHA256Hex],
+        @"version": @1,
+      }) ? 0 : 1;
+      HRAClearAuthorizedParent();
+      return status;
+#endif
+    } else if ([action isEqual:@"status"] && request.count == 2) {
       NSString *value = nil;
       HRAKeychainReadState state = HRAReadInstallEnvelope(&value);
       if (state == HRAKeychainReadAbsent) {
         int status = HRAWriteJSONResponse(@{
           @"ok": @YES,
           @"state": @"absent",
+          @"strictAcl": @NO,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
+        return status;
+      }
+      if (state == HRAKeychainReadPresent && value != nil) {
+        NSString *digest = HRASHA256Hex(value);
+        if (digest != nil) {
+          int status = HRAWriteJSONResponse(@{
+            @"envelopeSha256": digest,
+            @"ok": @YES,
+            @"state": @"present",
+            @"strictAcl": @YES,
+            @"version": @1,
+          }) ? 0 : 1;
+          HRAClearAuthorizedParent();
+          return status;
+        }
+      }
+    } else if ([action isEqual:@"read"] && request.count == 2) {
+      NSString *value = nil;
+      HRAKeychainReadState state = HRAReadInstallEnvelope(&value);
+      if (state == HRAKeychainReadAbsent) {
+        int status = HRAWriteJSONResponse(@{
+          @"ok": @YES,
+          @"state": @"absent",
+          @"strictAcl": @NO,
+          @"version": @1,
+        }) ? 0 : 1;
+        HRAClearAuthorizedParent();
         return status;
       }
       if (state == HRAKeychainReadPresent && value != nil) {
         int status = HRAWriteJSONResponse(@{
           @"ok": @YES,
           @"state": @"present",
+          @"strictAcl": @YES,
           @"value": value,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
     } else if ([action isEqual:@"setIfAbsent"] && request.count == 3) {
@@ -728,10 +1597,11 @@ int hra_keychain_custodian_main(void) {
         int status = HRAWriteJSONResponse(@{
           @"created": @(created),
           @"ok": @YES,
+          @"strictAcl": @YES,
           @"value": authoritative,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
     } else if ([action isEqual:@"delete"] && request.count == 2) {
@@ -742,7 +1612,7 @@ int hra_keychain_custodian_main(void) {
           @"ok": @YES,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
     } else if ([action isEqual:@"markerRead"] && request.count == 2) {
@@ -754,7 +1624,7 @@ int hra_keychain_custodian_main(void) {
           @"state": @"absent",
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
       if (state == HRAKeychainReadPresent && value != nil) {
@@ -764,7 +1634,7 @@ int hra_keychain_custodian_main(void) {
           @"value": value,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
     } else if (([action isEqual:@"markerPrepare"] ||
@@ -779,7 +1649,7 @@ int hra_keychain_custodian_main(void) {
           @"value": authoritative,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
     } else if ([action isEqual:@"markerDelete"] && request.count == 2) {
@@ -790,12 +1660,12 @@ int hra_keychain_custodian_main(void) {
           @"ok": @YES,
           @"version": @1,
         }) ? 0 : 1;
-        HRAAuthorizedParentProcess = -1;
+        HRAClearAuthorizedParent();
         return status;
       }
     }
     HRAWriteJSONResponse(@{ @"ok": @NO, @"version": @1 });
-    HRAAuthorizedParentProcess = -1;
+    HRAClearAuthorizedParent();
     return 1;
   }
 }
@@ -1072,23 +1942,17 @@ static bool HRACodeOriginPathIsExact(
 }
 
 static bool HRAOuterBundleIsSealed(void) {
-  NSURL *bundleURL = NSBundle.mainBundle.bundleURL;
-  if (bundleURL == nil ||
-      ![bundleURL.pathExtension.lowercaseString isEqualToString:@"app"]) {
+  NSString *bundlePath = NSBundle.mainBundle.bundleURL.path;
+  if (bundlePath == nil ||
+      ![bundlePath.pathExtension.lowercaseString isEqualToString:@"app"])
     return false;
-  }
-  SecStaticCodeRef outer = NULL;
-  if (SecStaticCodeCreateWithPath(
-          (__bridge CFURLRef)bundleURL, kSecCSDefaultFlags, &outer) !=
-          errSecSuccess || outer == NULL) {
-    return false;
-  }
-  OSStatus status = SecStaticCodeCheckValidity(
-      outer,
-      kSecCSStrictValidate | kSecCSCheckAllArchitectures | kSecCSCheckNestedCode,
-      NULL);
-  CFRelease(outer);
-  return status == errSecSuccess;
+  char resolved[PATH_MAX];
+  memset(resolved, 0, sizeof(resolved));
+  const char *bundleBytes = bundlePath.fileSystemRepresentation;
+  if (bundleBytes == NULL || realpath(bundleBytes, resolved) == NULL ||
+      strcmp(bundleBytes, resolved) != 0) return false;
+  return hra_macos_release_outer_bundle_is_exact(
+      bundleBytes, strlen(bundleBytes));
 }
 
 static NSDictionary *_Nullable HRACopyStaticCustodianIdentity(
@@ -1112,6 +1976,15 @@ static NSDictionary *_Nullable HRACopyStaticCustodianIdentity(
       metadata.st_nlink != 1 || (metadata.st_mode & 0111) == 0) {
     return nil;
   }
+  uint8_t descriptorCDHash[HRA_MACOS_CDHASH_LENGTH];
+  memset(descriptorCDHash, 0, sizeof(descriptorCDHash));
+  const char *pathBytes = path.fileSystemRepresentation;
+  if (!allowUnsealedDevelopment &&
+      (pathBytes == NULL || !hra_macos_release_helper_identity_is_exact(
+          pathBytes, strlen(pathBytes), descriptorCDHash))) {
+    HRASecureZero(descriptorCDHash, sizeof(descriptorCDHash));
+    return nil;
+  }
   SecStaticCodeRef code = NULL;
   if (SecStaticCodeCreateWithPath(
           (__bridge CFURLRef)[NSURL fileURLWithPath:path],
@@ -1129,16 +2002,27 @@ static NSDictionary *_Nullable HRACopyStaticCustodianIdentity(
   CFRelease(code);
   NSString *identifier = information[(__bridge NSString *)kSecCodeInfoIdentifier];
   NSData *hash = information == nil ? nil : HRACodeDirectoryHash(information);
-  if (![identifier isEqualToString:HRAKeychainCustodianIdentifier] ||
-      hash == nil) {
+  if (![identifier isEqualToString:HRAKeychainCustodianIdentifier] || hash == nil ||
+      (!allowUnsealedDevelopment &&
+       (!HRAReleaseCodeInformationIsExact(
+            information, HRAKeychainCustodianIdentifier) ||
+        hash.length != sizeof(descriptorCDHash) ||
+        memcmp(hash.bytes,
+               descriptorCDHash,
+               sizeof(descriptorCDHash)) != 0))) {
+    HRASecureZero(descriptorCDHash, sizeof(descriptorCDHash));
     return nil;
   }
   NSString *team = information[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
-  return @{
+  NSDictionary *result = @{
     @"hash": hash,
     @"identifier": identifier,
+    @"path": path,
+    @"release": @(!allowUnsealedDevelopment),
     @"team": [team isKindOfClass:[NSString class]] ? team : @"",
   };
+  HRASecureZero(descriptorCDHash, sizeof(descriptorCDHash));
+  return result;
 }
 
 static bool HRADynamicCustodianMatches(
@@ -1168,7 +2052,24 @@ static bool HRADynamicCustodianMatches(
   NSString *identifier = actual[(__bridge NSString *)kSecCodeInfoIdentifier];
   NSString *team = actual[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
   if (![team isKindOfClass:[NSString class]]) team = @"";
-  return hash != nil && [hash isEqual:expected[@"hash"]] &&
+  NSString *path = expected[@"path"];
+  const char *pathBytes = path.fileSystemRepresentation;
+  const char *identifierBytes = [expected[@"identifier"] UTF8String];
+  bool release = [expected[@"release"] isEqual:@YES];
+  bool selfManagedDynamic = !release ||
+      (pathBytes != NULL && identifierBytes != NULL &&
+       hra_macos_self_managed_dynamic_code_matches(
+           processIdentifier,
+           pathBytes,
+           strlen(pathBytes),
+           identifierBytes,
+           strlen(identifierBytes),
+           expected[@"hash"] == nil ? NULL : [expected[@"hash"] bytes],
+           HRA_MACOS_CODE_DIRECTORY_RUNTIME));
+  return hash != nil && selfManagedDynamic &&
+      (!release || HRAReleaseCodeInformationIsExact(
+          actual, HRAKeychainCustodianIdentifier)) &&
+      [hash isEqual:expected[@"hash"]] &&
       [identifier isEqual:expected[@"identifier"]] &&
       [team isEqual:expected[@"team"]];
 }
@@ -1565,10 +2466,44 @@ static bool HRAReapExitedChild(
   }
 }
 
+static HRAChildLeaseObservation HRAObserveChildLease(
+    pid_t processIdentifier,
+    siginfo_t *outExitInformation) {
+  if (processIdentifier <= 1 || outExitInformation == NULL)
+    return HRAChildLeaseAmbiguous;
+  while (true) {
+    memset(outExitInformation, 0, sizeof(*outExitInformation));
+    errno = 0;
+    int status = waitid(
+        P_PID,
+        (id_t)processIdentifier,
+        outExitInformation,
+        WEXITED | WNOWAIT | WNOHANG);
+    if (status == 0) return HRAChildLeaseRetained;
+    if (errno == EINTR) continue;
+    return errno == ECHILD
+        ? HRAChildLeaseLost
+        : HRAChildLeaseAmbiguous;
+  }
+}
+
+static bool HRAChildExitInformationIsTerminal(
+    const siginfo_t *information,
+    pid_t expectedProcessIdentifier) {
+  return information != NULL &&
+      information->si_pid == expectedProcessIdentifier &&
+      (information->si_code == CLD_EXITED ||
+       information->si_code == CLD_KILLED ||
+       information->si_code == CLD_DUMPED);
+}
+
 static bool HRAKillAndReapUnregistered(
     pid_t processIdentifier,
     uint64_t deadline) {
+  siginfo_t exitInformation;
   if (processIdentifier <= 1 || deadline == 0 ||
+      HRAObserveChildLease(processIdentifier, &exitInformation) !=
+          HRAChildLeaseRetained ||
       (kill(processIdentifier, SIGKILL) != 0 && errno != ESRCH)) {
     return false;
   }
@@ -1579,21 +2514,24 @@ static bool HRAKillAndReapUnregistered(
 static bool HRAWaitForChildExitUnreaped(
     pid_t processIdentifier,
     uint64_t deadline,
-    siginfo_t *outExitInformation) {
+    siginfo_t *outExitInformation,
+    bool *outLeaseLost) {
   if (processIdentifier <= 1 || deadline == 0 ||
-      outExitInformation == NULL) return false;
+      outExitInformation == NULL || outLeaseLost == NULL) return false;
+  *outLeaseLost = false;
   while (true) {
     if (!HRADeadlineHasTime(deadline)) return false;
-    memset(outExitInformation, 0, sizeof(*outExitInformation));
-    int waitStatus = waitid(
-        P_PID,
-        (id_t)processIdentifier,
-        outExitInformation,
-        WEXITED | WNOWAIT | WNOHANG);
-    if (waitStatus == 0 && outExitInformation->si_pid == processIdentifier) {
+    HRAChildLeaseObservation observation = HRAObserveChildLease(
+        processIdentifier, outExitInformation);
+    if (observation == HRAChildLeaseLost ||
+        observation == HRAChildLeaseAmbiguous) {
+      *outLeaseLost = true;
+      return false;
+    }
+    if (HRAChildExitInformationIsTerminal(
+            outExitInformation, processIdentifier)) {
       return HRADeadlineHasTime(deadline);
     }
-    if (waitStatus != 0 && errno != EINTR) return false;
     int remaining = HRADeadlineRemainingMilliseconds(deadline);
     if (remaining <= 0) return false;
     struct timespec pause = {
@@ -1666,14 +2604,39 @@ static bool HRARetireRegisteredCustodianProcess(
     os_unfair_lock_unlock(&HRACustodianProcessLock);
     return alreadyRetired;
   }
+  siginfo_t leaseInformation;
+  HRAChildLeaseObservation lease = HRAObserveChildLease(
+      processIdentifier, &leaseInformation);
+  if (lease != HRAChildLeaseRetained) {
+    atomic_store(
+        &HRACurrentCustodianProcess,
+        HRACustodianRetirementUnproven);
+    HRACustodianUntrackedRetirementUnproven = true;
+    os_unfair_lock_unlock(&HRACustodianProcessLock);
+    return false;
+  }
   bool signalled = !terminate ||
       kill(processIdentifier, SIGKILL) == 0 || errno == ESRCH;
   os_unfair_lock_unlock(&HRACustodianProcessLock);
   if (!signalled) return false;
 
   siginfo_t exitInformation;
+  bool leaseLost = false;
   if (!HRAWaitForChildExitUnreaped(
-          processIdentifier, deadline, &exitInformation)) {
+          processIdentifier,
+          deadline,
+          &exitInformation,
+          &leaseLost)) {
+    if (leaseLost) {
+      os_unfair_lock_lock(&HRACustodianProcessLock);
+      if (atomic_load(&HRACurrentCustodianProcess) == processIdentifier) {
+        atomic_store(
+            &HRACurrentCustodianProcess,
+            HRACustodianRetirementUnproven);
+        HRACustodianUntrackedRetirementUnproven = true;
+      }
+      os_unfair_lock_unlock(&HRACustodianProcessLock);
+    }
     return false;
   }
   os_unfair_lock_lock(&HRACustodianProcessLock);
@@ -1807,20 +2770,21 @@ static bool HRALegacyProcessGroupHasNoLiveMembers(
 
 static bool HRAWaitForExitedLegacyLeaderAndGroupQuiescence(
     pid_t groupLeader,
-    uint64_t deadline) {
-  if (groupLeader <= 1 || deadline == 0) return false;
+    uint64_t deadline,
+    bool *outLeaseLost) {
+  if (groupLeader <= 1 || deadline == 0 || outLeaseLost == NULL) return false;
+  *outLeaseLost = false;
   while (true) {
     if (!HRADeadlineHasTime(deadline)) return false;
     siginfo_t exitInformation;
-    memset(&exitInformation, 0, sizeof(exitInformation));
-    int waitStatus = waitid(
-        P_PID,
-        (id_t)groupLeader,
-        &exitInformation,
-        WEXITED | WNOWAIT | WNOHANG);
-    if (waitStatus != 0 && errno != EINTR) return false;
-    bool leaderExited = waitStatus == 0 &&
-        exitInformation.si_pid == groupLeader;
+    HRAChildLeaseObservation observation = HRAObserveChildLease(
+        groupLeader, &exitInformation);
+    if (observation != HRAChildLeaseRetained) {
+      *outLeaseLost = true;
+      return false;
+    }
+    bool leaderExited = HRAChildExitInformationIsTerminal(
+        &exitInformation, groupLeader);
     if (leaderExited && HRALegacyProcessGroupHasNoLiveMembers(
             groupLeader, true)) {
       return HRADeadlineHasTime(deadline);
@@ -1854,6 +2818,17 @@ static bool HRAContainAndReapRegisteredLegacyProcessGroup(
     os_unfair_lock_unlock(&HRALegacyGatewayProcessLock);
     return alreadyRetired;
   }
+  siginfo_t leaseInformation;
+  HRAChildLeaseObservation lease = HRAObserveChildLease(
+      groupLeader, &leaseInformation);
+  if (lease != HRAChildLeaseRetained) {
+    atomic_store(
+        &HRACurrentLegacyGatewayProcess,
+        HRALegacyRetirementUnproven);
+    HRALegacyUntrackedRetirementUnproven = true;
+    os_unfair_lock_unlock(&HRALegacyGatewayProcessLock);
+    return false;
+  }
   errno = 0;
   int signalStatus = kill(-groupLeader, SIGKILL);
   int signalError = errno;
@@ -1864,9 +2839,20 @@ static bool HRAContainAndReapRegisteredLegacyProcessGroup(
   bool signalAttemptAdmissible = signalStatus == 0 ||
       signalError == ESRCH || signalError == EPERM;
   os_unfair_lock_unlock(&HRALegacyGatewayProcessLock);
+  bool leaseLost = false;
   if (!signalAttemptAdmissible ||
       !HRAWaitForExitedLegacyLeaderAndGroupQuiescence(
-          groupLeader, deadline)) {
+          groupLeader, deadline, &leaseLost)) {
+    if (leaseLost) {
+      os_unfair_lock_lock(&HRALegacyGatewayProcessLock);
+      if (atomic_load(&HRACurrentLegacyGatewayProcess) == groupLeader) {
+        atomic_store(
+            &HRACurrentLegacyGatewayProcess,
+            HRALegacyRetirementUnproven);
+        HRALegacyUntrackedRetirementUnproven = true;
+      }
+      os_unfair_lock_unlock(&HRALegacyGatewayProcessLock);
+    }
     return false;
   }
   os_unfair_lock_lock(&HRALegacyGatewayProcessLock);
@@ -1904,6 +2890,58 @@ static void HRAPoisonUnretiredLegacyProcess(pid_t processIdentifier) {
   os_unfair_lock_unlock(&HRALegacyGatewayProcessLock);
 }
 
+static bool HRACopySelfAuditToken(audit_token_t *outToken) {
+  if (outToken == NULL) return false;
+  memset(outToken, 0, sizeof(*outToken));
+  mach_msg_type_number_t count = TASK_AUDIT_TOKEN_COUNT;
+  return task_info(
+      mach_task_self(),
+      TASK_AUDIT_TOKEN,
+      (task_info_t)outToken,
+      &count) == KERN_SUCCESS && count == TASK_AUDIT_TOKEN_COUNT &&
+      audit_token_to_pid(*outToken) == getpid() &&
+      audit_token_to_pidversion(*outToken) > 0;
+}
+
+static bool HRACustodianChildGenerationIsExact(
+    pid_t processIdentifier,
+    bool requireStopped,
+    uint64_t *outStartSeconds,
+    uint64_t *outStartMicroseconds) {
+  if (processIdentifier <= 1 || outStartSeconds == NULL ||
+      outStartMicroseconds == NULL) return false;
+  struct proc_bsdinfo information;
+  memset(&information, 0, sizeof(information));
+  int bytes = proc_pidinfo(
+      processIdentifier,
+      PROC_PIDTBSDINFO,
+      0,
+      &information,
+      (int)sizeof(information));
+  if (bytes != (int)sizeof(information) ||
+      information.pbi_pid != (uint32_t)processIdentifier ||
+      information.pbi_ppid != (uint32_t)getpid() ||
+      (requireStopped && information.pbi_status != SSTOP) ||
+      information.pbi_start_tvsec == 0) {
+    return false;
+  }
+  *outStartSeconds = information.pbi_start_tvsec;
+  *outStartMicroseconds = information.pbi_start_tvusec;
+  return true;
+}
+
+static void HRAEncodeAuditTokenHex(
+    const audit_token_t *token,
+    char output[sizeof(audit_token_t) * 2 + 1]) {
+  static const char alphabet[] = "0123456789abcdef";
+  const uint8_t *bytes = (const uint8_t *)token;
+  for (size_t index = 0; index < sizeof(*token); index += 1) {
+    output[index * 2] = alphabet[bytes[index] >> 4];
+    output[index * 2 + 1] = alphabet[bytes[index] & 0x0f];
+  }
+  output[sizeof(*token) * 2] = '\0';
+}
+
 bool hra_macos_run_attested_keychain_custodian(
     const char *path,
     size_t path_length,
@@ -1922,7 +2960,9 @@ bool hra_macos_run_attested_keychain_custodian(
         response == NULL || response_capacity == 0 ||
         response_capacity > HRACustodianMaximumResponseBytes ||
         out_response_length == NULL || timeout_milliseconds == 0 ||
-        timeout_milliseconds > 60000) {
+        timeout_milliseconds > 60000 ||
+        !hra_macos_child_process_policy_is_exact() ||
+        !hra_macos_custody_probe_parent_remains_live_or_retire()) {
       return false;
     }
     *out_response_length = 0;
@@ -1954,6 +2994,52 @@ bool hra_macos_run_attested_keychain_custodian(
       HRASecureZero(requestCopy, sizeof(requestCopy));
       return false;
     }
+    NSString *gatewayPath = [[helperPath stringByDeletingLastPathComponent]
+        stringByAppendingPathComponent:@"oprte-gateway"];
+    const char *gatewayBytes = gatewayPath.fileSystemRepresentation;
+    pid_t gatewayProcess = -1;
+    uint64_t gatewayStartSeconds = 0;
+    uint64_t gatewayStartMicroseconds = 0;
+    audit_token_t selfAuditToken;
+    memset(&selfAuditToken, 0, sizeof(selfAuditToken));
+    char auditTokenHex[sizeof(audit_token_t) * 2 + 1];
+    char gatewayProcessText[32];
+    char gatewaySecondsText[32];
+    char gatewayMicrosecondsText[32];
+    memset(auditTokenHex, 0, sizeof(auditTokenHex));
+    memset(gatewayProcessText, 0, sizeof(gatewayProcessText));
+    memset(gatewaySecondsText, 0, sizeof(gatewaySecondsText));
+    memset(gatewayMicrosecondsText, 0, sizeof(gatewayMicrosecondsText));
+    if (gatewayBytes == NULL ||
+        !hra_macos_copy_attested_gateway_generation(
+            gatewayBytes,
+            strlen(gatewayBytes),
+            &gatewayProcess,
+            &gatewayStartSeconds,
+            &gatewayStartMicroseconds) ||
+        !HRACopySelfAuditToken(&selfAuditToken)) {
+      HRASecureZero(requestCopy, sizeof(requestCopy));
+      HRASecureZero(&selfAuditToken, sizeof(selfAuditToken));
+      return false;
+    }
+    HRAEncodeAuditTokenHex(&selfAuditToken, auditTokenHex);
+    HRASecureZero(&selfAuditToken, sizeof(selfAuditToken));
+    if (snprintf(gatewayProcessText,
+                 sizeof(gatewayProcessText),
+                 "%d",
+                 gatewayProcess) <= 0 ||
+        snprintf(gatewaySecondsText,
+                 sizeof(gatewaySecondsText),
+                 "%llu",
+                 (unsigned long long)gatewayStartSeconds) <= 0 ||
+        snprintf(gatewayMicrosecondsText,
+                 sizeof(gatewayMicrosecondsText),
+                 "%llu",
+                 (unsigned long long)gatewayStartMicroseconds) <= 0) {
+      HRASecureZero(requestCopy, sizeof(requestCopy));
+      HRASecureZero(auditTokenHex, sizeof(auditTokenHex));
+      return false;
+    }
 
     int inputPipe[2] = {-1, -1};
     int outputPipe[2] = {-1, -1};
@@ -1983,21 +3069,46 @@ bool hra_macos_run_attested_keychain_custodian(
       HRASecureZero(requestCopy, sizeof(requestCopy));
       return false;
     }
-    short flags = POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_CLOEXEC_DEFAULT;
-    bool configured = posix_spawnattr_setflags(&attributes, flags) == 0 &&
+    sigset_t childSignalMask;
+    sigset_t childSignalDefaults;
+    bool signalSetsConfigured = sigemptyset(&childSignalMask) == 0 &&
+        sigemptyset(&childSignalDefaults) == 0 &&
+        sigaddset(&childSignalDefaults, SIGTERM) == 0 &&
+        sigaddset(&childSignalDefaults, SIGINT) == 0 &&
+        sigaddset(&childSignalDefaults, SIGHUP) == 0 &&
+        sigaddset(&childSignalDefaults, SIGQUIT) == 0 &&
+        sigaddset(&childSignalDefaults, SIGPIPE) == 0 &&
+        sigaddset(&childSignalDefaults, SIGCHLD) == 0;
+    short flags = POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_CLOEXEC_DEFAULT |
+        POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF;
+    bool configured = signalSetsConfigured &&
+        posix_spawnattr_setflags(&attributes, flags) == 0 &&
+        posix_spawnattr_setsigmask(&attributes, &childSignalMask) == 0 &&
+        posix_spawnattr_setsigdefault(
+            &attributes, &childSignalDefaults) == 0 &&
         posix_spawn_file_actions_adddup2(&actions, inputPipe[0], STDIN_FILENO) == 0 &&
         posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO) == 0 &&
         posix_spawn_file_actions_addopen(
             &actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0 &&
         posix_spawn_file_actions_addclose(&actions, inputPipe[1]) == 0 &&
         posix_spawn_file_actions_addclose(&actions, outputPipe[0]) == 0;
-    char *argv[] = {(char *)spawnPath, NULL};
+    char *argv[] = {
+      (char *)spawnPath,
+      "--hra-parent-audit-token-v1",
+      auditTokenHex,
+      gatewayProcessText,
+      gatewaySecondsText,
+      gatewayMicrosecondsText,
+      NULL,
+    };
     char *emptyEnvironment[] = {NULL};
     pid_t processIdentifier = -1;
     int spawnStatus = configured
+        && hra_macos_custody_probe_parent_remains_live_or_retire()
         ? posix_spawn(&processIdentifier, spawnPath, &actions, &attributes,
                       argv, emptyEnvironment)
         : EINVAL;
+    HRASecureZero(auditTokenHex, sizeof(auditTokenHex));
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attributes);
     close(inputPipe[0]);
@@ -2011,16 +3122,47 @@ bool hra_macos_run_attested_keychain_custodian(
     bool success = false;
     bool registered = false;
     bool spawned = true;
-    if (!HRADynamicCustodianMatches(processIdentifier, identity) ||
+    uint64_t custodianStartSeconds = 0;
+    uint64_t custodianStartMicroseconds = 0;
+    uint64_t custodianStartSecondsAfter = 0;
+    uint64_t custodianStartMicrosecondsAfter = 0;
+    uint8_t helperCDHashAfter[HRA_MACOS_CDHASH_LENGTH];
+    memset(helperCDHashAfter, 0, sizeof(helperCDHashAfter));
+    if (!hra_macos_custody_probe_parent_remains_live_or_retire() ||
+        !HRACustodianChildGenerationIsExact(
+            processIdentifier,
+            true,
+            &custodianStartSeconds,
+            &custodianStartMicroseconds) ||
+        !HRADynamicCustodianMatches(processIdentifier, identity) ||
+        (!allow_unsealed_development &&
+         !hra_macos_release_helper_identity_is_exact(
+             spawnPath, strlen(spawnPath), helperCDHashAfter)) ||
+        (!allow_unsealed_development &&
+         ([(NSData *)identity[@"hash"] length] != sizeof(helperCDHashAfter) ||
+          memcmp([(NSData *)identity[@"hash"] bytes],
+                 helperCDHashAfter,
+                 sizeof(helperCDHashAfter)) != 0)) ||
+        !HRACustodianChildGenerationIsExact(
+            processIdentifier,
+            true,
+            &custodianStartSecondsAfter,
+            &custodianStartMicrosecondsAfter) ||
+        custodianStartSecondsAfter != custodianStartSeconds ||
+        custodianStartMicrosecondsAfter != custodianStartMicroseconds ||
         !HRADeadlineHasTime(operationDeadline) ||
+        !hra_macos_custody_probe_parent_remains_live_or_retire() ||
         !HRARegisterAndResumeCustodianProcess(
             processIdentifier,
             generation,
             operationDeadline,
             &registered)) {
+      HRASecureZero(helperCDHashAfter, sizeof(helperCDHashAfter));
       goto cleanup;
     }
+    HRASecureZero(helperCDHashAfter, sizeof(helperCDHashAfter));
     if (!HRADeadlineHasTime(operationDeadline) ||
+        !hra_macos_custody_probe_parent_remains_live_or_retire() ||
         !HRAWriteAll(inputPipe[1], requestCopy, request_length) ||
         !HRADeadlineHasTime(operationDeadline)) goto cleanup;
     close(inputPipe[1]);
@@ -2033,6 +3175,8 @@ bool hra_macos_run_attested_keychain_custodian(
     size_t responseLength = 0;
     bool reachedEOF = false;
     while (!reachedEOF) {
+      if (!hra_macos_custody_probe_parent_remains_live_or_retire())
+        goto cleanup;
       int remaining = HRADeadlineRemainingMilliseconds(operationDeadline);
       if (remaining <= 0) goto cleanup;
       struct pollfd descriptor = {
@@ -2040,9 +3184,12 @@ bool hra_macos_run_attested_keychain_custodian(
         .events = POLLIN | POLLHUP,
         .revents = 0,
       };
-      int pollStatus = poll(&descriptor, 1, remaining);
+      int pollMilliseconds = remaining < 10 ? remaining : 10;
+      int pollStatus = poll(&descriptor, 1, pollMilliseconds);
       if (pollStatus < 0 && errno == EINTR) continue;
-      if (pollStatus <= 0 || (descriptor.revents & (POLLERR | POLLNVAL)) != 0) {
+      if (pollStatus == 0) continue;
+      if (pollStatus < 0 ||
+          (descriptor.revents & (POLLERR | POLLNVAL)) != 0) {
         goto cleanup;
       }
       while (true) {
@@ -2072,6 +3219,8 @@ bool hra_macos_run_attested_keychain_custodian(
             operationDeadline,
             false,
             &status)) goto cleanup;
+    if (!hra_macos_custody_probe_parent_remains_live_or_retire())
+      goto cleanup;
     registered = false;
     spawned = false;
     processIdentifier = -1;
@@ -2113,8 +3262,10 @@ bool hra_macos_run_attested_keychain_custodian(
 }
 
 void hra_macos_prepare_attested_keychain_custodian_operations(void) {
+  bool childPolicyExact = hra_macos_child_process_policy_is_exact();
   os_unfair_lock_lock(&HRACustodianProcessLock);
-  bool available = atomic_load(&HRACurrentCustodianProcess) == -1 &&
+  bool available = childPolicyExact &&
+      atomic_load(&HRACurrentCustodianProcess) == -1 &&
       !HRACustodianUntrackedRetirementUnproven &&
       HRACustodianGeneration != UINT64_MAX;
   if (available) {
@@ -2133,7 +3284,17 @@ void hra_macos_cancel_attested_keychain_custodian(void) {
   HRACustodianGenerationCancelled = true;
   int processIdentifier = atomic_load(&HRACurrentCustodianProcess);
   if (processIdentifier > 1) {
-    (void)kill((pid_t)processIdentifier, SIGKILL);
+    siginfo_t exitInformation;
+    HRAChildLeaseObservation lease = HRAObserveChildLease(
+        (pid_t)processIdentifier, &exitInformation);
+    if (lease == HRAChildLeaseRetained) {
+      (void)kill((pid_t)processIdentifier, SIGKILL);
+    } else {
+      atomic_store(
+          &HRACurrentCustodianProcess,
+          HRACustodianRetirementUnproven);
+      HRACustodianUntrackedRetirementUnproven = true;
+    }
   }
   os_unfair_lock_unlock(&HRACustodianProcessLock);
 }
@@ -2158,7 +3319,8 @@ bool hra_macos_run_attested_legacy_harness_custody(
         response_capacity > HRACustodianMaximumResponseBytes ||
         out_response_length == NULL || out_failure_substage == NULL ||
         timeout_milliseconds == 0 ||
-        timeout_milliseconds > 60000) {
+        timeout_milliseconds > 60000 ||
+        !hra_macos_child_process_policy_is_exact()) {
       HRARecordLegacyHarnessCustodyFailure(
           out_failure_substage,
           HRALegacyHarnessCustodyFailureAdmission);
@@ -2270,10 +3432,25 @@ bool hra_macos_run_attested_legacy_harness_custody(
       (void)rmdir(temporaryDirectory);
       return false;
     }
+    sigset_t childSignalMask;
+    sigset_t childSignalDefaults;
+    bool signalSetsConfigured = sigemptyset(&childSignalMask) == 0 &&
+        sigemptyset(&childSignalDefaults) == 0 &&
+        sigaddset(&childSignalDefaults, SIGTERM) == 0 &&
+        sigaddset(&childSignalDefaults, SIGINT) == 0 &&
+        sigaddset(&childSignalDefaults, SIGHUP) == 0 &&
+        sigaddset(&childSignalDefaults, SIGQUIT) == 0 &&
+        sigaddset(&childSignalDefaults, SIGPIPE) == 0 &&
+        sigaddset(&childSignalDefaults, SIGCHLD) == 0;
     short flags = POSIX_SPAWN_START_SUSPENDED |
-        POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP;
-    bool configured = posix_spawnattr_setflags(&attributes, flags) == 0 &&
+        POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP |
+        POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF;
+    bool configured = signalSetsConfigured &&
+        posix_spawnattr_setflags(&attributes, flags) == 0 &&
         posix_spawnattr_setpgroup(&attributes, 0) == 0 &&
+        posix_spawnattr_setsigmask(&attributes, &childSignalMask) == 0 &&
+        posix_spawnattr_setsigdefault(
+            &attributes, &childSignalDefaults) == 0 &&
         posix_spawn_file_actions_addchdir_np(
             &actions, temporaryDirectory) == 0 &&
         posix_spawn_file_actions_addopen(
@@ -2433,10 +3610,16 @@ bool hra_macos_run_attested_legacy_harness_custody(
       }
     }
     siginfo_t exitInformation;
+    bool leaseLost = false;
     if (!HRAWaitForChildExitUnreaped(
             processIdentifier,
             operationDeadline,
-            &exitInformation)) {
+            &exitInformation,
+            &leaseLost)) {
+      if (leaseLost) {
+        HRAPoisonUnretiredLegacyProcess(processIdentifier);
+        HRAMarkLegacyUntrackedRetirementUnproven();
+      }
       HRARecordLegacyHarnessCustodyFailure(
           out_failure_substage,
           HRALegacyHarnessCustodyFailureExit);
@@ -2511,8 +3694,10 @@ bool hra_macos_run_attested_legacy_harness_custody(
 }
 
 void hra_macos_prepare_attested_legacy_harness_custody_operations(void) {
+  bool childPolicyExact = hra_macos_child_process_policy_is_exact();
   os_unfair_lock_lock(&HRALegacyGatewayProcessLock);
-  bool available = atomic_load(&HRACurrentLegacyGatewayProcess) == -1 &&
+  bool available = childPolicyExact &&
+      atomic_load(&HRACurrentLegacyGatewayProcess) == -1 &&
       !HRALegacyUntrackedRetirementUnproven &&
       HRALegacyGatewayGeneration != UINT64_MAX;
   if (available) {
@@ -2531,7 +3716,17 @@ void hra_macos_cancel_attested_legacy_harness_custody(void) {
   HRALegacyGatewayGenerationCancelled = true;
   int processIdentifier = atomic_load(&HRACurrentLegacyGatewayProcess);
   if (processIdentifier > 1) {
-    (void)kill(-(pid_t)processIdentifier, SIGKILL);
+    siginfo_t exitInformation;
+    HRAChildLeaseObservation lease = HRAObserveChildLease(
+        (pid_t)processIdentifier, &exitInformation);
+    if (lease == HRAChildLeaseRetained) {
+      (void)kill(-(pid_t)processIdentifier, SIGKILL);
+    } else {
+      atomic_store(
+          &HRACurrentLegacyGatewayProcess,
+          HRALegacyRetirementUnproven);
+      HRALegacyUntrackedRetirementUnproven = true;
+    }
   }
   os_unfair_lock_unlock(&HRALegacyGatewayProcessLock);
 }
@@ -2620,7 +3815,8 @@ static void HRARunLegacyGroupProbeChild(
                WEXITED | WNOWAIT) != 0) {
       if (errno != EINTR) _exit(72);
     }
-    if (exitInformation.si_pid != descendant) _exit(73);
+    if (!HRAChildExitInformationIsTerminal(
+            &exitInformation, descendant)) _exit(73);
   } else if (kill(descendant, 0) != 0) {
     _exit(74);
   }
@@ -2721,8 +3917,10 @@ static int HRARunExitedLegacyGroupRetirementProbeFixture(
   close(controlPipe[1]);
   uint64_t exitDeadline = HRACleanupDeadline(5000);
   siginfo_t exitInformation;
+  bool leaseLost = false;
   bool exited = released && HRAWaitForChildExitUnreaped(
-      groupLeader, exitDeadline, &exitInformation);
+      groupLeader, exitDeadline, &exitInformation, &leaseLost);
+  (void)leaseLost;
   bool initialQuiescence = exited &&
       HRALegacyProcessGroupHasNoLiveMembers(groupLeader, true);
   os_unfair_lock_lock(&HRALegacyGatewayProcessLock);

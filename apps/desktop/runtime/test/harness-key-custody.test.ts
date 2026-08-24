@@ -10,6 +10,7 @@ import {
   deriveHarnessContextValueKey,
   deriveHarnessRootKey,
   harnessInstallKeyDescriptor,
+  serializeHarnessInstallMaster,
   type HarnessSecretDescriptor,
   type HarnessSecretStore,
 } from "../src/harness/key-custody";
@@ -220,6 +221,49 @@ describe("Context Heap Keychain custody", () => {
       `${HRA_HARNESS_KEYCHAIN_SERVICE}\u0000${HRA_HARNESS_KEYCHAIN_NAME}`,
     ]);
     expect(await custody.exists()).toBeTrue();
+  });
+
+  test("established custody rejects absence before first borrow without a create path", () => {
+    const reads: HarnessSecretDescriptor[] = [];
+    const establishedSecrets = Object.freeze({
+      get(input: HarnessSecretDescriptor): Promise<null> {
+        reads.push(input);
+        return Promise.resolve(null);
+      },
+    });
+    expect(establishedSecrets).not.toHaveProperty("set");
+    const custody = new HarnessInstallKeyCustody({ establishedSecrets });
+    expect(
+      custody.withContextKey(scope("establishedMissing"), () => undefined),
+    ).rejects.toMatchObject({ code: "custody_unavailable" });
+    expect(reads).toEqual([harnessInstallKeyDescriptor]);
+  });
+
+  test("established custody rejects disappearance after a successful borrow", () => {
+    let value: string | null = serializeHarnessInstallMaster(
+      deterministicMaster(),
+    );
+    const establishedSecrets = Object.freeze({
+      get(): Promise<string | null> {
+        return Promise.resolve(value);
+      },
+    });
+    const custody = new HarnessInstallKeyCustody({ establishedSecrets });
+    expect(custody.withContextKey(
+      scope("establishedPresent"),
+      key => key.byteLength,
+    )).resolves.toBe(32);
+    value = null;
+    expect(custody.withContextKey(
+      scope("establishedGone"),
+      () => undefined,
+    )).rejects.toMatchObject({ code: "custody_unavailable" });
+    const restarted = new HarnessInstallKeyCustody({ establishedSecrets });
+    expect(restarted.withContextKey(
+      scope("establishedRestart"),
+      () => undefined,
+    )).rejects.toMatchObject({ code: "custody_unavailable" });
+    expect(establishedSecrets).not.toHaveProperty("set");
   });
 
   test("serializes concurrent first use and reads back Keychain authority", async () => {
