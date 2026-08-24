@@ -365,7 +365,7 @@ test("harness observer replay stays exact at capacity and a 65th identity never 
       expect(store.list()).toHaveLength(CHAT_MAX_PANES);
     }),
   ), { numRuns: 40, timeout: PROPERTY_TIMEOUT });
-});
+}, PROPERTY_TIMEOUT);
 
 test("arbitrary attached-actor completions survive restart and never admit a duplicate turn", () => {
   assertProperty(fc.property(

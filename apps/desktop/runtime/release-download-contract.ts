@@ -1,42 +1,72 @@
 import { createHash } from "node:crypto";
-import { lstat, open, readFile, realpath } from "node:fs/promises";
+import { constants, type BigIntStats } from "node:fs";
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+
+import { dlopen, FFIType } from "bun:ffi";
 
 import { z } from "@hra-internal/schema";
 
 import { correspondingSourceSpecs } from "./corresponding-sources";
 import { macosPackage } from "./macos-package-config";
 import {
+  verifyCanonicalRemoteReleaseTags,
   verifyRemoteReleaseHistory,
+  type CurrentRemoteReleaseHistoryEntry,
   type RemoteReleaseHistoryEvidence,
+  type ReleaseHistoryTagVerifier,
 } from "./release-history-contract";
 import {
   HRA_CANONICAL_REPOSITORY,
   HRA_HISTORICAL_PUBLICATION_REPOSITORY,
   HRA_V0_CURRENT_REPOSITORY,
+  HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
   inspectCanonicalArchiveRelease,
+  inspectCanonicalReleasePublication,
+  inspectReleaseCandidateLineage,
   inspectReleasePublicationAtCommit,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
   type ArchiveReleaseSurfaceEvidence,
   type CanonicalArchiveReleaseEvidence,
+  type CanonicalReleasePublicationEvidence,
   type ReleasePublicationEvidence,
   type ReleaseRepositoryEvidence,
   type ReleaseTagEvidence,
 } from "./release-provenance";
 import { hraReleaseIdentity } from "./release-identity";
+import { productionReleaseSigning } from "./release-signing-authority";
 import {
   verifyMacOSApp,
   verifyMacOSReleaseArtifacts,
+  type CustodyProbeSupervisorAuthorityEvidence,
 } from "./verify-macos-package";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const releaseDownloadPath = join(repositoryRoot, "release-download.json");
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const objectIdSchema = z.string().regex(/^[0-9a-f]{40}$/u);
+const releaseCloneLibrary = process.platform === "darwin"
+  ? dlopen("/usr/lib/libSystem.B.dylib", {
+      fclonefileat: {
+        args: [FFIType.i32, FFIType.i32, FFIType.cstring, FFIType.u32],
+        returns: FFIType.i32,
+      },
+    })
+  : null;
 const emptyArtifactSchema = z.object({
   bytes: z.null(),
   name: z.string().min(1).max(200),
@@ -106,7 +136,10 @@ function refineReleaseDownloadContract(
 }
 
 const releaseDownloadContractSchema = z.object({
-  release: publishedReleaseSchema,
+  release: z.discriminatedUnion("availability", [
+    candidateReleaseSchema,
+    publishedReleaseSchema,
+  ]),
   repository: z.literal(HRA_CANONICAL_REPOSITORY),
   schemaVersion: z.literal(1),
 }).strict().superRefine(refineReleaseDownloadContract);
@@ -150,6 +183,7 @@ export interface LocalReleaseCandidateEvidence {
 export interface PublishedReleaseCandidateEvidence {
   readonly commit: string;
   readonly contract: PublishedReleaseDownloadContract;
+  readonly custodyProbeSupervisor: CustodyProbeSupervisorAuthorityEvidence;
   readonly repository: ReleaseRepositoryEvidence;
   readonly runtimeTreeSha256: string;
   readonly tag: ReleaseTagEvidence;
@@ -159,53 +193,81 @@ export interface PublishedReleaseSourceEvidence {
   readonly contract: PublishedReleaseDownloadContract;
   readonly publication: ReleasePublicationEvidence;
   readonly repository: ReleaseRepositoryEvidence;
-  readonly surface: ArchiveReleaseSurfaceEvidence;
   readonly tag: ReleaseTagEvidence;
 }
 
-export type ReleaseSourceGateEvidence = Readonly<
-  PublishedReleaseSourceEvidence & {
-    availability: "published";
-    status: "verified_published_source";
-  }
->;
+export interface HistoricalPublishedReleaseSourceEvidence
+  extends PublishedReleaseSourceEvidence {
+  readonly surface: ArchiveReleaseSurfaceEvidence;
+}
+
+export type ReleaseSourceGateEvidence =
+  | Readonly<{
+      availability: "candidate";
+      contract: ReleaseDownloadContract;
+      status: "valid_candidate_contract";
+    }>
+  | Readonly<PublishedReleaseSourceEvidence & {
+      availability: "published";
+      status: "verified_published_source";
+    }>;
 
 export const releasePublicationCommitAllowlistEnvironmentVariable =
   "HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST" as const;
 export const releaseSurfaceCommitAllowlistEnvironmentVariable =
   "HRA_V0_SURFACE_COMMIT_ALLOWLIST" as const;
+export const releaseGitHubReadTokenEnvironmentVariable =
+  "HRA_RELEASE_GITHUB_READ_TOKEN" as const;
 export const HRA_V0_RELEASE_PUBLICATION_COMMIT =
   "6221f79b745f154882080936b961ff431569f33e" as const;
+const releaseGitHubApiReadUrls = new Set([
+  "https://api.github.com/repos/hraness/hra-v0/git/matching-refs/tags/v0.1",
+  "https://api.github.com/repos/hraness/hra-v0/releases?per_page=100",
+  "https://api.github.com/repos/hraness/hra-v0/releases/tags/v0.1.15",
+]);
 
-export type VercelReleaseSourceGateEvidence = Readonly<{
-  availability: "published";
-  contract: PublishedReleaseDownloadContract;
-  publicationCommit: string;
-  repositoryMigrationCommit: string;
-  status: "verified_vercel_archive_surface_binding";
-  surfaceCommit: string;
-}>;
+export type VercelReleaseSourceGateEvidence =
+  | Extract<ReleaseSourceGateEvidence, { availability: "candidate" }>
+  | Readonly<{
+      availability: "published";
+      contract: PublishedReleaseDownloadContract;
+      publicationCommit: string;
+      status: "verified_vercel_publication_binding";
+    }>
+  | Readonly<{
+      availability: "published";
+      contract: PublishedReleaseDownloadContract;
+      publicationCommit: string;
+      repositoryMigrationCommit: string;
+      status: "verified_vercel_archive_surface_binding";
+      surfaceCommit: string;
+    }>;
 
 export type ReleaseHttpFetcher = (
   url: string,
   init: RequestInit,
 ) => Promise<Response>;
 
-export type RemoteReleaseStateEvidence = Readonly<{
-  assets: LocalReleaseCandidateEvidence["artifacts"];
-  availability: "published";
-  contract: PublishedReleaseDownloadContract;
-  immutable: true;
-  releaseId: number;
-  status: "verified_immutable_remote_release";
-}>;
-export type RemoteReleaseGateEvidence = Readonly<
-  RemoteReleaseStateEvidence & {
-    history: RemoteReleaseHistoryEvidence;
-  }
->;
+export type RemoteReleaseStateEvidence =
+  | Readonly<{
+      availability: "candidate";
+      contract: ReleaseDownloadContract;
+      history: Extract<RemoteReleaseHistoryEvidence, { assetCount: 49 }>;
+      status: "verified_candidate_remote_collision_absence";
+    }>
+  | Readonly<{
+      assets: LocalReleaseCandidateEvidence["artifacts"];
+      availability: "published";
+      contract: PublishedReleaseDownloadContract;
+      history: Extract<RemoteReleaseHistoryEvidence, { assetCount: 56 }>;
+      immutable: true;
+      releaseId: number;
+      status: "verified_immutable_remote_release";
+    }>;
+export type RemoteReleaseGateEvidence = RemoteReleaseStateEvidence;
 
 type ReleaseSourceStateOptions = Readonly<{
+  candidateParentCommit?: string;
   environment?: Readonly<Record<string, string | undefined>>;
   publicationCommit?: string;
   repositoryRoot?: string;
@@ -219,6 +281,7 @@ interface ReleaseArtifactEvidence {
 
 interface RemoteReleaseArtifactEvidence extends ReleaseArtifactEvidence {
   readonly downloadUrl: string;
+  readonly id: number;
 }
 
 interface RemoteCorrespondingSourceEvidence {
@@ -281,25 +344,38 @@ export async function verifyReleaseSourceGate(): Promise<ReleaseSourceGateEviden
 }
 
 /**
- * Read back the immutable GitHub prerelease from the maintained archive.
- * GitHub's immutable asset digest binds the large DMG; the small checksum and
- * manifest are additionally downloaded and parsed.
+ * Candidate state proves the frozen generation-0 8/7/49 history and the
+ * absence of a v0.1.15 collision. Published state overlays its exact current
+ * release on that frozen ledger and proves the combined 9/8/56 remote set.
  */
 export async function verifyRemoteReleaseGate(
   fetcher: ReleaseHttpFetcher = defaultReleaseFetcher,
+  tagVerifier: ReleaseHistoryTagVerifier = verifyCanonicalRemoteReleaseTags,
 ): Promise<RemoteReleaseGateEvidence> {
-  const contract = await verifyReleaseDownloadContract();
-  const [release, history] = await Promise.all([
-    verifyRemoteReleaseState(contract, fetcher),
-    verifyRemoteReleaseHistory(fetcher),
-  ]);
-  return Object.freeze({ ...release, history });
+  return await verifyRemoteReleaseState(
+    await verifyReleaseDownloadContract(),
+    fetcher,
+    tagVerifier,
+  );
 }
 
 export async function verifyRemoteReleaseState(
   contract: ReleaseDownloadContract,
   fetcher: ReleaseHttpFetcher,
+  tagVerifier?: ReleaseHistoryTagVerifier,
 ): Promise<RemoteReleaseStateEvidence> {
+  if (contract.release.availability === "candidate") {
+    const history = await verifyRemoteReleaseHistory(fetcher, undefined, tagVerifier);
+    if (history.assetCount !== 49) {
+      throw new Error("Candidate history unexpectedly contains v0.1.15.");
+    }
+    return Object.freeze({
+      availability: "candidate",
+      contract,
+      history,
+      status: "verified_candidate_remote_collision_absence",
+    });
+  }
   const publishedContract = asPublishedContract(contract);
   const metadataUrl =
     `https://api.github.com/repos/hraness/hra-v0/releases/tags/${publishedContract.release.tag}`;
@@ -319,11 +395,17 @@ export async function verifyRemoteReleaseState(
     metadata["id"],
     "GitHub release ID",
   );
+  const publishedAt = requireReleaseTimestamp(
+    metadata["published_at"],
+    "GitHub release publication timestamp",
+  );
   if (
     metadata["tag_name"] !== publishedContract.release.tag
     || metadata["draft"] !== false
     || metadata["prerelease"] !== true
     || metadata["immutable"] !== true
+    || metadata["html_url"]
+      !== `${HRA_V0_CURRENT_REPOSITORY}/releases/tag/${publishedContract.release.tag}`
   ) {
     throw new Error(
       "The GitHub release must be the exact published immutable HRA prerelease.",
@@ -390,7 +472,7 @@ export async function verifyRemoteReleaseState(
     manifestBytes,
     publishedContract,
   );
-  for (const source of correspondingSources) {
+  const correspondingSourceAssets = correspondingSources.map((source) =>
     inspectRemoteReleaseAssetMetadata(
       publishedContract.release.tag,
       {
@@ -399,7 +481,31 @@ export async function verifyRemoteReleaseState(
         sha256: source.sha256,
       },
       assetsByName,
-    );
+    )
+  );
+  const historyEntry: CurrentRemoteReleaseHistoryEntry = Object.freeze({
+    assets: Object.freeze([
+      checksum,
+      dmg,
+      manifest,
+      ...correspondingSourceAssets,
+    ].map(({ bytes, id, name, sha256 }) =>
+      Object.freeze({ bytes, id, name, sha256 })
+    ).toSorted((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+    )),
+    commit: publishedContract.release.source.commit,
+    publishedAt,
+    releaseId,
+    tag: "v0.1.15",
+    tagObject: publishedContract.release.source.tagObject,
+  });
+  if (publishedContract.release.tag !== historyEntry.tag) {
+    throw new Error("Published remote history requires the exact v0.1.15 tag.");
+  }
+  const history = await verifyRemoteReleaseHistory(fetcher, historyEntry, tagVerifier);
+  if (history.assetCount !== 56) {
+    throw new Error("Published history is missing the exact v0.1.15 overlay.");
   }
   return Object.freeze({
     assets: Object.freeze({
@@ -409,6 +515,7 @@ export async function verifyRemoteReleaseState(
     }),
     availability: "published",
     contract: publishedContract,
+    history,
     immutable: true,
     releaseId,
     status: "verified_immutable_remote_release",
@@ -433,7 +540,13 @@ export async function verifyVercelReleaseSourceGate(
 export async function verifyVercelReleaseSourceState(
   contract: ReleaseDownloadContract,
   environment: Readonly<Record<string, string | undefined>>,
-  inspectCanonical: (options: Readonly<{
+  inspectCanonicalPublication: (options: Readonly<{
+    candidateCommit: string;
+    publicationCommit: string;
+    tag: string;
+  }>) => Promise<CanonicalReleasePublicationEvidence> =
+    inspectCanonicalReleasePublication,
+  inspectCanonicalArchive: (options: Readonly<{
     candidateCommit: string;
     publicationCommit: string;
     surfaceCommit: string;
@@ -441,7 +554,6 @@ export async function verifyVercelReleaseSourceState(
   }>) => Promise<CanonicalArchiveReleaseEvidence> =
     inspectCanonicalArchiveRelease,
 ): Promise<VercelReleaseSourceGateEvidence> {
-  const publishedContract = asPublishedContract(contract);
   if (
     environment.VERCEL !== "1"
     || environment.VERCEL_GIT_PROVIDER !== "github"
@@ -471,10 +583,48 @@ export async function verifyVercelReleaseSourceState(
     environment.VERCEL_GIT_COMMIT_SHA,
     "Vercel source commit",
   );
+  if (contract.release.availability === "candidate") {
+    return Object.freeze({
+      availability: "candidate",
+      contract,
+      status: "valid_candidate_contract",
+    });
+  }
   const publicationCommit = requireObjectId(
     environment[releasePublicationCommitAllowlistEnvironmentVariable],
     "Trusted Vercel publication commit allowlist",
   );
+  const publishedContract = asPublishedContract(contract);
+  if (publishedContract.release.version === "0.1.15") {
+    if (surfaceCommit !== publicationCommit) {
+      throw new Error(
+        "The Vercel Git commit is not the trusted release publication commit.",
+      );
+    }
+    const canonical = await inspectCanonicalPublication({
+      candidateCommit: publishedContract.release.source.commit,
+      publicationCommit,
+      tag: publishedContract.release.tag,
+    });
+    verifyPublicationContractTransition(
+      publishedContract,
+      canonical.publication,
+    );
+    if (
+      canonical.tag.commit !== publishedContract.release.source.commit
+      || canonical.tag.object !== publishedContract.release.source.tagObject
+    ) {
+      throw new Error(
+        "The canonical annotated release tag differs from the published contract.",
+      );
+    }
+    return Object.freeze({
+      availability: "published",
+      contract: publishedContract,
+      publicationCommit,
+      status: "verified_vercel_publication_binding",
+    });
+  }
   const allowedSurfaceCommits = parseCommitAllowlist(
     environment[releaseSurfaceCommitAllowlistEnvironmentVariable],
     "Trusted HRA v0 surface commit allowlist",
@@ -484,13 +634,13 @@ export async function verifyVercelReleaseSourceState(
       "The Vercel Git commit is not an allowlisted HRA v0 archive surface.",
     );
   }
-  const canonical = await inspectCanonical({
+  const canonical = await inspectCanonicalArchive({
     candidateCommit: publishedContract.release.source.commit,
     publicationCommit,
     surfaceCommit,
     tag: publishedContract.release.tag,
   });
-  verifyPublicationContractTransition(
+  verifyHistoricalPublicationContractTransition(
     publishedContract,
     canonical.publication,
   );
@@ -534,13 +684,31 @@ export async function verifyReleaseSourceState(
   contract: ReleaseDownloadContract,
   options: ReleaseSourceStateOptions = {},
 ): Promise<ReleaseSourceGateEvidence> {
+  if (contract.release.availability === "candidate") {
+    const repository = await inspectReleaseSourceRepository(options);
+    await inspectReleaseCandidateLineage(repository, {
+      expectedParentCommit:
+        options.candidateParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+    });
+    return Object.freeze({
+      availability: "candidate",
+      contract,
+      status: "valid_candidate_contract",
+    });
+  }
   const publishedContract = asPublishedContract(contract);
   const repository = await inspectReleaseSourceRepository(options);
-  const published = await verifyArchivedReleaseSourceEvidence(
-    publishedContract,
-    repository,
-    options.publicationCommit ?? HRA_V0_RELEASE_PUBLICATION_COMMIT,
-  );
+  const published = publishedContract.release.version === "0.1.14"
+    ? await verifyArchivedReleaseSourceEvidence(
+        publishedContract,
+        repository,
+        options.publicationCommit ?? HRA_V0_RELEASE_PUBLICATION_COMMIT,
+      )
+    : await verifyPublishedReleaseSourceEvidence(
+        publishedContract,
+        repository,
+        options.candidateParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+      );
   return Object.freeze({
     ...published,
     availability: "published",
@@ -551,12 +719,32 @@ export async function verifyReleaseSourceState(
 export async function verifyLocalReleaseCandidate(
   releaseDirectoryValue: string,
 ): Promise<LocalReleaseCandidateEvidence> {
-  await requireCanonicalReleaseDirectory(
+  const releaseDirectory = await requireCanonicalReleaseDirectory(
     releaseDirectoryValue,
   );
-  throw new Error(
-    "The maintained HRA v0 archive has no candidate release state.",
-  );
+  const contract = await verifyReleaseDownloadContract();
+  if (contract.release.availability !== "candidate") {
+    throw new Error("Local candidate verification requires a candidate download contract.");
+  }
+  const repository = await inspectReleaseSourceRepository();
+  await inspectReleaseCandidateLineage(repository);
+  const evidence = await inspectReleaseArtifactSet(releaseDirectory, contract);
+  if (evidence.commit !== repository.commit) {
+    throw new Error("The release manifest commit differs from the clean source commit.");
+  }
+  const tag = await inspectReleaseTag(repository, contract.release.tag);
+  if (tag !== null && tag.commit !== repository.commit) {
+    throw new Error("The release tag already points to another commit.");
+  }
+  return Object.freeze({
+    artifacts: evidence.artifacts,
+    commit: repository.commit,
+    releaseDirectory,
+    repository: HRA_CANONICAL_REPOSITORY,
+    runtimeTreeSha256: evidence.runtimeTreeSha256,
+    status: "verified_local_candidate",
+    tag: tag ?? "absent",
+  });
 }
 
 export async function requirePublishedReleaseSource(): Promise<
@@ -564,24 +752,20 @@ export async function requirePublishedReleaseSource(): Promise<
 > {
   const contract = await requirePublishedContract();
   const repository = await inspectReleaseSourceRepository();
-  return await verifyArchivedReleaseSourceEvidence(
-    contract,
-    repository,
-    HRA_V0_RELEASE_PUBLICATION_COMMIT,
-  );
+  return await verifyPublishedReleaseSourceEvidence(contract, repository);
 }
 
 export async function verifyArchivedReleaseSourceEvidence(
   contract: PublishedReleaseDownloadContract,
   repository: ReleaseRepositoryEvidence,
   publicationCommit: string,
-): Promise<PublishedReleaseSourceEvidence> {
+): Promise<HistoricalPublishedReleaseSourceEvidence> {
   const publication = await inspectReleasePublicationAtCommit(
     repository,
     contract.release.source.commit,
     publicationCommit,
   );
-  verifyPublicationContractTransition(contract, publication);
+  verifyHistoricalPublicationContractTransition(contract, publication);
   const [surface, tag] = await Promise.all([
     inspectArchiveReleaseSurface(repository, publicationCommit),
     inspectReleaseTag(repository, contract.release.tag),
@@ -599,12 +783,19 @@ export async function verifyArchivedReleaseSourceEvidence(
 export async function verifyPublishedReleaseSourceEvidence(
   contract: PublishedReleaseDownloadContract,
   repository: ReleaseRepositoryEvidence,
-): Promise<Omit<PublishedReleaseSourceEvidence, "surface">> {
+  candidateParentCommit: string = HRA_V0_Q14_SURFACE_COMMIT,
+): Promise<PublishedReleaseSourceEvidence> {
   const publication = await inspectReleasePublicationTransition(
     repository,
     contract.release.source.commit,
   );
   verifyPublicationContractTransition(contract, publication);
+  if (contract.release.version === "0.1.15") {
+    await inspectReleaseCandidateLineage(repository, {
+      candidateCommit: contract.release.source.commit,
+      expectedParentCommit: candidateParentCommit,
+    });
+  }
   const tag = await inspectReleaseTag(repository, contract.release.tag);
   if (
     tag === null
@@ -617,6 +808,67 @@ export async function verifyPublishedReleaseSourceEvidence(
 }
 
 function verifyPublicationContractTransition(
+  contract: PublishedReleaseDownloadContract,
+  publication: ReleasePublicationEvidence,
+): void {
+  const published = parseContractText(
+    publication.publicationContract,
+    "The publication release contract is not JSON.",
+  );
+  if (!isDeepStrictEqual(published, contract)) {
+    throw new Error(
+      "The canonical publication contract differs from the provider source.",
+    );
+  }
+  const candidate = parseContractText(
+    publication.candidateContract,
+    "The tagged candidate release contract is not JSON.",
+  );
+  if (candidate.release.availability !== "candidate") {
+    throw new Error("The tagged source must contain the candidate release contract.");
+  }
+  const expectedCandidate: ReleaseDownloadContract = {
+    release: {
+      architecture: contract.release.architecture,
+      artifacts: {
+        checksum: {
+          bytes: null,
+          name: contract.release.artifacts.checksum.name,
+          sha256: null,
+        },
+        dmg: {
+          bytes: null,
+          name: contract.release.artifacts.dmg.name,
+          sha256: null,
+        },
+        manifest: {
+          bytes: null,
+          name: contract.release.artifacts.manifest.name,
+          sha256: null,
+        },
+      },
+      availability: "candidate",
+      build: contract.release.build,
+      minimumMacOS: contract.release.minimumMacOS,
+      source: {
+        commit: null,
+        runtimeTreeSha256: null,
+        tagObject: null,
+      },
+      tag: contract.release.tag,
+      version: contract.release.version,
+    },
+    repository: contract.repository,
+    schemaVersion: contract.schemaVersion,
+  };
+  if (!isDeepStrictEqual(candidate, expectedCandidate)) {
+    throw new Error(
+      "The publication contract is not the exact evidence-only transition from its candidate.",
+    );
+  }
+}
+
+function verifyHistoricalPublicationContractTransition(
   contract: PublishedReleaseDownloadContract,
   publication: ReleasePublicationEvidence,
 ): void {
@@ -679,6 +931,19 @@ function verifyPublicationContractTransition(
   }
 }
 
+function parseContractText(
+  value: string,
+  invalidJsonMessage: string,
+): ReleaseDownloadContract {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error(invalidJsonMessage);
+  }
+  return parseReleaseDownloadContract(parsed);
+}
+
 function parseHistoricalCandidateContractText(
   value: string,
   invalidJsonMessage: string,
@@ -719,6 +984,7 @@ export async function verifyPublishedReleaseCandidate(
   return Object.freeze({
     commit: app.commit,
     contract: published.contract,
+    custodyProbeSupervisor: app.custodyProbeSupervisor,
     repository: published.repository,
     runtimeTreeSha256: app.treeSha256,
     tag: published.tag,
@@ -749,22 +1015,21 @@ export async function verifyPublishedReleaseArtifacts(
 }
 
 async function requirePublishedContract(): Promise<PublishedReleaseDownloadContract> {
-  return await verifyReleaseDownloadContract();
+  return asPublishedContract(await verifyReleaseDownloadContract());
 }
 
 function asPublishedContract(
-  contract: unknown,
+  contract: ReleaseDownloadContract,
 ): PublishedReleaseDownloadContract {
-  const parsed = releaseDownloadContractSchema.safeParse(contract);
-  if (!parsed.success) {
+  if (contract.release.availability !== "published") {
     throw new Error(
-      "The maintained HRA v0 release-download contract must be published.",
+      "The HRA release-download contract is not published.",
     );
   }
   return Object.freeze({
-    release: parsed.data.release,
-    repository: parsed.data.repository,
-    schemaVersion: parsed.data.schemaVersion,
+    release: contract.release,
+    repository: contract.repository,
+    schemaVersion: contract.schemaVersion,
   });
 }
 
@@ -772,6 +1037,133 @@ async function inspectReleaseArtifactSet(
   releaseDirectory: string,
   contract: ReleaseDownloadContract,
 ): Promise<ReleaseArtifactSetEvidence> {
+  const snapshot = await snapshotReleaseArtifactSet(releaseDirectory);
+  try {
+    return await inspectReleaseArtifactSnapshot(snapshot, contract);
+  } finally {
+    await snapshot.remove();
+  }
+}
+
+type ReleaseArtifactSetSnapshot = Readonly<{
+  path: string;
+  remove: () => Promise<void>;
+}>;
+
+function sameArtifactAuthority(
+  expected: BigIntStats,
+  actual: BigIntStats,
+): boolean {
+  return expected.dev === actual.dev
+    && expected.ino === actual.ino
+    && expected.mode === actual.mode
+    && expected.nlink === actual.nlink
+    && expected.uid === actual.uid
+    && expected.gid === actual.gid
+    && expected.size === actual.size
+    && expected.mtimeNs === actual.mtimeNs
+    && expected.ctimeNs === actual.ctimeNs
+    && actual.isFile()
+    && !actual.isSymbolicLink();
+}
+
+async function snapshotReleaseArtifactSet(
+  releaseDirectory: string,
+): Promise<ReleaseArtifactSetSnapshot> {
+  if (releaseCloneLibrary === null) {
+    throw new Error("Release artifact snapshots require macOS clonefile support.");
+  }
+  const names = (await readdir(releaseDirectory)).sort();
+  if (
+    names.length === 0
+    || names.length > 16
+    || names.some(name => (
+      name.length === 0
+      || name.length > 200
+      || name.includes("/")
+      || name.includes("\0")
+      || name.includes("\n")
+      || name.includes("\r")
+    ))
+  ) throw new Error("Release artifact snapshot inventory is unsafe.");
+  const root = await realpath(await mkdtemp(join(
+    tmpdir(),
+    "hra-release-artifact-snapshot-",
+  )));
+  await chmod(root, 0o700);
+  const destinationDirectory = await open(
+    root,
+    constants.O_RDONLY | constants.O_DIRECTORY,
+  );
+  const effectiveUserId = process.geteuid?.();
+  try {
+    if (effectiveUserId === undefined) {
+      throw new Error("Release artifact snapshot custody is unavailable.");
+    }
+    for (const name of names) {
+      const sourcePath = join(releaseDirectory, name);
+      const before = await lstat(sourcePath, { bigint: true });
+      const source = await open(
+        sourcePath,
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      );
+      try {
+        const held = await source.stat({ bigint: true });
+        if (
+          !sameArtifactAuthority(before, held)
+          || held.uid !== BigInt(effectiveUserId)
+          || held.nlink !== 1n
+          || held.size <= 0n
+          || (held.mode & 0o022n) !== 0n
+        ) throw new Error(`Release artifact authority is unsafe: ${name}`);
+        const cloneResult = releaseCloneLibrary.symbols.fclonefileat(
+          source.fd,
+          destinationDirectory.fd,
+          Buffer.from(`${name}\0`),
+          0,
+        );
+        if (cloneResult !== 0) {
+          throw new Error(`Release artifact clone failed: ${name}`);
+        }
+        const [heldAfter, namedAfter, cloned] = await Promise.all([
+          source.stat({ bigint: true }),
+          lstat(sourcePath, { bigint: true }),
+          lstat(join(root, name), { bigint: true }),
+        ]);
+        if (
+          !sameArtifactAuthority(held, heldAfter)
+          || !sameArtifactAuthority(held, namedAfter)
+          || !cloned.isFile()
+          || cloned.isSymbolicLink()
+          || cloned.uid !== BigInt(effectiveUserId)
+          || cloned.nlink !== 1n
+          || cloned.size !== held.size
+        ) throw new Error(`Release artifact changed during snapshot: ${name}`);
+      } finally {
+        await source.close();
+      }
+    }
+    if (JSON.stringify((await readdir(root)).sort()) !== JSON.stringify(names)) {
+      throw new Error("Release artifact snapshot inventory differs.");
+    }
+    return Object.freeze({
+      path: root,
+      remove: () => rm(root, { force: true, recursive: true }),
+    });
+  } catch (error: unknown) {
+    await destinationDirectory.close();
+    await rm(root, { force: true, recursive: true });
+    throw error;
+  } finally {
+    await destinationDirectory.close().catch(() => undefined);
+  }
+}
+
+async function inspectReleaseArtifactSnapshot(
+  snapshot: ReleaseArtifactSetSnapshot,
+  contract: ReleaseDownloadContract,
+): Promise<ReleaseArtifactSetEvidence> {
+  const releaseDirectory = snapshot.path;
   await verifyMacOSReleaseArtifacts(releaseDirectory);
   const { checksum, dmg, manifest } = contract.release.artifacts;
   const [checksumEvidence, dmgEvidence, manifestEvidence] = await Promise.all([
@@ -890,8 +1282,66 @@ async function sha256File(path: string): Promise<string> {
   return hasher.digest("hex");
 }
 
+export function applyReleaseGitHubReadAuthorization(
+  url: string,
+  init: RequestInit,
+  environment: Readonly<Record<string, string | undefined>>,
+): RequestInit {
+  const headers = new Headers(init.headers);
+  if (headers.has("authorization")) {
+    throw new Error("Release HTTP requests must not supply ambient authorization.");
+  }
+  const apiRead = releaseGitHubApiReadUrls.has(url);
+  const assetRead = isExactReleaseAssetDownloadUrl(url);
+  if (!apiRead && !assetRead) {
+    throw new Error("The release HTTP request target is not allowlisted.");
+  }
+  if (
+    (init.method !== undefined && init.method !== "GET")
+    || (init.body !== undefined && init.body !== null)
+    || init.redirect !== (apiRead ? "error" : "follow")
+  ) {
+    throw new Error("The release HTTP request shape is invalid.");
+  }
+  const configured = environment[releaseGitHubReadTokenEnvironmentVariable];
+  const inGitHubActions = environment["GITHUB_ACTIONS"] === "true";
+  if (configured === undefined) {
+    if (inGitHubActions) {
+      throw new Error("GitHub Actions release verification requires its read token.");
+    }
+    return { ...init, headers };
+  }
+  if (
+    !inGitHubActions
+    || environment["GITHUB_REPOSITORY"] !== "hraness/hra-v0"
+    || environment["GITHUB_API_URL"] !== "https://api.github.com"
+    || configured.length < 20
+    || configured.length > 4_096
+    || !/^ghs_[A-Za-z0-9._-]+$/u.test(configured)
+  ) {
+    throw new Error("The GitHub Actions release read token is invalid.");
+  }
+  if (apiRead) headers.set("Authorization", `Bearer ${configured}`);
+  return { ...init, headers };
+}
+
+function isExactReleaseAssetDownloadUrl(url: string): boolean {
+  const artifacts = releaseArtifactNames();
+  const names = [
+    artifacts.checksum,
+    artifacts.manifest,
+  ];
+  return names.some((name) =>
+    url
+      === `${HRA_V0_CURRENT_REPOSITORY}/releases/download/v0.1.15/${name}`
+  );
+}
+
 function defaultReleaseFetcher(url: string, init: RequestInit): Promise<Response> {
-  return fetch(url, init);
+  return fetch(
+    url,
+    applyReleaseGitHubReadAuthorization(url, init, process.env),
+  );
 }
 
 function githubJsonHeaders(): HeadersInit {
@@ -1000,6 +1450,7 @@ function inspectRemoteReleaseAssetMetadata(
   return Object.freeze({
     bytes: expected.bytes,
     downloadUrl: expectedDownloadUrl,
+    id,
     name: expected.name,
     sha256: expected.sha256,
   });
@@ -1085,7 +1536,7 @@ function verifyRemoteReleaseManifest(
     || release["commit"] !== expected.source.commit
     || normalizeMinimumMacOS(release["minimumMacOS"]) !== expected.minimumMacOS
     || release["notarized"] !== false
-    || release["signing"] !== "adhoc"
+    || !isDeepStrictEqual(release["signing"], productionReleaseSigning)
     || release["version"] !== expected.version
     || manifest["runtimeTreeSha256"] !== expected.source.runtimeTreeSha256
     || manifest["sourceTreeCleanAtPackaging"] !== true
@@ -1093,6 +1544,7 @@ function verifyRemoteReleaseManifest(
     || runtimeRelease["commit"] !== expected.source.commit
     || runtimeRelease["version"] !== expected.version
     || runtimeRelease["build"] !== expected.build
+    || !isDeepStrictEqual(runtimeRelease["signing"], productionReleaseSigning)
     || runtime["treeSha256"] !== expected.source.runtimeTreeSha256
   ) {
     throw new Error(
@@ -1150,6 +1602,16 @@ function requireString(value: unknown, label: string): string {
 function requirePositiveSafeInteger(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be one positive safe integer.`);
+  }
+  return value;
+}
+
+function requireReleaseTimestamp(value: unknown, label: string): string {
+  if (
+    typeof value !== "string"
+    || !/^2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/u.test(value)
+  ) {
+    throw new Error(`${label} must be one exact UTC timestamp.`);
   }
   return value;
 }
