@@ -21,7 +21,6 @@ import {
   releasePublicationCommitAllowlistEnvironmentVariable,
   releaseSurfaceCommitAllowlistEnvironmentVariable,
   verifyVercelReleaseSourceState,
-  type HistoricalCandidateReleaseDownloadContract,
   type PublishedReleaseDownloadContract,
   type ReleaseDownloadContract,
   type ReleaseHttpFetcher,
@@ -31,6 +30,8 @@ import {
   inspectReleasePublicationObjectStore,
   inspectReleaseSourceRepository,
 } from "../release-provenance";
+import { productionReleaseSigning } from "../release-signing-authority";
+import { readReleaseHistoryContract } from "../release-history-contract";
 
 const temporaryRoots: string[] = [];
 const setupEnvironment = Object.freeze({
@@ -44,7 +45,45 @@ const setupEnvironment = Object.freeze({
 const currentRepository = "https://github.com/hraness/hra-v0" as const;
 const historicalPublicationRepository =
   "https://github.com/hraness/hra" as const;
-const candidateContractFixture = parseHistoricalReleaseCandidateContract({
+const parsedCandidateContractFixture = parseReleaseDownloadContract({
+  release: {
+    architecture: "Apple Silicon",
+    artifacts: {
+      checksum: {
+        bytes: null,
+        name: "HRA-0.1.15-16-macos-arm64.dmg.sha256",
+        sha256: null,
+      },
+      dmg: {
+        bytes: null,
+        name: "HRA-0.1.15-16-macos-arm64.dmg",
+        sha256: null,
+      },
+      manifest: {
+        bytes: null,
+        name: "HRA-0.1.15-16-release-manifest.json",
+        sha256: null,
+      },
+    },
+    availability: "candidate",
+    build: 16,
+    minimumMacOS: "13",
+    source: {
+      commit: null,
+      runtimeTreeSha256: null,
+      tagObject: null,
+    },
+    tag: "v0.1.15",
+    version: "0.1.15",
+  },
+  repository: currentRepository,
+  schemaVersion: 1,
+});
+if (parsedCandidateContractFixture.release.availability !== "candidate") {
+  throw new Error("Expected candidate fixture.");
+}
+const candidateContractFixture = parsedCandidateContractFixture;
+const historicalCandidateContractFixture = parseHistoricalReleaseCandidateContract({
   release: {
     architecture: "Apple Silicon",
     artifacts: {
@@ -67,11 +106,7 @@ const candidateContractFixture = parseHistoricalReleaseCandidateContract({
     availability: "candidate",
     build: 15,
     minimumMacOS: "13",
-    source: {
-      commit: null,
-      runtimeTreeSha256: null,
-      tagObject: null,
-    },
+    source: { commit: null, runtimeTreeSha256: null, tagObject: null },
     tag: "v0.1.14",
     version: "0.1.14",
   },
@@ -88,26 +123,30 @@ afterEach(async () => {
 });
 
 describe("release and download convergence", () => {
-  test("verifies the published-only v0.1.14 build 15 archive contract", async () => {
+  test("verifies the v0.1.15 build 16 repository contract in either protocol state", async () => {
     const contract = await readReleaseDownloadContract();
     expectReleaseIdentity(contract);
     expect(await verifyReleaseDownloadContract()).toEqual(contract);
-    const source = await verifyReleaseSourceGate();
-    expect(source).toMatchObject({
-      availability: "published",
-      contract,
-      status: "verified_published_source",
-    });
-    expect(await requirePublishedReleaseSource()).toMatchObject({ contract });
+    if (contract.release.availability === "candidate") {
+      expect(contract).toEqual(candidateContractFixture);
+      await expectRejection(requirePublishedReleaseSource(), "not published");
+    } else {
+      const source = await verifyReleaseSourceGate();
+      expect(source).toMatchObject({
+        availability: "published",
+        contract,
+        status: "verified_published_source",
+      });
+      expect(await requirePublishedReleaseSource()).toMatchObject({ contract });
+    }
   });
 
-  test("keeps candidate parsing historical and rejects it at every maintained gate", async () => {
-    const historicalCandidate = candidateContractFixture;
-    const maintainedCandidate = {
-      ...historicalCandidate,
-      repository: currentRepository,
-    };
-    expect(() => parseReleaseDownloadContract(maintainedCandidate)).toThrow();
+  test("keeps maintained candidate state at hra-v0 and P14 compatibility historical", async () => {
+    const maintainedCandidate = candidateContractFixture;
+    const historicalCandidate = historicalCandidateContractFixture;
+    expect(parseReleaseDownloadContract(maintainedCandidate)).toEqual(
+      maintainedCandidate,
+    );
     expect(
       parseHistoricalReleaseCandidateContract(historicalCandidate),
     ).toEqual(historicalCandidate);
@@ -115,16 +154,20 @@ describe("release and download convergence", () => {
       parseHistoricalReleaseCandidateContract(maintainedCandidate)
     ).toThrow();
 
-    const unsafeCandidate = maintainedCandidate as unknown as ReleaseDownloadContract;
-    let remoteRequests = 0;
-    await expectRejection(
-      verifyRemoteReleaseState(unsafeCandidate, () => {
-        remoteRequests += 1;
-        return Promise.reject(new Error("candidate must not use the network"));
-      }),
-      "must be published",
-    );
-    expect(remoteRequests).toBe(0);
+    const history = createRemoteHistoryFixture();
+    expect(await verifyRemoteReleaseState(
+      maintainedCandidate,
+      history.fetcher,
+    )).toMatchObject({
+      availability: "candidate",
+      history: {
+        assetCount: 49,
+        releaseCount: 7,
+        tagCount: 8,
+      },
+      status: "verified_candidate_remote_collision_absence",
+    });
+    expect(history.requests).toHaveLength(10);
     const candidateVercelEnvironment = {
       VERCEL: "1",
       VERCEL_ENV: "preview",
@@ -135,17 +178,13 @@ describe("release and download convergence", () => {
       VERCEL_GIT_REPO_SLUG: "hra-v0",
       VERCEL_TARGET_ENV: "preview",
     } as const;
-    await expectRejection(
-      verifyVercelReleaseSourceState(
-        unsafeCandidate,
-        candidateVercelEnvironment,
-      ),
-      "must be published",
-    );
-    await expectRejection(
-      verifyReleaseSourceState(unsafeCandidate),
-      "must be published",
-    );
+    expect(await verifyVercelReleaseSourceState(
+      maintainedCandidate,
+      candidateVercelEnvironment,
+    )).toMatchObject({
+      availability: "candidate",
+      status: "valid_candidate_contract",
+    });
   });
 
   test("models publication as one strict evidence-bearing state", () => {
@@ -170,10 +209,7 @@ describe("release and download convergence", () => {
     };
     expect(parseReleaseDownloadContract(published).release.availability).toBe("published");
 
-    expect(() => parseReleaseDownloadContract({
-      ...candidate,
-      repository: currentRepository,
-    })).toThrow();
+    expect(parseReleaseDownloadContract(candidate)).toEqual(candidate);
 
     expect(() => parseReleaseDownloadContract({
       ...published,
@@ -203,15 +239,18 @@ describe("release and download convergence", () => {
       fixture.fetcher,
     )).toMatchObject({
       availability: "published",
+      history: {
+        assetCount: 56,
+        releaseCount: 8,
+        tagCount: 9,
+      },
       immutable: true,
       releaseId: 18,
       status: "verified_immutable_remote_release",
     });
-    expect(fixture.requests).toEqual([
-      fixture.metadataUrl,
-      fixture.checksumUrl,
-      fixture.manifestUrl,
-    ]);
+    expect(fixture.requests).toContain(fixture.metadataUrl);
+    expect(fixture.requests).toContain(fixture.checksumUrl);
+    expect(fixture.requests).toContain(fixture.manifestUrl);
     expect(fixture.requests).not.toContain(fixture.dmgUrl);
   });
 
@@ -298,6 +337,26 @@ describe("release and download convergence", () => {
     expect(desktopManifest.scripts?.["verify:published-release"]).toBe(
       "bun run runtime/release-download-contract.ts published",
     );
+    expect(rootManifest.scripts?.["package:macos:structural"]).toBe(
+      "bun run --cwd apps/desktop package:macos:structural",
+    );
+    expect(rootManifest.scripts?.["verify:package:macos:structural"]).toBe(
+      "bun run --cwd apps/desktop verify:package:macos:structural",
+    );
+    expect(rootManifest.scripts?.["package:macos:adhoc"]).toBeUndefined();
+    expect(rootManifest.scripts?.["verify:package:macos:adhoc"]).toBeUndefined();
+    expect(rootManifest.scripts?.["installation:forward-recovery"]).toBe(
+      "bun run --cwd apps/desktop installation:forward-recovery --",
+    );
+    expect(rootManifest.scripts?.["installation:forward-status"]).toBe(
+      "bun run --cwd apps/desktop installation:forward-status --",
+    );
+    expect(rootManifest.scripts?.["installation:forward-resume"]).toBe(
+      "bun run --cwd apps/desktop installation:forward-resume --",
+    );
+    expect(rootManifest.scripts?.["installation:forward-cleanup"]).toBe(
+      "bun run --cwd apps/desktop installation:forward-cleanup --",
+    );
     expect(desktopManifest.scripts?.build).toStartWith(
       "bun run check:release-source &&",
     );
@@ -309,6 +368,10 @@ describe("release and download convergence", () => {
     );
     expect(workflow).toContain("run: bun run check:release-source");
     expect(workflow).toContain("run: bun run verify:remote-release");
+    expect(workflow).toContain(
+      "run: bun run --cwd apps/desktop package:macos:structural",
+    );
+    expect(workflow).not.toContain("package:macos:adhoc");
   });
 
   test("keeps caller-supplied release directories absolute and normalized", async () => {
@@ -341,8 +404,165 @@ describe("release and download convergence", () => {
     }
   });
 
+  test("binds published v0.1.15 to exact same-coordinate C15-to-P15", async () => {
+    const repositoryRoot = await realpath(
+      await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
+    );
+    temporaryRoots.push(repositoryRoot);
+    await runSetupGit(repositoryRoot, ["init", "--initial-branch=main"]);
+    await runSetupGit(repositoryRoot, [
+      "config",
+      "user.email",
+      "release-test@hraness.com",
+    ]);
+    await runSetupGit(repositoryRoot, [
+      "config",
+      "user.name",
+      "HRA release test",
+    ]);
+    await writeFile(join(repositoryRoot, "q14.txt"), "reviewed Q14 surface\n");
+    await runSetupGit(repositoryRoot, ["add", "q14.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "reviewed Q14"]);
+    const q14Commit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      `${JSON.stringify(candidateContractFixture, null, 2)}\n`,
+    );
+    await writeFile(join(repositoryRoot, "source.txt"), "candidate C15\n");
+    await runSetupGit(repositoryRoot, [
+      "add",
+      "release-download.json",
+      "source.txt",
+    ]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    const candidateCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    expect(await verifyReleaseSourceState(candidateContractFixture, {
+      candidateParentCommit: q14Commit,
+      environment: {},
+      repositoryRoot,
+    })).toMatchObject({
+      availability: "candidate",
+      status: "valid_candidate_contract",
+    });
+    await runSetupGit(repositoryRoot, [
+      "tag",
+      "-a",
+      candidateContractFixture.release.tag,
+      "-m",
+      "HRA v0.1.15 candidate",
+    ]);
+    const tagObject = (
+      await runSetupGit(repositoryRoot, [
+        "rev-parse",
+        `refs/tags/${candidateContractFixture.release.tag}`,
+      ])
+    ).trim();
+    const published = asPublishedFixture(parseReleaseDownloadContract({
+      ...candidateContractFixture,
+      release: {
+        ...candidateContractFixture.release,
+        artifacts: {
+          checksum: {
+            bytes: 81,
+            name: candidateContractFixture.release.artifacts.checksum.name,
+            sha256: "a".repeat(64),
+          },
+          dmg: {
+            bytes: 1_000,
+            name: candidateContractFixture.release.artifacts.dmg.name,
+            sha256: "b".repeat(64),
+          },
+          manifest: {
+            bytes: 2_000,
+            name: candidateContractFixture.release.artifacts.manifest.name,
+            sha256: "c".repeat(64),
+          },
+        },
+        availability: "published",
+        source: {
+          commit: candidateCommit,
+          runtimeTreeSha256: "d".repeat(64),
+          tagObject,
+        },
+      },
+    }));
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      `${JSON.stringify(published, null, 2)}\n`,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P15"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    const verified = await verifyPublishedReleaseSourceEvidence(
+      published,
+      repository,
+      q14Commit,
+    );
+    expect(verified.publication).toMatchObject({
+      candidateCommit,
+      changedPath: "release-download.json",
+      publicationCommit,
+      status: "exact_candidate_publication_transition",
+    });
+    expect(await verifyVercelReleaseSourceState(published, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: publicationCommit,
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "hraness",
+      VERCEL_GIT_REPO_SLUG: "hra-v0",
+      VERCEL_TARGET_ENV: "production",
+      [releasePublicationCommitAllowlistEnvironmentVariable]:
+        publicationCommit,
+    }, () => Promise.resolve({
+      publication: verified.publication,
+      tag: verified.tag,
+    }))).toMatchObject({
+      availability: "published",
+      publicationCommit,
+      status: "verified_vercel_publication_binding",
+    });
+    await expectRejection(
+      verifyVercelReleaseSourceState(published, {
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: "f".repeat(40),
+        VERCEL_GIT_PROVIDER: "github",
+        VERCEL_GIT_REPO_OWNER: "hraness",
+        VERCEL_GIT_REPO_SLUG: "hra-v0",
+        VERCEL_TARGET_ENV: "production",
+        [releasePublicationCommitAllowlistEnvironmentVariable]:
+          publicationCommit,
+      }),
+      "trusted release publication commit",
+    );
+    await writeFile(join(repositoryRoot, "source.txt"), "post-P15 Q15\n");
+    await runSetupGit(repositoryRoot, ["add", "source.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "future Q15"]);
+    const descendant = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    await expectRejection(
+      verifyPublishedReleaseSourceEvidence(published, descendant, q14Commit),
+      "only direct parent",
+    );
+  });
+
   test("keeps the full release suite valid across a synthetic contract-only publication P", async () => {
-    const candidate = candidateContractFixture;
+    const candidate = historicalCandidateContractFixture;
     const historicalCandidate = candidate;
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-publication-protocol-")),
@@ -412,12 +632,11 @@ describe("release and download convergence", () => {
         },
       },
     });
-    const publishedContract: PublishedReleaseDownloadContract = {
-      release: published.release,
-      repository: published.repository,
-      schemaVersion: published.schemaVersion,
-    };
-    expectReleaseIdentity(publishedContract);
+    const publishedContract = asPublishedFixture(published);
+    expect(publishedContract).toMatchObject({
+      release: { build: 15, tag: "v0.1.14", version: "0.1.14" },
+      repository: currentRepository,
+    });
     await writeFile(
       join(repositoryRoot, "release-download.json"),
       `${JSON.stringify(historicalContract(publishedContract), null, 2)}\n`,
@@ -440,13 +659,19 @@ describe("release and download convergence", () => {
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
 
-    const verified = await verifyReleaseSourceState(
+    const source = await verifyReleaseSourceState(
       publishedContract,
       { environment: {}, publicationCommit, repositoryRoot },
     );
-    if (verified.availability !== "published") {
-      throw new Error("Expected published source evidence.");
+    if (source.availability !== "published") {
+      throw new Error("Expected historical published source evidence.");
     }
+    expect(source.status).toBe("verified_published_source");
+    const verified = await verifyArchivedReleaseSourceEvidence(
+      publishedContract,
+      source.repository,
+      publicationCommit,
+    );
     expect(verified.publication).toMatchObject({
       candidateCommit,
       changedPath: "release-download.json",
@@ -461,7 +686,6 @@ describe("release and download convergence", () => {
     });
     expect(verified.tag.commit).toBe(candidateCommit);
     expect(verified.repository.commit).not.toBe(candidateCommit);
-    expect(verified.status).toBe("verified_published_source");
     const objectStore = await inspectReleasePublicationObjectStore({
       candidateCommit,
       gitDirectory: join(repositoryRoot, ".git"),
@@ -487,7 +711,7 @@ describe("release and download convergence", () => {
         publicationCommit,
       [releaseSurfaceCommitAllowlistEnvironmentVariable]:
         `${"f".repeat(40)},${surfaceCommit}`,
-    }, () => Promise.resolve({
+    }, undefined, () => Promise.resolve({
       publication: verified.publication,
       surface: verified.surface,
       tag: verified.tag,
@@ -583,7 +807,7 @@ describe("release and download convergence", () => {
   });
 
   test("rejects a schema-valid publication with forged tag evidence", async () => {
-    const candidate = candidateContractFixture;
+    const candidate = historicalCandidateContractFixture;
     const historicalCandidate = candidate;
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-bogus-publication-")),
@@ -626,7 +850,7 @@ describe("release and download convergence", () => {
     const forgedTagObject = actualTagObject === "f".repeat(40)
       ? "e".repeat(40)
       : "f".repeat(40);
-    const bogusPublished = parseReleaseDownloadContract({
+    const bogusPublished = asPublishedFixture(parseReleaseDownloadContract({
       ...candidate,
       repository: currentRepository,
       release: {
@@ -655,7 +879,7 @@ describe("release and download convergence", () => {
           tagObject: forgedTagObject,
         },
       },
-    });
+    }));
     await writeFile(
       join(repositoryRoot, "release-download.json"),
       `${JSON.stringify(historicalContract(bogusPublished), null, 2)}\n`,
@@ -713,7 +937,7 @@ describe("release and download convergence", () => {
         [releasePublicationCommitAllowlistEnvironmentVariable]:
           bogusPublicationCommit,
         [releaseSurfaceCommitAllowlistEnvironmentVariable]: surfaceCommit,
-      }, () => Promise.resolve({
+      }, undefined, () => Promise.resolve({
         ...bogusObjectStore,
         surface: {
           publicationCommit: bogusPublicationCommit,
@@ -750,34 +974,65 @@ function historicalContract(
   };
 }
 
+function asPublishedFixture(
+  contract: ReleaseDownloadContract,
+): PublishedReleaseDownloadContract {
+  if (contract.release.availability !== "published") {
+    throw new Error("Expected published fixture.");
+  }
+  return Object.freeze({
+    release: contract.release,
+    repository: contract.repository,
+    schemaVersion: contract.schemaVersion,
+  });
+}
+
 function expectReleaseIdentity(contract: ReleaseDownloadContract): void {
   expect(contract).toMatchObject({
     release: {
       architecture: "Apple Silicon",
       artifacts: {
-        checksum: { name: "HRA-0.1.14-15-macos-arm64.dmg.sha256" },
-        dmg: { name: "HRA-0.1.14-15-macos-arm64.dmg" },
-        manifest: { name: "HRA-0.1.14-15-release-manifest.json" },
+        checksum: { name: "HRA-0.1.15-16-macos-arm64.dmg.sha256" },
+        dmg: { name: "HRA-0.1.15-16-macos-arm64.dmg" },
+        manifest: { name: "HRA-0.1.15-16-release-manifest.json" },
       },
-      build: 15,
+      build: 16,
       minimumMacOS: "13",
-      tag: "v0.1.14",
-      version: "0.1.14",
+      tag: "v0.1.15",
+      version: "0.1.15",
     },
     repository: currentRepository,
     schemaVersion: 1,
   });
-  for (const artifact of Object.values(contract.release.artifacts)) {
-    expect(artifact.bytes).toBeGreaterThan(0);
-    expect(artifact.sha256).toMatch(/^[0-9a-f]{64}$/u);
+  const artifacts = [
+    contract.release.artifacts.checksum,
+    contract.release.artifacts.dmg,
+    contract.release.artifacts.manifest,
+  ] as const;
+  for (const artifact of artifacts) {
+    if (contract.release.availability === "candidate") {
+      expect(artifact.bytes).toBeNull();
+      expect(artifact.sha256).toBeNull();
+    } else {
+      expect(artifact.bytes).toBeGreaterThan(0);
+      expect(artifact.sha256).toMatch(/^[0-9a-f]{64}$/u);
+    }
   }
-  expect(contract.release.source.commit).toMatch(/^[0-9a-f]{40}$/u);
-  expect(contract.release.source.runtimeTreeSha256).toMatch(/^[0-9a-f]{64}$/u);
-  expect(contract.release.source.tagObject).toMatch(/^[0-9a-f]{40}$/u);
+  if (contract.release.availability === "candidate") {
+    expect(contract.release.source).toEqual({
+      commit: null,
+      runtimeTreeSha256: null,
+      tagObject: null,
+    });
+  } else {
+    expect(contract.release.source.commit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(contract.release.source.runtimeTreeSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(contract.release.source.tagObject).toMatch(/^[0-9a-f]{40}$/u);
+  }
 }
 
 function createRemoteReleaseFixture(
-  candidate: HistoricalCandidateReleaseDownloadContract,
+  candidate: typeof candidateContractFixture,
   options: Readonly<{ manifestCommit?: string }> = {},
 ) {
   const encoder = new TextEncoder();
@@ -803,7 +1058,7 @@ function createRemoteReleaseFixture(
     build: candidate.release.build,
     commit: options.manifestCommit ?? commit,
     minimumMacOS: `${candidate.release.minimumMacOS}.0`,
-    signing: "adhoc",
+    signing: productionReleaseSigning,
     version: candidate.release.version,
   } as const;
   const manifestBytes = encoder.encode(`${JSON.stringify({
@@ -823,7 +1078,7 @@ function createRemoteReleaseFixture(
     schemaVersion: 1,
     sourceTreeCleanAtPackaging: true,
   }, null, 2)}\n`);
-  const contract = parseReleaseDownloadContract({
+  const contract = asPublishedFixture(parseReleaseDownloadContract({
     ...candidate,
     repository: currentRepository,
     release: {
@@ -852,7 +1107,7 @@ function createRemoteReleaseFixture(
         tagObject: "e".repeat(40),
       },
     },
-  });
+  }));
   const metadataUrl =
     `https://api.github.com/repos/hraness/hra-v0/releases/tags/${contract.release.tag}`;
   const metadataAssets = [
@@ -877,25 +1132,29 @@ function createRemoteReleaseFixture(
   const metadata = {
     assets: metadataAssets,
     draft: false,
+    html_url:
+      `${currentRepository}/releases/tag/${contract.release.tag}`,
     id: 18,
     immutable: true,
     prerelease: true,
+    published_at: "2026-08-23T00:00:00Z",
     tag_name: contract.release.tag,
   };
   const checksumUrl = metadataAssets[0]?.browser_download_url ?? "";
   const dmgUrl = metadataAssets[1]?.browser_download_url ?? "";
   const manifestUrl = metadataAssets[2]?.browser_download_url ?? "";
   const requests: string[] = [];
+  const history = createRemoteHistoryFixture({ contract, metadata }, requests);
   const bodies = new Map<string, Uint8Array>([
     [checksumUrl, checksumBytes],
     [manifestUrl, manifestBytes],
   ]);
   const fetcher: ReleaseHttpFetcher = (url, init) => {
-    requests.push(url);
     if (new Headers(init.headers).has("authorization")) {
       return Promise.reject(new Error("Remote release gate must be credential-free."));
     }
     if (url === metadataUrl) {
+      requests.push(url);
       const bytes = encoder.encode(JSON.stringify(metadata));
       return Promise.resolve(new Response(arrayBufferCopy(bytes), {
         headers: { "content-length": String(bytes.byteLength) },
@@ -904,8 +1163,9 @@ function createRemoteReleaseFixture(
     }
     const bytes = bodies.get(url);
     if (bytes === undefined) {
-      return Promise.reject(new Error(`Unexpected remote fixture request: ${url}`));
+      return history.fetcher(url, init);
     }
+    requests.push(url);
     return Promise.resolve(new Response(arrayBufferCopy(bytes), {
       headers: { "content-length": String(bytes.byteLength) },
       status: 200,
@@ -921,6 +1181,108 @@ function createRemoteReleaseFixture(
     metadataUrl,
     requests,
   };
+}
+
+function createRemoteHistoryFixture(
+  current?: Readonly<{
+    contract: PublishedReleaseDownloadContract;
+    metadata: Record<string, unknown>;
+  }>,
+  requests: string[] = [],
+) {
+  const contract = readReleaseHistoryContract();
+  const apiRepository = "https://api.github.com/repos/hraness/hra-v0";
+  const releases: Record<string, unknown>[] = contract.tags.flatMap((entry) =>
+    entry.release === null
+      ? []
+      : [{
+          assets: entry.release.assets.map((asset) => ({
+            browser_download_url:
+              `${currentRepository}/releases/download/${entry.tag}/${asset.name}`,
+            digest: `sha256:${asset.sha256}`,
+            id: asset.id,
+            name: asset.name,
+            size: asset.bytes,
+            state: "uploaded",
+            url: `${apiRepository}/releases/assets/${asset.id}`,
+          })),
+          draft: false,
+          html_url: `${currentRepository}/releases/tag/${entry.tag}`,
+          id: entry.release.id,
+          immutable: true,
+          prerelease: true,
+          published_at: entry.release.publishedAt,
+          tag_name: entry.tag,
+        }]
+  );
+  const refs: Record<string, unknown>[] = contract.tags.map((entry) => ({
+    object: {
+      sha: entry.tagObject,
+      type: "tag",
+      url: `${apiRepository}/git/tags/${entry.tagObject}`,
+    },
+    ref: `refs/tags/${entry.tag}`,
+  }));
+  const tagObjects = new Map(contract.tags.map((entry) => [entry.tagObject, {
+    object: {
+      sha: entry.commit,
+      type: "commit",
+      url: `${apiRepository}/git/commits/${entry.commit}`,
+    },
+    sha: entry.tagObject,
+    tag: entry.tag,
+  }]));
+  if (current !== undefined) {
+    releases.push(current.metadata);
+    refs.push({
+      object: {
+        sha: current.contract.release.source.tagObject,
+        type: "tag",
+        url:
+          `${apiRepository}/git/tags/${current.contract.release.source.tagObject}`,
+      },
+      ref: `refs/tags/${current.contract.release.tag}`,
+    });
+    tagObjects.set(current.contract.release.source.tagObject, {
+      object: {
+        sha: current.contract.release.source.commit,
+        type: "commit",
+        url:
+          `${apiRepository}/git/commits/${current.contract.release.source.commit}`,
+      },
+      sha: current.contract.release.source.tagObject,
+      tag: current.contract.release.tag,
+    });
+  }
+  const fetcher: ReleaseHttpFetcher = (url, init) => {
+    requests.push(url);
+    if (new Headers(init.headers).has("authorization")) {
+      return Promise.reject(new Error("Remote history must be credential-free."));
+    }
+    if (url === `${apiRepository}/releases?per_page=100`) {
+      return Promise.resolve(jsonResponse(releases));
+    }
+    if (url === `${apiRepository}/git/matching-refs/tags/v0.1`) {
+      return Promise.resolve(jsonResponse(refs));
+    }
+    const tagPrefix = `${apiRepository}/git/tags/`;
+    if (url.startsWith(tagPrefix)) {
+      const object = tagObjects.get(url.slice(tagPrefix.length));
+      if (object !== undefined) return Promise.resolve(jsonResponse(object));
+    }
+    return Promise.reject(new Error(`Unexpected history request: ${url}`));
+  };
+  return { fetcher, requests };
+}
+
+function jsonResponse(value: unknown): Response {
+  const body = JSON.stringify(value);
+  return new Response(body, {
+    headers: {
+      "content-length": String(new TextEncoder().encode(body).byteLength),
+    },
+    status: 200,
+  });
 }
 
 function sha256Bytes(bytes: Uint8Array): string {

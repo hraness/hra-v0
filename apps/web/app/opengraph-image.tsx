@@ -75,7 +75,7 @@ export default async function OpenGraphImage() {
           </div>
         </div>
         <div style={{ borderTop: "1px solid #c9c4b8", display: "flex", fontSize: 23, justifyContent: "space-between", paddingTop: 26 }}>
-          <span>Final v0.1.14 prerelease · Public source · Preserved history</span>
+          <span>Archived releases · Public source · Preserved history</span>
           <span>hra-weld.vercel.app</span>
         </div>
       </div>
