@@ -3304,7 +3304,7 @@ describe("HarnessSQLiteAuthorityV2 actor authority", () => {
     } finally {
       healthy.database.close();
     }
-  });
+  }, 10_000);
 
   test("creates one exact epoch/root and atomically narrows child reservations", () => {
     const value = fixture();

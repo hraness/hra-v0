@@ -31,6 +31,7 @@ import {
   HRA_CANONICAL_REPOSITORY,
   HRA_HISTORICAL_PUBLICATION_REPOSITORY,
   HRA_V0_C15_BASE_COMMIT,
+  HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_Q14_SURFACE_COMMIT,
@@ -271,6 +272,7 @@ export type RemoteReleaseGateEvidence = RemoteReleaseStateEvidence;
 
 type ReleaseSourceStateOptions = Readonly<{
   candidateBaseCommit?: string;
+  candidateCustodyRepairCommit?: string;
   candidateQ14Commit?: string;
   candidateSurfaceCommit?: string;
   environment?: Readonly<Record<string, string | undefined>>;
@@ -691,15 +693,18 @@ export async function verifyReleaseSourceState(
 ): Promise<ReleaseSourceGateEvidence> {
   if (contract.release.availability === "candidate") {
     const repository = await inspectReleaseSourceRepository(options);
+    const expectedCustodyRepairCommit =
+      options.candidateCustodyRepairCommit ?? HRA_V0_C15_CUSTODY_REPAIR_COMMIT;
     const expectedSurfaceCommit =
       options.candidateSurfaceCommit ?? HRA_V0_C15_REVIEWED_SURFACE_COMMIT;
     const candidateCommit = await resolveReleaseCandidateCommit(repository, {
-      expectedSurfaceCommit,
+      expectedCustodyRepairCommit,
     });
     await inspectReleaseCandidateLineage(repository, {
       candidateCommit,
       expectedBaseCommit:
         options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+      expectedCustodyRepairCommit,
       expectedQ14Commit:
         options.candidateQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
       expectedSurfaceCommit,
@@ -724,6 +729,9 @@ export async function verifyReleaseSourceState(
         {
           expectedBaseCommit:
             options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+          expectedCustodyRepairCommit:
+            options.candidateCustodyRepairCommit ??
+            HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
           expectedQ14Commit:
             options.candidateQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
           expectedSurfaceCommit:
@@ -807,6 +815,7 @@ export async function verifyPublishedReleaseSourceEvidence(
   repository: ReleaseRepositoryEvidence,
   expectations: Readonly<{
     expectedBaseCommit?: string;
+    expectedCustodyRepairCommit?: string;
     expectedQ14Commit?: string;
     expectedSurfaceCommit?: string;
   }> = {},
@@ -821,6 +830,9 @@ export async function verifyPublishedReleaseSourceEvidence(
       candidateCommit: contract.release.source.commit,
       expectedBaseCommit:
         expectations.expectedBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+      expectedCustodyRepairCommit:
+        expectations.expectedCustodyRepairCommit ??
+        HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
       expectedQ14Commit:
         expectations.expectedQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
       expectedSurfaceCommit:

@@ -1,9 +1,11 @@
 #import "macos_gateway_attestation.h"
+#import "macos_release_validation_status.h"
 #import "macos_renderer_authority.h"
 #import "macos_self_managed_code_identity.h"
 
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
+#import <Security/CMSDecoder.h>
 #import <Security/Security.h>
 #import <errno.h>
 #import <fcntl.h>
@@ -249,11 +251,8 @@ static bool HRAReleaseCertificateMatches(
   return exact;
 }
 
-static bool HRAReleaseCertificateChainIsExact(NSDictionary *information) {
-  id raw = information[(__bridge NSString *)kSecCodeInfoCertificates];
-  if (![raw isKindOfClass:[NSArray class]] || [(NSArray *)raw count] != 2)
-    return false;
-  NSArray *certificates = raw;
+static bool HRAReleaseCertificateArrayIsExact(NSArray *certificates) {
+  if (certificates == nil || certificates.count != 2) return false;
   id leaf = certificates[0];
   id root = certificates[1];
   return CFGetTypeID((__bridge CFTypeRef)leaf) == SecCertificateGetTypeID() &&
@@ -266,6 +265,72 @@ static bool HRAReleaseCertificateChainIsExact(NSDictionary *information) {
           (__bridge SecCertificateRef)root,
           HRAReleaseRootCertificateSHA1,
           HRAReleaseRootCertificateSHA256);
+}
+
+static bool HRAReleaseEmbeddedCertificateSetIsExact(NSArray *certificates) {
+  if (certificates == nil || certificates.count != 2) return false;
+  bool foundLeaf = false;
+  bool foundRoot = false;
+  for (id value in certificates) {
+    if (CFGetTypeID((__bridge CFTypeRef)value) !=
+        SecCertificateGetTypeID()) return false;
+    SecCertificateRef certificate = (__bridge SecCertificateRef)value;
+    bool leaf = HRAReleaseCertificateMatches(
+        certificate,
+        HRAReleaseLeafCertificateSHA1,
+        HRAReleaseLeafCertificateSHA256);
+    bool root = HRAReleaseCertificateMatches(
+        certificate,
+        HRAReleaseRootCertificateSHA1,
+        HRAReleaseRootCertificateSHA256);
+    if (!hra_macos_release_record_certificate_role(
+            leaf, root, &foundLeaf, &foundRoot)) return false;
+  }
+  return foundLeaf && foundRoot;
+}
+
+static bool HRAEmbeddedReleaseCertificateChainIsExact(NSData *cms) {
+  if (cms == nil || cms.length == 0) return false;
+  CMSDecoderRef decoder = NULL;
+  SecCertificateRef signer = NULL;
+  CFArrayRef rawCertificates = NULL;
+  size_t signerCount = 0;
+  bool exact = CMSDecoderCreate(&decoder) == errSecSuccess && decoder != NULL &&
+      CMSDecoderUpdateMessage(decoder, cms.bytes, cms.length) ==
+          errSecSuccess &&
+      CMSDecoderFinalizeMessage(decoder) == errSecSuccess &&
+      CMSDecoderGetNumSigners(decoder, &signerCount) == errSecSuccess &&
+      signerCount == 1 &&
+      CMSDecoderCopySignerCert(decoder, 0, &signer) == errSecSuccess &&
+      signer != NULL &&
+      HRAReleaseCertificateMatches(
+          signer,
+          HRAReleaseLeafCertificateSHA1,
+          HRAReleaseLeafCertificateSHA256) &&
+      CMSDecoderCopyAllCerts(decoder, &rawCertificates) == errSecSuccess &&
+      rawCertificates != NULL &&
+      HRAReleaseEmbeddedCertificateSetIsExact(
+          (__bridge NSArray *)rawCertificates);
+  if (rawCertificates != NULL) CFRelease(rawCertificates);
+  if (signer != NULL) CFRelease(signer);
+  if (decoder != NULL) CFRelease(decoder);
+  return exact;
+}
+
+static bool HRAReleaseCertificateChainIsExact(
+    NSDictionary *information,
+    bool allowEmbeddedChainAfterPinnedTrustFailure) {
+  id raw = information[(__bridge NSString *)kSecCodeInfoCertificates];
+  bool securityCertificateChainIsExact =
+      [raw isKindOfClass:[NSArray class]] &&
+      HRAReleaseCertificateArrayIsExact(raw);
+  id cms = information[(__bridge NSString *)kSecCodeInfoCMS];
+  return securityCertificateChainIsExact ||
+      (hra_macos_release_should_validate_embedded_certificate_set(
+           securityCertificateChainIsExact,
+           allowEmbeddedChainAfterPinnedTrustFailure) &&
+       [cms isKindOfClass:[NSData class]] &&
+       HRAEmbeddedReleaseCertificateChainIsExact(cms));
 }
 
 static NSString *HRAReleaseDesignatedRequirement(NSString *identifier) {
@@ -316,7 +381,8 @@ static bool HRAReleaseDesignatedRequirementIsExact(
 
 static bool HRAReleaseSignaturePostureIsExact(
     NSDictionary *information,
-    NSString *identifier) {
+    NSString *identifier,
+    bool allowEmbeddedChainAfterPinnedTrustFailure) {
   id team = information[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
   id flags = information[(__bridge NSString *)kSecCodeInfoFlags];
   id entitlements =
@@ -328,7 +394,8 @@ static bool HRAReleaseSignaturePostureIsExact(
       (entitlements == nil ||
        ([entitlements isKindOfClass:[NSDictionary class]] &&
         [(NSDictionary *)entitlements count] == 0)) &&
-      HRAReleaseCertificateChainIsExact(information) &&
+      HRAReleaseCertificateChainIsExact(
+          information, allowEmbeddedChainAfterPinnedTrustFailure) &&
       HRACDHash(information) != nil;
 }
 
@@ -434,8 +501,9 @@ static bool HRAReleaseExecutableIdentityIsExact(
 
   HRAMacOSSelfManagedCodeIdentity identity;
   memset(&identity, 0, sizeof(identity));
-  if (!hra_macos_verify_self_managed_code_identity(
-          &expectation, &identity)) return false;
+  bool pinnedSelfManagedIdentityIsExact =
+      hra_macos_verify_self_managed_code_identity(&expectation, &identity);
+  if (!pinnedSelfManagedIdentityIsExact) return false;
   SecStaticCodeRef code = NULL;
   SecRequirementRef requirement = HRACopyReleaseRequirement(identifier);
   if (requirement == NULL || SecStaticCodeCreateWithPath(
@@ -448,12 +516,18 @@ static bool HRAReleaseExecutableIdentityIsExact(
   }
   OSStatus status = SecStaticCodeCheckValidity(
       code, kSecCSStrictValidate | kSecCSCheckAllArchitectures, requirement);
-  NSDictionary *information = status == errSecSuccess
+  bool validationStatusIsAdmissible =
+      hra_macos_release_validation_status_is_admissible(
+          pinnedSelfManagedIdentityIsExact, status);
+  NSDictionary *information = validationStatusIsAdmissible
       ? HRASigningInformation((SecCodeRef)code)
       : nil;
   NSData *securityHash = information == nil ? nil : HRACDHash(information);
   bool exact = information != nil &&
-      HRAReleaseSignaturePostureIsExact(information, identifier) &&
+      HRAReleaseSignaturePostureIsExact(
+          information,
+          identifier,
+          status == CSSMERR_TP_NOT_TRUSTED) &&
       HRAReleaseDesignatedRequirementIsExact((SecCodeRef)code, identifier) &&
       HRACodePathIsExact((SecCodeRef)code, path) &&
       securityHash.length == HRA_MACOS_CDHASH_LENGTH &&
@@ -1083,7 +1157,7 @@ bool hra_macos_release_outer_bundle_is_exact(
         : nil;
     bool exact = information != nil &&
         HRAReleaseSignaturePostureIsExact(
-            information, @"kitchen.hraness") &&
+            information, @"kitchen.hraness", false) &&
         HRAReleaseDesignatedRequirementIsExact(
             (SecCodeRef)code, @"kitchen.hraness") &&
         HRACodePathIsExact((SecCodeRef)code, outerPath);
