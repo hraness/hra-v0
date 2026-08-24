@@ -6,6 +6,7 @@ import {
   canonicalHarnessInstallKeyEnvelope,
   harnessInstallKeyDescriptor,
   HarnessKeyCustodyError,
+  type HarnessEstablishedSecretStore,
   type HarnessSecretDescriptor,
   type HarnessSecretStore,
 } from "./key-custody";
@@ -89,6 +90,7 @@ const nativeHarnessCustodyReadAbsentResultSchema = z.object({
   action: z.literal("read"),
   ok: z.literal(true),
   state: z.literal("absent"),
+  strictAcl: z.literal(false),
   value: z.null(),
   migratedFromLegacy: z.literal(false),
   legacyPreserved: z.literal(false),
@@ -99,6 +101,7 @@ const nativeHarnessCustodyReadPresentResultSchema = z.object({
   action: z.literal("read"),
   ok: z.literal(true),
   state: z.literal("present"),
+  strictAcl: z.literal(true),
   value: canonicalEnvelopeSchema,
   migratedFromLegacy: z.boolean(),
   legacyPreserved: z.boolean(),
@@ -118,6 +121,7 @@ const nativeHarnessCustodySetResultSchema = z.object({
   ok: z.literal(true),
   value: canonicalEnvelopeSchema,
   created: z.boolean(),
+  strictAcl: z.literal(true),
 }).strict();
 
 const nativeHarnessCustodyDeleteResultSchema = z.object({
@@ -208,6 +212,27 @@ export type HarnessCustodyMigrationObservation = Readonly<{
   legacyPreserved: boolean;
   digest: string | null;
 }>;
+
+export type NativeHarnessEnrollmentObservation =
+  | Readonly<{ state: "absent"; strictAcl: false }>
+  | Readonly<{
+      envelope: string;
+      state: "present";
+      strictAcl: true;
+    }>;
+
+export type NativeHarnessEnrollmentCreation = Readonly<{
+  created: boolean;
+  envelope: string;
+  strictAcl: true;
+}>;
+
+export interface NativeHarnessEnrollmentKeychain {
+  inspectExactNoUi(): Promise<NativeHarnessEnrollmentObservation>;
+  createExactIfAbsentNoUi(
+    envelope: string,
+  ): Promise<NativeHarnessEnrollmentCreation>;
+}
 
 const nativeFailures = new WeakMap<
   HarnessKeyCustodyError,
@@ -307,6 +332,73 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
     ) {
       throw new HarnessKeyCustodyError("custody_unavailable");
     }
+  }
+
+  async inspectEnrollment(): Promise<NativeHarnessEnrollmentObservation> {
+    const result = await this.#enqueue(async () => await this.#request("read"));
+    if (!result.ok || result.action !== "read") {
+      throw new HarnessKeyCustodyError("custody_unavailable");
+    }
+    if (result.state === "absent") {
+      return Object.freeze({ state: "absent", strictAcl: false });
+    }
+    return Object.freeze({
+      envelope: canonicalHarnessInstallKeyEnvelope(result.value),
+      state: "present",
+      strictAcl: true,
+    });
+  }
+
+  async createEnrollmentIfAbsent(
+    envelopeValue: string,
+  ): Promise<NativeHarnessEnrollmentCreation> {
+    const envelope = canonicalHarnessInstallKeyEnvelope(envelopeValue);
+    const result = await this.#enqueue(async () =>
+      await this.#request("setIfAbsent", envelope)
+    );
+    if (
+      !result.ok
+      || result.action !== "setIfAbsent"
+      || canonicalHarnessInstallKeyEnvelope(result.value) !== result.value
+    ) {
+      throw new HarnessKeyCustodyError("custody_unavailable");
+    }
+    return Object.freeze({
+      created: result.created,
+      envelope: result.value,
+      strictAcl: true,
+    });
+  }
+
+  enrollmentKeychainAdapter(): NativeHarnessEnrollmentKeychain {
+    return Object.freeze({
+      createExactIfAbsentNoUi: async (envelope: string) =>
+        await this.createEnrollmentIfAbsent(envelope),
+      inspectExactNoUi: async () => await this.inspectEnrollment(),
+    });
+  }
+
+  establishedSecretReader(
+    expectedEnvelopeSha256: string,
+  ): HarnessEstablishedSecretStore {
+    if (!/^[a-f0-9]{64}$/u.test(expectedEnvelopeSha256)) {
+      throw new HarnessKeyCustodyError("custody_unavailable");
+    }
+    return Object.freeze({
+      get: async (input: HarnessSecretDescriptor): Promise<string> => {
+        assertCurrentDescriptor(input);
+        const observation = await this.inspectEnrollment();
+        if (
+          observation.state !== "present"
+          || createHash("sha256")
+              .update(observation.envelope, "utf8")
+              .digest("hex") !== expectedEnvelopeSha256
+        ) {
+          throw new HarnessKeyCustodyError("custody_unavailable");
+        }
+        return observation.envelope;
+      },
+    });
   }
 
   delete(input: HarnessSecretDescriptor): Promise<boolean> {

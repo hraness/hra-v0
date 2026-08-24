@@ -14,6 +14,7 @@ import {
   CURRENT_HRA_REPOSITORY,
   CURRENT_HRA_SITE,
   HRA_BRAND_ICON_PATH,
+  HRA_RELEASE,
   HRA_V0_REPOSITORY,
   hraHomepageKeywords,
   hraSearchSite,
@@ -103,8 +104,9 @@ const frequentlyAskedQuestions = [
   },
   {
     question: "What can I install today?",
-    answer:
-      "An Apple Silicon macOS prerelease. It is ad-hoc signed for bundle integrity but is not Developer ID signed or notarized, so macOS will identify it as coming from an unknown developer. The download page explains that limitation before installation.",
+    answer: HRA_RELEASE.availability === "published"
+      ? `The archived v${HRA_RELEASE.version} Apple Silicon macOS prerelease. The outer app, native host, and custody-authorizing helpers use a self-managed HRA certificate. Other HRA-owned nested executables retain pinned ad-hoc signatures, including the runtime/JIT gateway. The package is not Developer ID signed or notarized, so macOS will identify it as coming from an unknown developer. The download page explains that limitation before installation.`
+      : `The verified v0.1.14 prerelease remains in the compatibility ledger. HRA v${HRA_RELEASE.version} is still a candidate, so its direct download is disabled until its exact release evidence is published.`,
   },
 ] as const;
 
@@ -161,10 +163,12 @@ export default function LandingPage() {
       <main id="main-content">
         <section aria-labelledby="landing-title" className="landing-hero">
           <div className="landing-hero-copy">
-            <p className="landing-eyebrow">Archived HRA v0 · final prerelease</p>
+            <p className="landing-eyebrow">Archived HRA v0 · preserved release history</p>
             <h1 id="landing-title">HRA v0 is preserved here.</h1>
             <p className="landing-hero-statement">
-              This site and repository preserve the original HRA macOS metaharness, its source, and its final v0.1.14 prerelease.
+              This site and repository preserve the original HRA macOS metaharness and its source. {HRA_RELEASE.availability === "published"
+                ? <>The current archived download is the published v{HRA_RELEASE.version} prerelease.</>
+                : <>HRA v{HRA_RELEASE.version} is still a candidate. The verified v0.1.14 prerelease remains the final entry in the compatibility ledger until a separately reviewed history update.</>}
             </p>
             <p className="landing-hero-detail">
               The current HRA is a separate project. New users should start at <a href={CURRENT_HRA_SITE}>hra.sh</a> or read its <a href={CURRENT_HRA_REPOSITORY}>current source</a>. Existing v0 users can keep using the archive and download below.

@@ -33,6 +33,11 @@ import {
   loadOrCreateOperationReceiptKey,
   operationReceiptKeyPath,
 } from "../src/state/operation-receipt-key";
+import { harnessInstallKeyDescriptor } from "../src/harness/key-custody";
+import {
+  canonicalHarnessKeyEnrollmentSidecar,
+  harnessKeyEnrollmentSidecarFileName,
+} from "../src/state/harness-key-enrollment";
 import { currentControlPlaneMigrationVersion } from "../src/state/release-compatibility";
 
 const passphrase = "fixture backup passphrase with sufficient entropy";
@@ -499,6 +504,95 @@ describe("control-plane maintenance tool", () => {
     expect(readInstallationIds(home)).toEqual(["install_before_backup"]);
   }, 120_000);
 
+  test("keeps enrolled Keychain authority machine-local across portable restore", async () => {
+    const sourceHome = temporaryHome();
+    createControlPlane(sourceHome, "install_portable_source", "a");
+    const archivePath = join(sourceHome, "machine-local-policy.oprte");
+    const backupCapture = capturedIO(`${passphrase}\n${passphrase}\n`);
+    expect(await runControlPlaneMaintenance({
+      args: ["backup", archivePath],
+      environment: { HOME: sourceHome },
+      io: backupCapture.io,
+    })).toBe(0);
+    const archiveSha256 = stringField(
+      backupCapture.output()[0],
+      "archiveSha256",
+    );
+
+    const targetHome = temporaryHome();
+    const targetDatabase = createControlPlane(
+      targetHome,
+      "install_portable_target",
+      "b",
+    );
+    const targetEnrollmentPath = join(
+      dirname(targetDatabase),
+      harnessKeyEnrollmentSidecarFileName,
+    );
+    const targetEnrollment = Buffer.from(readFileSync(targetEnrollmentPath));
+    expect(targetEnrollment.toString("utf8")).toContain(
+      `fresh_${"b".repeat(24)}`,
+    );
+    expect(readFileSync(archivePath).toString("latin1")).not.toContain(
+      `fresh_${"a".repeat(24)}`,
+    );
+
+    const restoreCapture = capturedIO(
+      `${passphrase}\nRESTORE ${archiveSha256}\n`,
+    );
+    expect(await runControlPlaneMaintenance({
+      args: ["restore", archivePath],
+      environment: { HOME: targetHome },
+      io: restoreCapture.io,
+    })).toBe(0);
+    expect(readFileSync(targetEnrollmentPath)).toEqual(targetEnrollment);
+    expect(readInstallationIds(targetHome)).toEqual(["install_portable_source"]);
+  }, 120_000);
+
+  test("refuses to restore existing state without local enrolled authority", async () => {
+    const sourceHome = temporaryHome();
+    createControlPlane(sourceHome, "install_missing_auth_source");
+    const archivePath = join(sourceHome, "missing-local-authority.oprte");
+    const backupCapture = capturedIO(`${passphrase}\n${passphrase}\n`);
+    expect(await runControlPlaneMaintenance({
+      args: ["backup", archivePath],
+      environment: { HOME: sourceHome },
+      io: backupCapture.io,
+    })).toBe(0);
+    const archiveSha256 = stringField(
+      backupCapture.output()[0],
+      "archiveSha256",
+    );
+
+    const targetHome = temporaryHome();
+    const targetDatabase = createControlPlane(
+      targetHome,
+      "install_missing_auth_target",
+    );
+    rmSync(join(
+      dirname(targetDatabase),
+      harnessKeyEnrollmentSidecarFileName,
+    ));
+    const restoreCapture = capturedIO(
+      `${passphrase}\nRESTORE ${archiveSha256}\n`,
+    );
+    expect(await runControlPlaneMaintenance({
+      args: ["restore", archivePath],
+      environment: { HOME: targetHome },
+      io: restoreCapture.io,
+    })).toBe(1);
+    expect(restoreCapture.errors()).toEqual([{
+      schemaVersion: 1,
+      status: "error",
+      code: "state_unhealthy",
+      action: "review_state_recovery",
+      reason: "application_support_unsafe",
+    }]);
+    expect(readInstallationIds(targetHome)).toEqual([
+      "install_missing_auth_target",
+    ]);
+  }, 120_000);
+
   test("verify rejects wrong authentication and modified ciphertext path-free", async () => {
     const home = temporaryHome();
     createControlPlane(home);
@@ -734,7 +828,11 @@ describe("control-plane maintenance tool", () => {
   });
 });
 
-function createControlPlane(home: string, installationId?: string): string {
+function createControlPlane(
+  home: string,
+  installationId?: string,
+  enrollmentMarker = "a",
+): string {
   const databasePath = defaultControlPlanePath({ HOME: home });
   mkdirSync(join(dirname(databasePath), "attachment-vault-v2", "objects"), {
     recursive: true,
@@ -755,6 +853,25 @@ function createControlPlane(home: string, installationId?: string): string {
   }
   key.fill(0);
   database.close();
+  writeFileSync(
+    join(dirname(databasePath), harnessKeyEnrollmentSidecarFileName),
+    canonicalHarnessKeyEnrollmentSidecar({
+      attempt: {
+        envelopeSha256: enrollmentMarker.repeat(64),
+        nonce: "f".repeat(64),
+      },
+      authorization: {
+        kind: "fresh_install_v1",
+        operationId: `fresh_${enrollmentMarker.repeat(24)}`,
+      },
+      descriptor: harnessInstallKeyDescriptor,
+      expectedKeychainState: "absent",
+      kind: "hra-harness-key-enrollment",
+      phase: "enrolled",
+      schemaVersion: 1,
+    }),
+    { mode: 0o600 },
+  );
   return databasePath;
 }
 

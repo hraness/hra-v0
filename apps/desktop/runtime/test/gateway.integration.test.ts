@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { HRA_HUMAN_KEYCHAIN_SERVICE } from "@hraness/hra-human-client";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
+import { lstatSync, realpathSync, writeFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -65,6 +66,11 @@ import {
 import { resolveRuntimePaths } from "../src/runtime-paths";
 import { acquireControlPlaneLifetimeLock } from "../src/state/control-plane-lock";
 import { controlPlanePath, openControlPlane } from "../src/state/database";
+import {
+  canonicalHarnessKeyEnrollmentSidecar,
+  harnessKeyEnrollmentSidecarCandidatePath,
+  harnessKeyEnrollmentSidecarPath,
+} from "../src/state/harness-key-enrollment";
 import {
   loadOrCreateOperationReceiptKey,
   operationReceiptKeyPath,
@@ -207,7 +213,7 @@ function gatewayHarnessCustodyFixture(
       reportMigratedOnNextRead: false,
       trace: [],
       v1: null,
-      v2: gatewayHarnessInstallKey,
+      v2: seedEstablishedGatewayHarnessEnrollment(home),
     };
     gatewayHarnessCustodyStates.set(home, state);
   }
@@ -248,7 +254,106 @@ const gatewayHarnessInstallKey = canonicalHarnessInstallKeyEnvelope(
     ),
   }),
 );
+const gatewayHarnessEnrollmentSidecar = canonicalHarnessKeyEnrollmentSidecar({
+  schemaVersion: 1,
+  kind: "hra-harness-key-enrollment",
+  descriptor: harnessInstallKeyDescriptor,
+  expectedKeychainState: "absent",
+  authorization: {
+    kind: "fresh_install_v1",
+    operationId: `fresh_${"01".repeat(12)}`,
+  },
+  phase: "enrolled",
+  attempt: {
+    envelopeSha256: createHash("sha256")
+      .update(gatewayHarnessInstallKey)
+      .digest("hex"),
+    nonce: "02".repeat(32),
+  },
+});
 const gatewayNativeRemovalCapability = "ab".repeat(32);
+
+function seedEstablishedGatewayHarnessEnrollment(home: string): string | null {
+  let effectiveHome: string;
+  try {
+    effectiveHome = realpathSync(home);
+  } catch (error: unknown) {
+    if (
+      typeof error === "object"
+      && error !== null
+      && "code" in error
+      && (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) return null;
+    throw error;
+  }
+  const databasePath = controlPlanePath(effectiveHome);
+  const applicationSupport = dirname(databasePath);
+  let rootStatus: ReturnType<typeof lstatSync>;
+  try {
+    rootStatus = lstatSync(applicationSupport);
+  } catch (error: unknown) {
+    if (
+      typeof error === "object"
+      && error !== null
+      && "code" in error
+      && (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) return null;
+    throw error;
+  }
+  if (
+    !rootStatus.isDirectory()
+    || rootStatus.isSymbolicLink()
+    || rootStatus.uid !== process.geteuid?.()
+    || (rootStatus.mode & 0o077) !== 0
+  ) return null;
+  let databaseStatus: ReturnType<typeof lstatSync>;
+  try {
+    databaseStatus = lstatSync(databasePath);
+  } catch (error: unknown) {
+    if (
+      typeof error === "object"
+      && error !== null
+      && "code" in error
+      && (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) return null;
+    throw error;
+  }
+  if (
+    !databaseStatus.isFile()
+    || databaseStatus.isSymbolicLink()
+    || databaseStatus.nlink !== 1
+    || databaseStatus.uid !== process.geteuid?.()
+    || (databaseStatus.mode & 0o777) !== 0o600
+  ) return null;
+  try {
+    lstatSync(harnessKeyEnrollmentSidecarCandidatePath(databasePath));
+    return null;
+  } catch (error: unknown) {
+    if (
+      typeof error !== "object"
+      || error === null
+      || !("code" in error)
+      || error.code !== "ENOENT"
+    ) return null;
+  }
+  const sidecarPath = harnessKeyEnrollmentSidecarPath(databasePath);
+  try {
+    writeFileSync(sidecarPath, gatewayHarnessEnrollmentSidecar, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error: unknown) {
+    if (
+      typeof error === "object"
+      && error !== null
+      && "code" in error
+      && error.code === "EEXIST"
+    ) return null;
+    throw error;
+  }
+  return gatewayHarnessInstallKey;
+}
 
 function localDataRemovalSecretFixture(root: string, label: string): {
   readonly env: Readonly<Record<string, string>>;
@@ -339,6 +444,7 @@ function gatewayHarnessCustodyResponder(
           action,
           ok: true,
           state: "absent",
+          strictAcl: false,
           value: null,
           migratedFromLegacy: false,
           legacyPreserved: false,
@@ -351,6 +457,7 @@ function gatewayHarnessCustodyResponder(
           action,
           ok: true,
           state: "present",
+          strictAcl: true,
           value: fixture.state.v2,
           migratedFromLegacy,
           legacyPreserved: fixture.state.legacyPreserved,
@@ -373,6 +480,7 @@ function gatewayHarnessCustodyResponder(
           ...responseBase,
           action,
           ok: true,
+          strictAcl: true,
           value: fixture.state.v2,
           created,
         };

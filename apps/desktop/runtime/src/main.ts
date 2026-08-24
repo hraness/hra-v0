@@ -224,6 +224,10 @@ import {
   acquireControlPlaneLifetimeLock,
   type ControlPlaneLifetimeLock,
 } from "./state/control-plane-lock";
+import {
+  ensureHarnessKeyEnrollment,
+  inspectFreshHarnessKeyEnrollmentRoot,
+} from "./state/harness-key-enrollment";
 import { preflightControlPlaneRelease } from "./state/release-compatibility";
 import {
   loadOrCreateOperationReceiptKey,
@@ -1982,12 +1986,6 @@ async function initializeGateway(): Promise<void> {
   let worktreeRepairNeedsReverse = false;
   let preserveForwardOnlyCutover = false;
   try {
-    // Native v2 custody must resolve any fixed v1 migration before the Harness
-    // graph can initialize or generate a replacement installation master.
-    await nativeHarnessKeyCustody.ensureMigrated();
-    const initializingHarnessKeyCustody = new HarnessInstallKeyCustody({
-      secrets: nativeHarnessKeyCustody,
-    });
     const effectiveHome = userInfo().homedir;
     const computerUse = provisionOfficialComputerUse({
       homeDirectory: effectiveHome,
@@ -2063,6 +2061,22 @@ async function initializeGateway(): Promise<void> {
     preserveForwardOnlyCutover = false;
     lifetimeLock = acquireControlPlaneLifetimeLock(databasePath);
     recoverInterruptedControlPlaneRestore(databasePath);
+    preflightControlPlaneRelease(databasePath, hraReleaseIdentity);
+    const allowFreshHarnessKeyEnrollment =
+      await inspectFreshHarnessKeyEnrollmentRoot(databasePath);
+    const harnessKeyEnrollment = await ensureHarnessKeyEnrollment({
+      allowFreshAuthorization: allowFreshHarnessKeyEnrollment,
+      controlPlanePath: databasePath,
+      keychain: nativeHarnessKeyCustody.enrollmentKeychainAdapter(),
+    });
+    if (harnessKeyEnrollment.sidecar.phase !== "enrolled") {
+      throw new Error("Harness key enrollment did not reach enrolled custody.");
+    }
+    const initializingHarnessKeyCustody = new HarnessInstallKeyCustody({
+      establishedSecrets: nativeHarnessKeyCustody.establishedSecretReader(
+        harnessKeyEnrollment.sidecar.attempt.envelopeSha256,
+      ),
+    });
     database = openControlPlane(databasePath, {
       releaseIdentity: hraReleaseIdentity,
     });
