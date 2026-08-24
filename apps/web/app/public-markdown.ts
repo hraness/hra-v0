@@ -112,7 +112,7 @@ export function pathLooksLikeStaticAsset(pathname: string): boolean {
 export function createHraLlmsTxt(): string {
   const pages = [
     `- [HRA v0 archive](${absoluteUrl("/")}): Archive status, current-HRA handoff, and original product overview`,
-    `- [HRA v0 download](${absoluteUrl("/download")}): Final Apple Silicon prerelease and source-build guidance`,
+    `- [HRA v0 download](${absoluteUrl("/download")}): Current Apple Silicon release status and source-build guidance`,
     `- [HRA v0 release history](${absoluteUrl("/releases")}): Exact tags, commits, releases, assets, sizes, checksums, and download links`,
     `- [HRA v0 privacy](${absoluteUrl(HRA_PRIVACY_PATH)}): Public analytics, hosted coordination data, local execution data, retention, and provider boundaries`,
     `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
@@ -124,7 +124,7 @@ export function createHraLlmsTxt(): string {
     "",
     `> ${hraSearchSite.description}`,
     "",
-    `This is the maintained archive for HRA v0. New users should start with [current HRA](${CURRENT_HRA_SITE}) and its [current source](${CURRENT_HRA_REPOSITORY}). Use this site for the final v0.1.14 macOS prerelease, historical source, and v0 documentation.`,
+    `This is the maintained archive for HRA v0. New users should start with [current HRA](${CURRENT_HRA_SITE}) and its [current source](${CURRENT_HRA_REPOSITORY}). Use this site for HRA v0 macOS release status, the frozen v0.1.7–v0.1.14 compatibility ledger, historical source, and v0 documentation.`,
     "",
     "Choose something simpler when you want the first-party Codex experience for a few independent sessions, your team needs one desktop for many model providers, the main problem is remote access from a phone, or a worktree launcher and diff viewer already solve the job.",
     "",
@@ -151,14 +151,17 @@ export function createHraLlmsTxt(): string {
 export const HRA_LLMS_TXT = createHraLlmsTxt();
 
 export function createLandingMarkdown(): string {
+  const releaseSummary = HRA_RELEASE.availability === "published"
+    ? `The current archived download is the published v${HRA_RELEASE.version} prerelease.`
+    : `HRA v${HRA_RELEASE.version} is still a candidate. The verified v0.1.14 prerelease remains the final entry in the compatibility ledger until a separately reviewed history update.`;
   return [
     "# HRA v0 is preserved here.",
     "",
     hraSearchSite.description,
     "",
-    "This site and repository preserve the original HRA macOS metaharness, its source, and its final v0.1.14 prerelease.",
+    `This site and repository preserve the original HRA macOS metaharness and its source. ${releaseSummary}`,
     "",
-    `New users should start with [current HRA](${CURRENT_HRA_SITE}) or its [current source](${CURRENT_HRA_REPOSITORY}). Existing v0 users can use this archive and its final download.`,
+    `New users should start with [current HRA](${CURRENT_HRA_SITE}) or its [current source](${CURRENT_HRA_REPOSITORY}). Existing v0 users can use this archive and its release-status page.`,
     "",
     "## When to use HRA",
     "",
@@ -210,7 +213,9 @@ export function createLandingMarkdown(): string {
     "",
     "### What can I install today?",
     "",
-    "An Apple Silicon macOS prerelease. It is ad-hoc signed for bundle integrity but is not Developer ID signed or notarized, so macOS will identify it as coming from an unknown developer. The download page explains that limitation before installation.",
+    HRA_RELEASE.availability === "published"
+      ? `The archived v${HRA_RELEASE.version} Apple Silicon macOS prerelease. The outer app, native host, and custody-authorizing helpers use a self-managed HRA certificate. Other HRA-owned nested executables retain pinned ad-hoc signatures, including the runtime/JIT gateway. The package is not Developer ID signed or notarized, so macOS will identify it as coming from an unknown developer. The download page explains that limitation before installation.`
+      : `The verified v0.1.14 prerelease remains in the compatibility ledger. HRA v${HRA_RELEASE.version} is still a candidate, so its direct download is disabled until its exact release evidence is published.`,
     "",
     "## Public pages",
     "",
@@ -228,27 +233,42 @@ export function createLandingMarkdown(): string {
 }
 
 export function createDownloadMarkdown(): string {
-  const statusLines = [
-    `Download the DMG: ${HRA_RELEASE_URL}`,
-    `SHA-256 file: ${HRA_RELEASE_CHECKSUM_URL}`,
-    `Release manifest: ${HRA_RELEASE_MANIFEST_URL}`,
-    "",
-    "Unknown developer. This archived release uses an ad-hoc code seal, but it is not Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.",
-    "",
-    "## Install the prerelease",
-    "",
-    `1. Download both files. Save the DMG and its SHA-256 file in the same folder.`,
-    `2. Check the bytes. In Terminal, run \`shasum -a 256 -c ${HRA_RELEASE.asset}.sha256\`. Continue only when it prints \`OK\`.`,
-    "3. Copy HRA to Applications. Open the DMG and drag HRA into the Applications folder.",
-    "4. Approve the unknown developer. Control-click HRA in Finder and choose Open. If macOS still blocks it, use System Settings → Privacy & Security → Open Anyway.",
-  ];
+  const published = HRA_RELEASE_URL !== null
+    && HRA_RELEASE_CHECKSUM_URL !== null
+    && HRA_RELEASE_MANIFEST_URL !== null;
+  const statusLines = published
+    ? [
+        `Download the DMG: ${HRA_RELEASE_URL}`,
+        `SHA-256 file: ${HRA_RELEASE_CHECKSUM_URL}`,
+        `Release manifest: ${HRA_RELEASE_MANIFEST_URL}`,
+        "",
+        "Unknown developer. The outer app, native host, and custody-authorizing helpers use HRA's self-managed certificate chain. Other HRA-owned nested executables retain pinned ad-hoc signatures, including the exact runtime/JIT gateway. Neither signing boundary is Developer ID signed or notarized by Apple. The published SHA-256 verifies the exact release bytes; macOS will still ask you to approve the app manually.",
+        "",
+        "## Install the prerelease",
+        "",
+        `1. Download both files. Save the DMG and its SHA-256 file in the same folder.`,
+        `2. Check the bytes. In Terminal, run \`shasum -a 256 -c ${HRA_RELEASE.asset}.sha256\`. Continue only when it prints \`OK\`.`,
+        "3. Copy HRA to Applications. Open the DMG and drag HRA into the Applications folder.",
+        "4. Approve the unknown developer. Control-click HRA in Finder and choose Open. If macOS still blocks it, use System Settings → Privacy & Security → Open Anyway.",
+      ]
+    : [
+        "Candidate verification in progress. Do not install an unpublished draft asset.",
+        "",
+        "Unknown developer. The outer app, native host, and custody-authorizing helpers use HRA's self-managed certificate chain. Other HRA-owned nested executables retain pinned ad-hoc signatures, including the exact runtime/JIT gateway. Neither signing boundary is Developer ID signed or notarized by Apple. Its release commit, tag, manifest, and artifact hashes are still awaiting publication.",
+        "",
+        `HRA ${HRA_RELEASE.version} (${HRA_RELEASE.build}) is a checked source candidate. Do not drag a second app beside an installed OPRTE predecessor, and do not install an unpublished draft asset.`,
+        "",
+        `You can inspect or build the candidate from ${HRA_RELEASE.repository} while release evidence is completed.`,
+      ];
 
   return [
     "# Download HRA v0 for your Mac.",
     "",
-    `This is the final archived v0.1.14 prerelease. It bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`,
+    published
+      ? `This archived v${HRA_RELEASE.version} prerelease bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`
+      : `HRA v${HRA_RELEASE.version} is the checked forward-recovery candidate for the archived product. The verified v0.1.14 release remains in the history ledger while publication evidence is completed. New users should start with ${CURRENT_HRA_SITE}.`,
     "",
-    `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · Published prerelease · Ad-hoc · not notarized.`,
+    `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · ${published ? "Published prerelease" : "Candidate"} · Self-managed CMS · pinned ad-hoc nested code · not notarized.`,
     "",
     ...statusLines,
     "",
@@ -256,7 +276,7 @@ export function createDownloadMarkdown(): string {
     "",
     "## Build it yourself",
     "",
-    "The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the ad-hoc release boundary is not right for you: https://github.com/hraness/hra-v0#develop-hra",
+    "The public repository pins Bun, Zig, Codex, Git, native build inputs, and the package verifier. Build the same app locally if the self-managed release-signing boundary is not right for you: https://github.com/hraness/hra-v0#develop-hra",
     "",
     `HRA v0 is archived and will not gain a new update channel. The current HRA continues separately at ${CURRENT_HRA_SITE}.`,
     "",
@@ -363,7 +383,7 @@ export function createPrivacyMarkdown(): string {
     "",
     `Read the archived [security policy](${HRA_SECURITY_POLICY_URL}) and [security architecture](https://github.com/hraness/hra-v0/blob/main/SECURITY_ARCHITECTURE.md). Report a vulnerability through [GitHub private vulnerability reporting](${HRA_SECURITY_CONTACT_URL}). The standard contact file is available at ${absoluteUrl(HRA_SECURITY_TXT_PATH)}.`,
     "",
-    `HRA v0 is archived at v0.1.14. Privacy information for the current HRA belongs at ${CURRENT_HRA_SITE}.`,
+    `HRA v0 is archived. Its checked compatibility ledger remains anchored at v0.1.14 until a separately reviewed history update. Privacy information for the current HRA belongs at ${CURRENT_HRA_SITE}.`,
     "",
     "## Public pages",
     "",
@@ -462,7 +482,7 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
     "## Current HRA limitations",
     "",
     "- HRA's native host currently supports Apple Silicon Macs only.",
-    "- The downloadable app is ad-hoc signed, not Developer ID signed or notarized.",
+    "- The downloadable app uses self-managed CMS and pinned ad-hoc nested-code signatures, including the runtime/JIT gateway. It is not Developer ID signed or notarized.",
     "- The recursive harness is experimental, and the adaptive optimizer cannot activate policy.",
     "- HRA is Codex-only; it is the wrong choice when provider breadth is the requirement.",
     "- Multiple accounts must be owned or authorized by you and permitted to access the same work.",

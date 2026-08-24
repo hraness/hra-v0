@@ -8,6 +8,11 @@ import type { Metadata } from "next";
 
 import releaseDownload from "../../../release-download.json";
 
+const emptyArtifactSchema = z.object({
+  bytes: z.null(),
+  name: z.string().min(1),
+  sha256: z.null(),
+}).strict();
 const publishedArtifactSchema = z.object({
   bytes: z.number().int().positive().safe(),
   name: z.string().min(1),
@@ -21,20 +26,36 @@ const commonReleaseShape = {
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+$/u),
 } as const;
 const releaseDownloadSchema = z.object({
-  release: z.object({
-    ...commonReleaseShape,
-    artifacts: z.object({
-      checksum: publishedArtifactSchema,
-      dmg: publishedArtifactSchema,
-      manifest: publishedArtifactSchema,
+  release: z.discriminatedUnion("availability", [
+    z.object({
+      ...commonReleaseShape,
+      artifacts: z.object({
+        checksum: emptyArtifactSchema,
+        dmg: emptyArtifactSchema,
+        manifest: emptyArtifactSchema,
+      }).strict(),
+      availability: z.literal("candidate"),
+      source: z.object({
+        commit: z.null(),
+        runtimeTreeSha256: z.null(),
+        tagObject: z.null(),
+      }).strict(),
     }).strict(),
-    availability: z.literal("published"),
-    source: z.object({
-      commit: z.string().regex(/^[0-9a-f]{40}$/u),
-      runtimeTreeSha256: z.string().regex(/^[0-9a-f]{64}$/u),
-      tagObject: z.string().regex(/^[0-9a-f]{40}$/u),
+    z.object({
+      ...commonReleaseShape,
+      artifacts: z.object({
+        checksum: publishedArtifactSchema,
+        dmg: publishedArtifactSchema,
+        manifest: publishedArtifactSchema,
+      }).strict(),
+      availability: z.literal("published"),
+      source: z.object({
+        commit: z.string().regex(/^[0-9a-f]{40}$/u),
+        runtimeTreeSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        tagObject: z.string().regex(/^[0-9a-f]{40}$/u),
+      }).strict(),
     }).strict(),
-  }).strict(),
+  ]),
   repository: z.literal("https://github.com/hraness/hra-v0"),
   schemaVersion: z.literal(1),
 }).strict().superRefine((contract, context) => {
@@ -86,32 +107,58 @@ export function createHraSecurityTxt(): string {
   ].join("\n");
 }
 
-const releaseContract = releaseDownloadSchema.parse(releaseDownload);
-export const HRA_RELEASE = Object.freeze({
-  architecture: releaseContract.release.architecture,
-  asset: releaseContract.release.artifacts.dmg.name,
-  availability: releaseContract.release.availability,
-  build: releaseContract.release.build,
-  checksumAsset: releaseContract.release.artifacts.checksum.name,
-  manifestAsset: releaseContract.release.artifacts.manifest.name,
-  minimumMacOS: releaseContract.release.minimumMacOS,
-  historicalPublicationRepository: HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY,
-  repository: releaseContract.repository,
-  sha256: releaseContract.release.artifacts.dmg.sha256,
-  source: releaseContract.release.source,
-  tag: releaseContract.release.tag,
-  version: releaseContract.release.version,
-});
-export const HRA_RELEASE_URL =
-  `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.asset}`;
-export const HRA_RELEASE_CHECKSUM_URL =
-  `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.checksumAsset}`;
-export const HRA_RELEASE_MANIFEST_URL =
-  `${HRA_RELEASE.repository}/releases/download/${HRA_RELEASE.tag}/${HRA_RELEASE.manifestAsset}`;
+export function parseHraReleaseDownload(value: unknown) {
+  const contract = releaseDownloadSchema.parse(value);
+  return Object.freeze({
+    architecture: contract.release.architecture,
+    asset: contract.release.artifacts.dmg.name,
+    availability: contract.release.availability,
+    build: contract.release.build,
+    checksumAsset: contract.release.artifacts.checksum.name,
+    manifestAsset: contract.release.artifacts.manifest.name,
+    minimumMacOS: contract.release.minimumMacOS,
+    historicalPublicationRepository: HRA_V0_HISTORICAL_PUBLICATION_REPOSITORY,
+    repository: contract.repository,
+    sha256: contract.release.artifacts.dmg.sha256,
+    source: contract.release.source,
+    tag: contract.release.tag,
+    version: contract.release.version,
+  });
+}
+
+export const HRA_RELEASE = parseHraReleaseDownload(releaseDownload as unknown);
+
+export function hraReleaseDownloadUrls(release: Readonly<{
+  asset: string;
+  availability: "candidate" | "published";
+  checksumAsset: string;
+  manifestAsset: string;
+  repository: typeof HRA_V0_REPOSITORY;
+  tag: string;
+}>): Readonly<{
+  checksum: string | null;
+  dmg: string | null;
+  manifest: string | null;
+}> {
+  if (release.availability === "candidate") {
+    return { checksum: null, dmg: null, manifest: null };
+  }
+  const root = `${release.repository}/releases/download/${release.tag}`;
+  return {
+    checksum: `${root}/${release.checksumAsset}`,
+    dmg: `${root}/${release.asset}`,
+    manifest: `${root}/${release.manifestAsset}`,
+  };
+}
+
+const releaseUrls = hraReleaseDownloadUrls(HRA_RELEASE);
+export const HRA_RELEASE_URL = releaseUrls.dmg;
+export const HRA_RELEASE_CHECKSUM_URL = releaseUrls.checksum;
+export const HRA_RELEASE_MANIFEST_URL = releaseUrls.manifest;
 
 export const hraSearchSite = {
   description:
-    "The archived HRA v0 metaharness for Codex, preserved with its final macOS prerelease and public source.",
+    "The archived HRA v0 metaharness for Codex, preserved with its macOS release history and public source.",
   applicationName: "HRA v0",
   category: "DeveloperApplication",
   creator: "Hraness",

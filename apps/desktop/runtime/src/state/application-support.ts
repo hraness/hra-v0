@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { dlopen, FFIType } from "bun:ffi";
 import {
@@ -13,6 +14,7 @@ import {
   mkdirSync,
   openSync,
   opendirSync,
+  readSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -32,6 +34,14 @@ import {
   controlPlaneRestoreJournalFileName,
   legacyControlPlaneRestoreV1FileNames,
 } from "./control-plane-restore-state";
+import {
+  canonicalHarnessKeyEnrollmentSidecar,
+  harnessKeyEnrollmentSidecarCandidateFileName,
+  harnessKeyEnrollmentSidecarFileName,
+  maximumHarnessKeyEnrollmentSidecarBytes,
+  parseHarnessKeyEnrollmentSidecar,
+  type HarnessKeyEnrollmentFile,
+} from "./harness-key-enrollment";
 
 /**
  * Opaque physical state authority retained for the first in-place HRA bridge.
@@ -1219,6 +1229,7 @@ function validateProtectedStateFiles(root: string): boolean {
   const sharedMemory = protectedFileMetadata(sharedMemoryPath);
   const key = protectedFileMetadata(keyPath);
   const keyCandidate = readMetadata(keyCandidatePath);
+  validateHarnessKeyEnrollmentProtectedFiles(root);
   const restoreJournalPath = join(root, controlPlaneRestoreJournalFileName);
   const restoreJournal = readMetadata(restoreJournalPath);
   if (legacyControlPlaneRestoreV1FileNames.some((fileName) =>
@@ -1275,6 +1286,157 @@ function validateProtectedStateFiles(root: string): boolean {
     );
   }
   return interruptedRestore;
+}
+
+export function validateHarnessKeyEnrollmentProtectedFiles(
+  root: string,
+  afterInitialStatForTest?: (path: string) => void,
+): Readonly<{
+  candidatePresent: boolean;
+  committed: HarnessKeyEnrollmentFile | null;
+}> {
+  const currentUser = process.getuid?.();
+  let candidatePresent = false;
+  let committedFile: HarnessKeyEnrollmentFile | null = null;
+  for (const [fileName, committed] of [
+    [harnessKeyEnrollmentSidecarFileName, true],
+    [harnessKeyEnrollmentSidecarCandidateFileName, false],
+  ] as const) {
+    const path = join(root, fileName);
+    let descriptor: number;
+    try {
+      descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error: unknown) {
+      if (hasCode(error, "ENOENT")) continue;
+      throw new ApplicationSupportMigrationError(
+        "invalid_state",
+        "Harness key enrollment state cannot be opened safely",
+        path,
+      );
+    }
+    try {
+      const before = fstatSync(descriptor);
+      const publishedBefore = lstatSync(path);
+      if (
+        !before.isFile()
+        || before.isSymbolicLink()
+        || before.nlink !== 1
+        || before.size > maximumHarnessKeyEnrollmentSidecarBytes
+        || (before.mode & 0o777) !== 0o600
+        || (currentUser !== undefined && before.uid !== currentUser)
+        || before.dev !== publishedBefore.dev
+        || before.ino !== publishedBefore.ino
+        || publishedBefore.isSymbolicLink()
+      ) {
+        throw new ApplicationSupportMigrationError(
+          "invalid_state",
+          "Harness key enrollment state is not one bounded private file",
+          path,
+        );
+      }
+      afterInitialStatForTest?.(path);
+      if (!committed) {
+        candidatePresent = true;
+        continue;
+      }
+      if (before.size <= 0) throw new Error("empty");
+      const bytes = Buffer.alloc(before.size);
+      let offset = 0;
+      while (offset < bytes.byteLength) {
+        const read = readSync(
+          descriptor,
+          bytes,
+          offset,
+          bytes.byteLength - offset,
+          null,
+        );
+        if (read === 0) throw new Error("truncated");
+        offset += read;
+      }
+      const extra = Buffer.alloc(1);
+      if (readSync(descriptor, extra, 0, 1, null) !== 0) {
+        throw new Error("grew");
+      }
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const after = fstatSync(descriptor);
+      const publishedAfter = lstatSync(path);
+      if (
+        before.dev !== after.dev
+        || before.ino !== after.ino
+        || before.size !== after.size
+        || before.mtimeMs !== after.mtimeMs
+        || before.ctimeMs !== after.ctimeMs
+        || before.dev !== publishedAfter.dev
+        || before.ino !== publishedAfter.ino
+      ) throw new Error("changed");
+      const parsed = parseHarnessKeyEnrollmentSidecar(
+        JSON.parse(text) as unknown,
+      );
+      if (text !== canonicalHarnessKeyEnrollmentSidecar(parsed)) {
+        throw new Error("noncanonical");
+      }
+      committedFile = Object.freeze({
+        evidence: Object.freeze({
+          bytes: bytes.byteLength,
+          device: String(before.dev),
+          inode: String(before.ino),
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+        }),
+        sidecar: parsed,
+      });
+    } catch {
+      throw new ApplicationSupportMigrationError(
+        "invalid_state",
+        "Harness key enrollment state is invalid",
+        path,
+      );
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+  return Object.freeze({
+    candidatePresent,
+    committed: committedFile,
+  });
+}
+
+export function captureMachineLocalHarnessKeyEnrollment(
+  root: string,
+): HarnessKeyEnrollmentFile {
+  const inventory = validateHarnessKeyEnrollmentProtectedFiles(root);
+  if (
+    inventory.candidatePresent
+    || inventory.committed === null
+    || inventory.committed.sidecar.phase !== "enrolled"
+  ) {
+    throw new ApplicationSupportMigrationError(
+      "invalid_state",
+      "Restore requires exact enrolled machine-local Harness key authority",
+      root,
+    );
+  }
+  return inventory.committed;
+}
+
+export function assertMachineLocalHarnessKeyEnrollmentUnchanged(
+  root: string,
+  expected: HarnessKeyEnrollmentFile,
+): void {
+  const current = captureMachineLocalHarnessKeyEnrollment(root);
+  if (
+    canonicalHarnessKeyEnrollmentSidecar(current.sidecar)
+      !== canonicalHarnessKeyEnrollmentSidecar(expected.sidecar)
+    || current.evidence.bytes !== expected.evidence.bytes
+    || current.evidence.device !== expected.evidence.device
+    || current.evidence.inode !== expected.evidence.inode
+    || current.evidence.sha256 !== expected.evidence.sha256
+  ) {
+    throw new ApplicationSupportMigrationError(
+      "invalid_state",
+      "Machine-local Harness key authority changed during restore",
+      root,
+    );
+  }
 }
 
 function protectedFileMetadata(path: string): Stats | null {
