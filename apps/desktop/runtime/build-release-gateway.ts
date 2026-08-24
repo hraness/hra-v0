@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { verifyBunCompiler } from "./verify-runtime-pins";
+import { verifyReleaseGatewayCodeSignature } from "./release-gateway-code-signature";
 
 async function main(): Promise<void> {
   const compiler = await verifyBunCompiler();
@@ -31,6 +32,25 @@ async function main(): Promise<void> {
   // its final signature here, then compile the SHA-256 of these exact signed
   // bytes into both the host and custodian. Packaging must copy, not re-sign,
   // this file.
+  // Bun emits an ad-hoc signature whose reserved region may be larger than the
+  // final signature. Remove it first so codesign zeroes all unused bytes rather
+  // than preserving an unverified tail inside LC_CODE_SIGNATURE.
+  const removeSignature = Bun.spawn([
+    "/usr/bin/codesign",
+    "--remove-signature",
+    output,
+  ], {
+    cwd: join(import.meta.dir, ".."),
+    env: process.env,
+    stderr: "inherit",
+    stdout: "inherit",
+  });
+  const removeSignatureExitCode = await removeSignature.exited;
+  if (removeSignatureExitCode !== 0) {
+    throw new Error(
+      `Compiler gateway signature removal failed with exit code ${removeSignatureExitCode}.`,
+    );
+  }
   const codesign = Bun.spawn([
     "/usr/bin/codesign",
     "--force",
@@ -76,6 +96,9 @@ async function main(): Promise<void> {
       `Final gateway signature verification failed with exit code ${verifyExitCode}.`,
     );
   }
+  verifyReleaseGatewayCodeSignature(
+    new Uint8Array(await Bun.file(output).arrayBuffer()),
+  );
 }
 
 if (import.meta.main) await main();

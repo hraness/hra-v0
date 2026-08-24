@@ -1963,11 +1963,11 @@ static NSDictionary *_Nullable HRACopyStaticCustodianIdentity(
     if (resources == nil || !HRAOuterBundleIsSealed()) {
       return nil;
     } else {
-      NSString *expected = [[resources.path
+      NSString *expected = [resources.path
           stringByAppendingPathComponent:
-              @"runtime/bin/oprte-keychain-custodian"]
-          stringByStandardizingPath];
-      if (![path isEqualToString:expected]) return nil;
+              @"runtime/bin/oprte-keychain-custodian"];
+      if (![path isEqualToString:expected] ||
+          !HRAPathResolvesToItself(path)) return nil;
     }
   }
   struct stat metadata;
@@ -2230,9 +2230,8 @@ static NSDictionary *_Nullable HRACopyStaticLegacyGatewayIdentity(
           HRALegacyHarnessCustodyFailureStaticBundle);
       return nil;
     }
-    NSString *expected = [[resources.path
-        stringByAppendingPathComponent:HRALegacyGatewayRelativePath]
-        stringByStandardizingPath];
+    NSString *expected = [resources.path
+        stringByAppendingPathComponent:HRALegacyGatewayRelativePath];
     if (![path isEqualToString:expected] || !HRAPathResolvesToItself(path)) {
       HRARecordLegacyHarnessCustodyFailure(
           outFailureSubstage,
@@ -2981,7 +2980,7 @@ bool hra_macos_run_attested_keychain_custodian(
     NSString *helperPath = [[NSFileManager defaultManager]
         stringWithFileSystemRepresentation:path length:path_length];
     if (helperPath.length == 0 ||
-        ![helperPath isEqualToString:helperPath.stringByStandardizingPath]) {
+        !HRAPathResolvesToItself(helperPath)) {
       HRASecureZero(requestCopy, sizeof(requestCopy));
       return false;
     }
@@ -3346,7 +3345,7 @@ bool hra_macos_run_attested_legacy_harness_custody(
     HRAMacOSSelfManagedCodeIdentity gatewaySelfManagedIdentity;
     memset(&gatewaySelfManagedIdentity, 0, sizeof(gatewaySelfManagedIdentity));
     if (gatewayPath.length == 0 ||
-        ![gatewayPath isEqualToString:gatewayPath.stringByStandardizingPath] ||
+        !HRAPathResolvesToItself(gatewayPath) ||
         HRACopyStaticLegacyGatewayIdentity(
             gatewayPath,
             allow_unsealed_development,

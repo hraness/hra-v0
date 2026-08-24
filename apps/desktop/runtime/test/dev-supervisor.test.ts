@@ -160,6 +160,35 @@ describe("HRA development lifecycle", () => {
     expect(rootManifest.scripts?.["web:hra"]).toBe("bun run dev:web");
   });
 
+  test("checks compiler-signature removal before applying the final gateway signature", async () => {
+    const source = await Bun.file(
+      new URL("../build-release-gateway.ts", import.meta.url),
+    ).text();
+    const removeSpawn = source.indexOf("const removeSignature = Bun.spawn([");
+    const removeTool = source.indexOf('"/usr/bin/codesign"', removeSpawn);
+    const removeFlag = source.indexOf('"--remove-signature"', removeTool);
+    const removeWait = source.indexOf(
+      "const removeSignatureExitCode = await removeSignature.exited;",
+      removeFlag,
+    );
+    const removeCheck = source.indexOf(
+      "if (removeSignatureExitCode !== 0)",
+      removeWait,
+    );
+    const finalSignSpawn = source.indexOf("const codesign = Bun.spawn([", removeCheck);
+    const finalSignFlag = source.indexOf('"--sign"', finalSignSpawn);
+    const finalVerify = source.indexOf("verifyReleaseGatewayCodeSignature(", finalSignFlag);
+
+    expect(removeSpawn).toBeGreaterThan(-1);
+    expect(removeTool).toBeGreaterThan(removeSpawn);
+    expect(removeFlag).toBeGreaterThan(removeTool);
+    expect(removeWait).toBeGreaterThan(removeFlag);
+    expect(removeCheck).toBeGreaterThan(removeWait);
+    expect(finalSignSpawn).toBeGreaterThan(removeCheck);
+    expect(finalSignFlag).toBeGreaterThan(finalSignSpawn);
+    expect(finalVerify).toBeGreaterThan(finalSignFlag);
+  });
+
   test("scrubs retired self-edit markers from every development child", () => {
     expect(scrubRetiredSelfEditEnvironment({
       KEEP_ME: "yes",

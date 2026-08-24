@@ -112,7 +112,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "955ffbdf5caef43f0f44dc057f482ec663c1028eb8739be936240619804f7555",
+      "matchingLinesSha256": "a5a6f371e9d7db880ee35fe9936873eb2252a8f7352b04b52ad83684632d697f",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1082,7 +1082,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "77aab981a9601fdee91d095c247d48464d2a242fd38091e2c94722fb519a48ec",
+      "matchingLinesSha256": "d3c095a19adcaa1411bfa1652e21d5a02f091c6619e56a5ee8e2f938e1f54569",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1732,7 +1732,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "939dcb0859d6be64e42a65d5de82ce04103f4f566636a3d26a70199ad6004444",
+      "matchingLinesSha256": "37a73c4c0bdd73f666b28f18a686faec87fc50c057f7bc3c9341f8b16dccf931",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -1809,6 +1809,16 @@
         "oprte": 4
       },
       "path": "apps/desktop/runtime/test/release-compatibility.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "4646f53f54bc87b55ff1481ded81d425bc8221609dbdb52a40626d0bf025a42c",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 1
+      },
+      "path": "apps/desktop/runtime/test/release-gateway-signature.macos.test.ts"
     },
     {
       "category": "compatibility",
@@ -2002,7 +2012,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "e64d0829bd6207e33665b3d8c199c84b445a159233f9c01c2e9e56fc74d1157f",
+      "matchingLinesSha256": "3897dd88b77169d3318d96c3c849633812e95184889001d22abd3492f56c347b",
       "occurrences": {
         "kitchen": 5,
         "operateStylized": 0,
@@ -2032,7 +2042,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "fe8df778a85dbd09562826f8d7b623c0126f41d2649b549ea24696e5b117d3c9",
+      "matchingLinesSha256": "d53d45b6c8b9f034b09e735ed7fc3773bd10f0745457de93f64826fa91d073fd",
       "occurrences": {
         "kitchen": 3,
         "operateStylized": 0,
