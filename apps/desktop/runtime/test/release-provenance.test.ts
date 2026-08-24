@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import {
   HRA_V0_C15_BASE_COMMIT,
   HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
+  HRA_V0_C15_HOST_TRUST_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_Q14_SURFACE_COMMIT,
@@ -281,7 +282,7 @@ describe("hermetic release provenance", () => {
 
   test("resolves final C15 when HEAD is the candidate or a later descendant", async () => {
     const repositoryRoot = await createRepository();
-    const custodyRepairCommit = (await runSetupGit(
+    const hostTrustCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
@@ -295,7 +296,7 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
     });
     expect(await resolveReleaseCandidateCommit(candidateRepository, {
-      expectedCustodyRepairCommit: custodyRepairCommit,
+      expectedHostTrustCommit: hostTrustCommit,
     })).toBe(candidateCommit);
 
     await commitFixture(repositoryRoot, "follow-up.txt", "archive follow-up");
@@ -305,13 +306,13 @@ describe("hermetic release provenance", () => {
     });
     expect(descendantRepository.commit).not.toBe(candidateCommit);
     expect(await resolveReleaseCandidateCommit(descendantRepository, {
-      expectedCustodyRepairCommit: custodyRepairCommit,
+      expectedHostTrustCommit: hostTrustCommit,
     })).toBe(candidateCommit);
   });
 
-  test("rejects resolving final C15 when the custody repair has two children on the path to HEAD", async () => {
+  test("rejects resolving final C15 when host trust has two children on the path to HEAD", async () => {
     const repositoryRoot = await createRepository();
-    const custodyRepairCommit = (await runSetupGit(
+    const hostTrustCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
@@ -323,7 +324,7 @@ describe("hermetic release provenance", () => {
       "merge",
       "--no-ff",
       "other-child",
-      "-m", "merge two custody-repair children",
+      "-m", "merge two host-trust children",
     ]);
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -332,18 +333,21 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       resolveReleaseCandidateCommit(repository, {
-        expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
       }),
-      "exact custody repair as its only direct parent",
+      "exact host-trust commit as its only direct parent",
     );
   });
 
-  test("binds final C15 to the exact custody repair, reviewed surface, base C15, and Q14 edges", async () => {
+  test("binds final C15 to exact host trust, custody repair, reviewed surface, base C15, and Q14 edges", async () => {
     expect(HRA_V0_C15_BASE_COMMIT).toBe(
       "a2948a21eb524e89960cfcbd7b68d7c52ab028b4",
     );
     expect(HRA_V0_C15_CUSTODY_REPAIR_COMMIT).toBe(
       "045ee7b4b23ea1b61392d0a782f619f2d946eeaf",
+    );
+    expect(HRA_V0_C15_HOST_TRUST_COMMIT).toBe(
+      "7d284b48577b5747a247cef31952de3c7f7338cd",
     );
     expect(HRA_V0_C15_REVIEWED_SURFACE_COMMIT).toBe(
       "fd33c4561ea161367f2c516d502f1e88d0998f29",
@@ -367,6 +371,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     const candidateCommit = await commitFixture(
       repositoryRoot,
       "candidate.txt",
@@ -380,19 +389,21 @@ describe("hermetic release provenance", () => {
     expect(await inspectReleaseCandidateLineage(repository, {
       expectedBaseCommit: baseCommit,
       expectedCustodyRepairCommit: custodyRepairCommit,
+      expectedHostTrustCommit: hostTrustCommit,
       expectedQ14Commit: q14Commit,
       expectedSurfaceCommit: reviewedSurfaceCommit,
     })).toEqual({
       baseCommit,
       candidateCommit,
       custodyRepairCommit,
+      hostTrustCommit,
       q14Commit,
       reviewedSurfaceCommit,
-      status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_candidate_chain",
+      status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_final_candidate_chain",
     });
   });
 
-  test("rejects a final candidate with the wrong custody-repair parent", async () => {
+  test("rejects a final candidate with the wrong host-trust parent", async () => {
     const repositoryRoot = await createRepository();
     const q14Commit = (await runSetupGit(
       repositoryRoot,
@@ -409,6 +420,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "wrong-parent.txt", "wrong candidate parent");
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
@@ -420,10 +436,11 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact custody repair as its only direct parent",
+      "exact host-trust commit as its only direct parent",
     );
   });
 
@@ -444,6 +461,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await runSetupGit(repositoryRoot, ["switch", "-c", "candidate-side"]);
     await commitFixture(repositoryRoot, "candidate-side.txt", "candidate side");
     await runSetupGit(repositoryRoot, ["switch", "main"]);
@@ -463,14 +485,15 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact custody repair as its only direct parent",
+      "exact host-trust commit as its only direct parent",
     );
   });
 
-  test("rejects a multi-commit custody-repair-to-candidate range", async () => {
+  test("rejects a multi-commit host-trust-to-candidate range", async () => {
     const repositoryRoot = await createRepository();
     const q14Commit = (await runSetupGit(
       repositoryRoot,
@@ -487,6 +510,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "intermediate.txt", "candidate intermediate");
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
@@ -498,10 +526,142 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact custody repair as its only direct parent",
+      "exact host-trust commit as its only direct parent",
+    );
+  });
+
+  test("rejects a host-trust commit with the wrong custody-repair parent", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    const custodyRepairCommit = await commitFixture(
+      repositoryRoot,
+      "custody-repair.txt",
+      "C15 custody repair",
+    );
+    await commitFixture(repositoryRoot, "wrong-parent.txt", "wrong host-trust parent");
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "final C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "host-trust commit must have exact custody repair as its only direct parent",
+    );
+  });
+
+  test("rejects a merge commit as host trust", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    const custodyRepairCommit = await commitFixture(
+      repositoryRoot,
+      "custody-repair.txt",
+      "C15 custody repair",
+    );
+    await runSetupGit(repositoryRoot, ["switch", "-c", "host-trust-side"]);
+    await commitFixture(repositoryRoot, "host-trust-side.txt", "host-trust side");
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "host-trust-side",
+      "-m",
+      "merge host trust",
+    ]);
+    const hostTrustCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await commitFixture(repositoryRoot, "candidate.txt", "final C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "host-trust commit must have exact custody repair as its only direct parent",
+    );
+  });
+
+  test("rejects a multi-commit custody-repair-to-host-trust range", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    const custodyRepairCommit = await commitFixture(
+      repositoryRoot,
+      "custody-repair.txt",
+      "C15 custody repair",
+    );
+    await commitFixture(repositoryRoot, "intermediate.txt", "host-trust intermediate");
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "final C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "host-trust commit must have exact custody repair as its only direct parent",
     );
   });
 
@@ -523,6 +683,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "final C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -533,6 +698,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -566,6 +732,11 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "final C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -576,6 +747,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -601,6 +773,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "final C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -611,6 +788,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -636,6 +814,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -646,6 +829,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -679,6 +863,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -689,6 +878,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -714,6 +904,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -724,6 +919,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -749,6 +945,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -759,6 +960,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -796,6 +998,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -806,6 +1013,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
@@ -831,6 +1039,11 @@ describe("hermetic release provenance", () => {
       "custody-repair.txt",
       "C15 custody repair",
     );
+    const hostTrustCommit = await commitFixture(
+      repositoryRoot,
+      "host-trust.txt",
+      "C15 host trust",
+    );
     await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -841,6 +1054,7 @@ describe("hermetic release provenance", () => {
       inspectReleaseCandidateLineage(repository, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
