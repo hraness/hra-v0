@@ -1,7 +1,9 @@
 # HRA v0 for macOS
 
-This directory preserves the archived HRA v0 macOS application and its final
-v0.1.14 prerelease. The current HRA is at [hra.sh](https://hra.sh) in the
+This directory preserves the archived HRA v0 macOS application. Its
+generation-0 release ledger ends at v0.1.14, and the checked contract stages
+the final v0.1.15 compatibility and recovery correction. The current HRA is at
+[hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
 chats that can run independently. Settings manages local Codex subscriptions.
@@ -147,13 +149,15 @@ The plaintext outer manifest exposes the backup timestamp, source release and mi
 
 Backups authenticate the checkpointed SQLite snapshot, its bound receipt key, and a complete manifest plus byte-for-byte generation of the private attachment vault. The archive streams encrypted chunks so a valid full-size vault does not require a second in-memory copy. Backup and verification output report the conservative peak-resident estimate and maximum simultaneously buffered plaintext, while inspection and verification report the bounded attachment count and byte total. Account provider homes and rollout state are excluded, so restored attachment-bearing panes cannot resume their former provider context; they require an explicit fresh-context send, never a text-only retry of the old attachment turn. Backups also exclude Keychain items, managed worktrees, user repositories, and cloud session-sync ciphertext.
 
+HRA v0.1.15 adds a machine-local enrollment sidecar that binds the recursive-harness envelope to one strict Keychain item. Portable backup creation does not archive that sidecar or the Keychain item. Restore requires an already enrolled local authority, captures its file before replacing portable state, and requires the exact bytes and inode to remain unchanged afterward. A missing or changed local enrollment fails without substituting or regenerating custody.
+
 Turn off every scheduled chat before creating or restoring a portable backup. A schedule is bound to cloud and origin-device authority that the archive intentionally does not carry. Backup creation refuses active or pending schedule authority, and restore refuses to overwrite an installation that currently owns it. Cleared generation fences and terminal run history remain portable.
 
-## OPRTE installation handoff
+## Installation handoff and forward recovery
 
 HRA keeps the bundle identifier `kitchen.hraness` and the state root `~/Library/Application Support/OPRTE` as compatibility custody. The supported handoff changes the visible application authority from `/Applications/OPRTE.app` to `/Applications/HRA.app`; it does not rename or copy live state into a new product root.
 
-Run the handoff only after Suite Accounts v0.3.0 is the deployed account authority, the Accounts registry recognizes `hraness:hra:production:v1`, and `release-download.json` contains published v0.1.14 build 15 evidence. The command verifies that published source, the selected installation bundle, full state and Keychain continuity, both installed bundle archives, updater quiescence, and ordered AppKit shutdown before committing HRA as the sole visible application:
+Run the ordinary handoff only after Suite Accounts v0.3.0 is the deployed account authority, the Accounts registry recognizes `hraness:hra:production:v1`, and `release-download.json` contains published v0.1.15 build 16 evidence. The command verifies that published source, the candidate bundle, full state and Keychain continuity, both installed bundle archives, updater quiescence, and ordered AppKit shutdown before making HRA the sole visible application:
 
 ```sh
 bun run installation:handoff \
@@ -162,17 +166,32 @@ bun run installation:handoff \
   --confirm RETIRE-OPRTE-IN-FAVOR-OF-HRA
 ```
 
-An existing `/Applications/HRA.app` is accepted only when it is the exact v0.1.7 build 8, immutable v0.1.8 build 9, immutable v0.1.9 build 10, immutable v0.1.10 build 11, immutable v0.1.12 build 13, or current published v0.1.13 build 14 release. The handoff archives that prior app and can restore it through the bounded rollback path.
+An existing `/Applications/HRA.app` is accepted only when it is an exact published prior release: v0.1.7 build 8, v0.1.8 build 9, v0.1.9 build 10, v0.1.10 build 11, v0.1.12 build 13, v0.1.13 build 14, or v0.1.14 build 15. The handoff binds that prior app into its durable evidence.
 
-The exact OPRTE v0.1.4 build 5 predecessor uses the historical self-managed OPRTE Preview certificate chain, which current macOS can report as untrusted even when its signature bytes are unchanged. The handoff accepts that trust result only for the frozen predecessor tree, designated requirement, CodeDirectory, detached CMS signature, certificate fingerprints and chain, signed CMS time within the exact encoded leaf-certificate validity interval, root metadata, and extended-attribute inventory. Preview signing requested no secure timestamp. The pinned executable hash freezes the exact CMS bytes, and the verifier pins the signed time instead of making receipt-bound rollback depend on the current wall clock. The published v0.1.14 bundle, every supported prior HRA, and every other bundle remain subject to strict system code-signature verification. The receipt preserves the selected policy so archive, restart, rollback, and staging deletion checks cannot infer the exception from a bundle name or error message.
+The exact OPRTE v0.1.4 build 5 predecessor uses the historical self-managed OPRTE Preview certificate chain, which current macOS can report as untrusted even when its signature bytes are unchanged. The handoff accepts that trust result only for the frozen predecessor tree, designated requirement, CodeDirectory, detached CMS signature, certificate fingerprints and chain, signed CMS time within the exact encoded leaf-certificate validity interval, root metadata, and extended-attribute inventory. Preview signing requested no secure timestamp. The pinned executable hash freezes the exact CMS bytes, and the verifier pins the signed time instead of making receipt-bound recovery depend on the current wall clock. The v0.1.15 package must match HRA's exact current self-managed production authority. Historical HRA releases retain their frozen package policies. The receipt preserves the selected policy so archive, restart, cleanup, and any permitted prepublication rollback cannot infer an exception from a bundle name or error message.
 
 The retired annotated `v0.1.11` tag object `e4c171e33e414d74a36791fc8577cbfbcef8e52e` points directly to candidate commit `5a2a9842cacc75fee42ab8e23ca8c215a643e21e`. GitHub has no release or assets for that tag. HRA v0.1.11 build 12 is tagged-only historical evidence, never installed-app or rollback authority, and the tag must not be moved or reused.
 
-HRA v0.1.12 build 13 remains published prior installed-app and rollback authority. Its direct annotated tag object `626be494d24733d12e53d09932cb5cc6218bc2fe` points to candidate commit `9ab991d08d1507fd73c9e7ef5fb4a37baee9c014`, and immutable GitHub prerelease `374867227` carries its exact seven assets. Publication commit `bfb60415c3eea7bc1021db8e8cc92f3e95800a46` records the release evidence. Its source `installation:handoff` must not initiate cutover because it self-detects the descriptor intentionally retained by the handoff process.
+HRA v0.1.12 build 13 and v0.1.13 build 14 remain published prior installed-app authority. The v0.1.12 tag object `626be494d24733d12e53d09932cb5cc6218bc2fe` points to candidate `9ab991d08d1507fd73c9e7ef5fb4a37baee9c014`; publication commit `bfb60415c3eea7bc1021db8e8cc92f3e95800a46` records its release. The v0.1.13 tag object `44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3` points to candidate `9ba06a441c9b12b448cfe34784432592dbeccb19`; publication commit `7825cb231890aa971f965412c31dfa2cb7796561` records its release. Their source handoff operators remain retired.
 
-The immediate published predecessor is HRA v0.1.13 build 14. Its direct annotated tag object `44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3` points to candidate commit `9ba06a441c9b12b448cfe34784432592dbeccb19`, and immutable GitHub prerelease `374920071` carries its exact seven assets. Publication commit `7825cb231890aa971f965412c31dfa2cb7796561` records the release evidence. It remains valid prior installed-app and rollback authority. Its source `installation:handoff` must not initiate cutover because it copies the candidate to a path ending in `.bundle`, which its strict packaged-app verifier rejects before installation. HRA v0.1.14 is the first corrected operator.
+HRA v0.1.14 build 15 is the current published predecessor while the v0.1.15 contract is a candidate, and remains the frozen forward-recovery origin after v0.1.15 publication. Its direct annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3` points to candidate commit `7b39c459827b2acf45aa2d911c94fdb5d4f37860`, and publication commit `6221f79b745f154882080936b961ff431569f33e` records the immutable release evidence. Preserve those exact objects, assets, and the original handoff backup. A v0.1.14 installation that completed its handoff but cannot start must use the bounded v0.1.14-to-v0.1.15 forward recovery below. Do not launch OPRTE or use an older handoff operator.
 
-The backup directory must not exist. The operation creates it with user-only permissions and writes durable phase receipts. It rejects symbolic-link, case, Unicode-normalization, inode, process-birth, AppKit launch-identity, open-file, updater, receipt, custody, bundle, and Git-provenance ambiguity. A pre-commit interruption restores both original applications. An interruption after the committed receipt preserves HRA authority. Resume only its bounded, idempotent staging cleanup with the committed receipt:
+The ordinary handoff backup directory must not exist. The schema-v3 operation creates it with user-only permissions and writes separate immutable authorization evidence and a forward-only progress journal. Status is observational and reports an exact durable next-history leaf without promoting it:
+
+```sh
+bun run installation:status \
+  --backup-directory /absolute/private-backup
+```
+
+Before the durable candidate-publish boundary, an interruption can remove only its exact uncommitted staging and enrollment authorization under the original Keychain lease. Once publication might have swapped an installed path, recovery is forward-only. It never swaps the old app back, even when a postpublication proof fails. Resume the exact journal with its distinct confirmation:
+
+```sh
+bun run installation:resume \
+  --backup-directory /absolute/private-backup \
+  --confirm RESUME-HRA-INSTALLATION-HANDOFF-V3
+```
+
+After status reports `committed`, remove only receipt-bound staging:
 
 ```sh
 bun run installation:cleanup \
@@ -180,27 +199,50 @@ bun run installation:cleanup \
   --confirm CLEAN-COMMITTED-HRA-HANDOFF-STAGING
 ```
 
-Cleanup revalidates the committed candidate, requires the predecessor path to remain absent, and deletes only the exact receipt-bound predecessor and prior-HRA staging bundles. It can be rerun after any cleanup interruption.
+`installation:rollback` accepts only an exact schema-v3 prepublication state and requires `--confirm ROLL-BACK-HRA-TO-OPRTE`. HRA v0.1.11 through v0.1.15 use SQLite migration 62, but HRA's first normal v0.1.15 launch writes the v0.1.15 build 16 release state and generation fence. A launch, custody creation, application publication, or any other protected-state change closes rollback. Keep the published HRA path authoritative and recover forward.
 
-Ordinary rollback is available only while the complete state tree still matches the pre-cutover receipt. HRA v0.1.11 through v0.1.14 use SQLite migration 62, but HRA's first normal launch writes the v0.1.14 build 15 release state and generation fence. That launch or any other state change makes this command refuse without touching either application:
+The ordinary commands never run the retired schema-v2 mutator. When their backup directory contains a schema-v2 `handoff-receipt.json`, they stop with command-specific guidance. Only the isolated v0.1.14 forward-recovery commands below may read the frozen schema-v2 receipt, and only as the exact committed recovery origin they specify.
+
+### Recover an exact v0.1.14 installation forward
+
+Use this path only for an exact published v0.1.14 build 15 app whose frozen schema-v2 handoff receipt is committed. Keep both apps closed. Supply that operation's original backup directory and a new empty recovery directory:
 
 ```sh
-bun run installation:rollback \
-  --backup-directory /absolute/private-backup \
-  --confirm ROLL-BACK-HRA-TO-OPRTE
+bun run installation:forward-recovery \
+  --candidate-app /absolute/path/to/HRA-0.1.15-16-macos-arm64.app \
+  --origin-handoff-backup-directory /absolute/v0.1.14-handoff-backup \
+  --backup-directory /absolute/new/v0.1.15-forward-recovery \
+  --confirm FORWARD-RECOVER-HRA-0.1.14-TO-0.1.15
 ```
 
-Rollback restores filesystem application authority only. It does not lower the control-plane minimum-reader fence or make the restored application a compatible reader. When the state minimum reader is HRA v0.1.11 build 12 or newer, restored OPRTE v0.1.4 build 5 must remain closed. Recover forward with a compatible corrected HRA operator instead of launching OPRTE.
+The operator freezes the exact published v0.1.14 origin, v0.1.15 package, original receipt, installed paths, protected state, and custody observation under its locks. It writes the machine-local enrollment authorization before staging the package. Once the single atomic application swap might have occurred, it never reverses that swap and retains the exact old-app tombstone for explicit cleanup.
 
-There is no destructive state-restore command after HRA has launched or changed
-state. Restoring only the old SQLite tree cannot prove or restore the Keychain
-slots it references, and could bind OPRTE to missing or rotated secrets. After
-the ordinary rollback gate closes, keep HRA authoritative and use forward
-repair plus explicit account, runner, and session reauthentication where
-needed. The pre-cutover backup remains diagnostic evidence, not a complete
-secret-custody restore image.
+Inspect an interrupted operation before deciding what to do:
 
-Keep the backup until the new installation, account flow, and local worktrees have been verified. These commands never rewrite historical tags or releases and never mutate a provider.
+```sh
+bun run installation:forward-status \
+  --backup-directory /absolute/v0.1.15-forward-recovery
+```
+
+Status does not open the UI, database, or release fence. Its bounded no-UI custody probe reports only strict-ACL absence or the enrolled envelope digest. Resume only the exact receipt-bound operation:
+
+```sh
+bun run installation:forward-resume \
+  --backup-directory /absolute/v0.1.15-forward-recovery \
+  --confirm RESUME-FORWARD-HRA-RECOVERY
+```
+
+After status reports `complete`, delete only its verified staging and retained tombstone:
+
+```sh
+bun run installation:forward-cleanup \
+  --backup-directory /absolute/v0.1.15-forward-recovery \
+  --confirm CLEAN-FORWARD-HRA-RECOVERY
+```
+
+The first normal v0.1.15 launch advances enrollment monotonically from its authorized sidecar through prepared custody to `enrolled`. It creates the exact strict-ACL Keychain item only when both the authorization and Keychain absence are proven. An enrolled installation never regenerates that key. A missing item, changed envelope digest, weaker access control, or changed sidecar fails closed.
+
+There is no destructive state-restore command after HRA has launched or changed state. Restoring only the old SQLite tree cannot prove or restore the Keychain slots it references. The pre-cutover and forward-recovery backups remain diagnostic evidence rather than complete secret-custody images. Keep them until the v0.1.15 installation, account flow, and local worktrees have been verified. These commands never rewrite historical tags or releases and never mutate a provider.
 
 ## Verification
 
@@ -221,100 +263,171 @@ bun run --cwd apps/desktop validate
 bun run --cwd apps/desktop doctor:macos
 bun run --cwd apps/desktop test:macos
 bun run --cwd apps/desktop build:macos
-bun run --cwd apps/desktop package:macos:adhoc
+bun run --cwd apps/desktop package:macos:structural
 bun run --cwd apps/desktop package:macos
 ```
 
-`build:macos` produces the ReleaseFast host and native helpers. `package:macos:adhoc` builds the self-contained app, stages the pinned Codex and Git runtimes with their notices, applies an inside-out ad-hoc signature, and creates the DMG and checksum without downloading release source archives. `package:macos` performs the full clean-tree release assembly and creates these artifacts:
+`build:macos` produces the ReleaseFast host and native helpers. `package:macos:structural` creates a temporary build-isolated Keychain and ephemeral CMS chain, signs the structural app inside-out, verifies that the user's Keychain search list was never changed, destroys the fixture custody, and places its signed result at `zig-out/structural/package/HRA-structural.app`. It creates no release DMG. Its manifest is explicitly `releaseEligible: false`; production, DMG, candidate, publication, and download gates reject it.
+
+`package:macos` requires the exact locally provisioned HRA release authority pinned by public root and leaf certificate hashes. It applies self-managed CMS signatures to the outer app, native host, and custody-authorizing helpers. Other HRA-owned nested executables retain exact pinned ad-hoc signatures, including the runtime/JIT gateway. The command verifies the package and adversarial replacement matrix before creating these full clean-tree release artifacts:
 
 ```text
 zig-out/release/macos/arm64/
-  HRA-0.1.14-15-macos-arm64.dmg
-  HRA-0.1.14-15-macos-arm64.dmg.sha256
-  HRA-0.1.14-15-release-manifest.json
+  HRA-0.1.15-16-macos-arm64.dmg
+  HRA-0.1.15-16-macos-arm64.dmg.sha256
+  HRA-0.1.15-16-release-manifest.json
   bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz
   bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz
   git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz
   dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz
 ```
 
-The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access and a clean source tree. CI uses `package:macos:adhoc` to verify the same compiler, runtime, and license pins, app, DMG, and checksum without downloading the large source archives.
+The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
-The root `release-download.json` is the maintained archive contract for the
-published HRA v0.1.14 build 15 prerelease. It names
-`https://github.com/hraness/hra-v0` and records the fixed source commit, tag
-object, runtime-tree digest, artifact byte counts, and SHA-256 digests used by
-the download page.
+The root `release-download.json` is the strict HRA v0.1.15 build 16 download
+and publication contract for `https://github.com/hraness/hra-v0`. While its
+availability is `candidate`, every source object, runtime-tree digest, artifact
+byte count, and SHA-256 field is `null`, and the website exposes no candidate
+download. After publication commit P15 changes it to `published`, the website
+exposes only the exact verified v0.1.15 assets. HRA v0.1.14 remains the frozen
+forward-recovery origin.
 
-The root `release-history.json` is the checked compatibility ledger for tags
-v0.1.7 through v0.1.14. It records each annotated tag object and peeled commit,
-the seven GitHub release IDs, all 49 asset IDs, byte counts, and SHA-256
-digests, and the v0.1.11 tag-only state. The public `/releases` page and remote
-gate consume this one ledger.
+The separate root `release-history.json` remains the generation-0 compatibility
+ledger through C15 and P15. It fixes the v0.1.7–v0.1.14 annotated tags, seven
+immutable GitHub releases, 49 assets, and v0.1.11 tag-only state. Candidate
+verification requires that exact remote set and proves that v0.1.15 has no tag
+or release collision. Published verification requires the exact one-release
+extension: nine tags, eight releases, and 56 assets, with the v0.1.15 tag,
+release, and assets bound to the published contract.
 
-The immutable publication history remains separate from that maintained
-repository coordinate:
+Publication uses two commits so no commit must contain its own object ID. Clean
+candidate C15 retains the null contract; the package, annotated `v0.1.15` tag,
+manifest, app, DMG, and checksum all name C15. P15 must be C15's sole child and
+may change only `release-download.json` to the complete evidence. The verifier
+rejects another changed path or parent, candidate drift, a tag that does not
+peel to C15, or artifacts that do not embed C15 and its runtime-tree digest.
 
-- Candidate C is `7b39c459827b2acf45aa2d911c94fdb5d4f37860`.
-- Publication P is `6221f79b745f154882080936b961ff431569f33e`.
+The immutable v0.1.14 publication remains separate historical evidence:
+
+- Candidate C14 is `7b39c459827b2acf45aa2d911c94fdb5d4f37860`.
+- Publication P14 is `6221f79b745f154882080936b961ff431569f33e`.
 - Annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3`
-  points directly to C.
+  points directly to C14.
 
-C contains the historical candidate contract. P is C's sole child and changes
-only `release-download.json` from that candidate state to the complete
-published evidence. Both commits record the repository's name at publication,
-`https://github.com/hraness/hra`. The GitHub repository rename moves the same
-tag, immutable release, and seven assets to `hraness/hra-v0`; it does not
-recreate or republish them.
+C14 and P14 record the repository's historical name,
+`https://github.com/hraness/hra`. Archive commit
+`de172401f15074c50b687e576d1d9e1538a6f4b6` performs the one reviewed
+`release-download.json` coordinate migration to `hraness/hra-v0`; every other
+contract byte remains fixed. C15 descends from the maintained archive surface,
+so its new candidate and publication contracts use `hraness/hra-v0` directly.
 
-The archive surface performs one reviewed navigation migration in
-`release-download.json`: only the repository coordinate changes from
-`hraness/hra` to `hraness/hra-v0`. Every release, source, and artifact value,
-and every other contract byte, remains equal to P. The source gate proves the
-exact C-to-P transition and tag, requires the checked archive surface to
-descend from P, and requires exactly one single-parent contract change with
-that exact historical-to-archive byte replacement. Another path at P, another
-parent, another contract edit, a rewrite and restore, tag drift, or artifact
-drift fails closed.
-
-Run the archive checks from a clean standalone checkout:
+Run candidate checks from a clean standalone C15 checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
-bun run check:release-source
-bun run verify:remote-release
+bun run --cwd apps/desktop verify:release-candidate
 ```
 
 Release provenance comes from the checkout, never a caller-supplied commit.
-The gate requires the canonical repository top-level with a real `.git`
-directory, a clean tree, no submodules, alternates, grafts, replacement refs,
-shallow history, or included local Git configuration. It rejects inherited
-`GIT_*` variables, runs `/usr/bin/git` with explicit Git and work-tree paths,
-and disables global and system configuration.
+The gate requires the canonical top level with a real `.git` directory, a clean
+tree, and no submodules, alternates, grafts, replacement refs, shallow history,
+included local Git configuration, or inherited `GIT_*` steering.
 
-The remote gate reads the renamed `hraness/hra-v0` repository. It checks the
-exact eight-tag set and annotated tag objects, their peeled commits, the exact
-seven-release and 49-asset set, upload state, canonical URLs, byte counts, and
-GitHub SHA-256 digests. It requires v0.1.11 to remain tag-only. For v0.1.14 it
-also verifies the checksum-to-DMG binding, release manifest, and all four
-corresponding-source records. It does not redownload the multi-gigabyte
-immutable assets. A moved tag, new or missing release, mutable release, or
-asset difference fails closed.
+The candidate command verifies clean C15, collision-free tag state, the DMG,
+checksum, manifest, runtime tree, and exact production signing authority. It
+emits the exact evidence for P15. Historical tags, releases, and assets remain
+immutable inputs and are never rewritten.
 
-The immutable published HRA v0.1.7 build 8, v0.1.8 build 9, v0.1.9 build 10,
-v0.1.10 build 11, v0.1.12 build 13, and v0.1.13 build 14 prereleases remain
-historical evidence.
-The retired tagged-only v0.1.11 build 12 candidate is not a published release
-and must never be accepted as prior installed authority. Do not replace or
-reuse any historical tag, release, version, build, or asset.
+After the full package and candidate verifier pass, create the new direct
+annotated tag and immutable prerelease from the clean standalone C15 checkout.
+Do not use `--clobber`, a glob, or an existing release:
 
-The ad-hoc package proves bundle integrity but does not identify a registered Apple developer. macOS may require **Privacy & Security → Open Anyway** after download. It is not notarized, and automatic updates remain disabled. Developer ID signing, notarization, and publication require separately provisioned release credentials.
+```sh
+git tag -a v0.1.15 -m "HRA v0.1.15" HEAD
+git push origin refs/tags/v0.1.15
+gh release create v0.1.15 \
+  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.15-16-macos-arm64.dmg \
+  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.15-16-macos-arm64.dmg.sha256 \
+  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.15-16-release-manifest.json \
+  apps/desktop/zig-out/release/macos/arm64/bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz \
+  apps/desktop/zig-out/release/macos/arm64/bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz \
+  apps/desktop/zig-out/release/macos/arm64/git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz \
+  apps/desktop/zig-out/release/macos/arm64/dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz \
+  --repo hraness/hra-v0 \
+  --verify-tag \
+  --prerelease \
+  --latest=false \
+  --title "HRA v0.1.15" \
+  --notes-from-tag
+```
+
+GitHub publishes only after every upload succeeds, and repository release
+immutability must report the release immutable. Fill only
+`release-download.json` with the candidate verifier's exact evidence, create
+P15, then run `check:release-source`, `verify:published-release`, and
+`verify:remote-release` from clean P15. The remote gate binds the list and
+per-tag GitHub records, the exact annotated tag, all seven asset IDs, names,
+sizes, and digests, the checksum and manifest, and the four corresponding-source
+records without redownloading the multi-gigabyte DMG.
+
+A later reviewed archive-surface commit Q15 promotes the immutable v0.1.15
+release metadata into generation 1 of `release-history.json`, proves every
+P15-to-Q15 node preserved the exact P15 download contract, and becomes the
+Vercel surface allowlist. Installation recovery runs only from that clean
+promoted source proof.
+
+The production package uses the locally self-managed HRA release-signing
+authority v2 for the outer app, native host, and custody-authorizing helpers.
+The repository contains only its pinned public root and leaf certificates.
+Production packaging requires an operator-supplied isolated Keychain through
+`HRA_RELEASE_SIGNING_KEYCHAIN`; that Keychain must contain exactly those two
+certificates and exactly one private identity for the leaf. It must be a
+canonical owner-private file outside the repository and must not persist in a
+default Keychain, Keychain search list, or system trust store. Set
+`HRA_RELEASE_SIGNING_KEYCHAIN_PASSPHRASE_FILE` to its canonical owner-private
+secret file. Each production signing process verifies and compiles the reviewed
+`runtime/release-keychain-control.c` source into a fresh owner-private temporary
+directory from an exact descriptor-held source snapshot. It signs the helper
+ad hoc with hardened runtime, verifies its exact posture, and admits only the
+helper's code requirement to the private-key ACL. The helper reads the
+passphrase itself, emits no output, and never places it in arguments or
+environment variables. It requires a locked Keychain, exactly one
+nonextractable signing key, the exact helper ACL, no broad ACL, and the isolated
+Keychain's absence from the user search list before and after every operation.
+It unlocks only for one bounded signature and locks immediately afterward. It
+never changes the Keychain search list.
+
+The signer uses Apple's unsupported `SecCodeSignerRemoteCreate` and
+`SecCodeSignerRemoteAddSignature` SPI. It passes the exact ordered leaf and root
+certificate chain directly, omits the local-identity signer parameter, and
+services the single SHA-256/RSA callback with the exact held leaf private key.
+The resulting CMS contains neither a signing-time attribute nor a secure
+timestamp. The package verifier walks the raw CMS, verifies the two embedded
+certificates, and enforces the exact SHA-256, 16 KiB, hardened-runtime,
+requirement, and no-entitlements posture. A disposable live signature is a
+mandatory compatibility preflight. Re-run that gate after every macOS or Xcode
+update because the SPI is not a supported SDK contract. A native 20-second
+guard and a process-group cleanup deadline lock custody on signals, failures,
+and timeouts before the temporary helper is removed.
+
+Release custody assumes the operator account is not already controlled by
+arbitrary same-UID code. Such code can read owner-private files and use the
+operator's publication credentials, so file modes and Keychain ACLs are not a
+security boundary against a compromised account. The packaging path still
+binds inputs, targets, signatures, and artifact snapshots to prevent pathname
+swaps and concurrent mutation from being mistaken for verified evidence.
+
+Other HRA-owned nested executables retain exact pinned ad-hoc signatures,
+including the runtime/JIT gateway. The production authority is intentionally
+outside Apple's system trust and does not identify a registered Apple
+developer. macOS may require **Privacy & Security → Open Anyway** after
+download. The package is not notarized, and automatic updates remain disabled.
 
 Verify an existing package without rebuilding it:
 
 ```sh
 bun run --cwd apps/desktop verify:package:macos
-bun run --cwd apps/desktop verify:package:macos:adhoc
+bun run --cwd apps/desktop verify:package:macos:structural
 ```
 
 The explicit launch smoke starts the packaged native executable and its bundled gateway for a bounded interval, verifies their pinned runtime identity through an owned temporary marker, and then terminates the exact process group. The smoke path does not initialize AppKit, WebKit, updater state, account profiles, or Keychain custody, and removes its private temporary root in `finally`:

@@ -121,6 +121,10 @@ export interface HarnessSecretStore {
   delete(input: HarnessSecretDescriptor): Promise<boolean>;
 }
 
+export interface HarnessEstablishedSecretStore {
+  get(input: HarnessSecretDescriptor): Promise<string | null>;
+}
+
 export const harnessContextKeyScopeSchema = z.object({
   epochId: actorEpochIdSchema,
   ownerActorId: actorIdSchema,
@@ -164,10 +168,17 @@ export const harnessLegacyInstallKeyDescriptor: HarnessSecretDescriptor =
     name: HRA_HARNESS_KEYCHAIN_NAME,
   });
 
-export interface HarnessInstallKeyCustodyOptions {
-  readonly secrets?: HarnessSecretStore;
-  readonly randomMaster?: () => Uint8Array;
-}
+export type HarnessInstallKeyCustodyOptions =
+  | Readonly<{
+      establishedSecrets: HarnessEstablishedSecretStore;
+      randomMaster?: never;
+      secrets?: never;
+    }>
+  | Readonly<{
+      establishedSecrets?: never;
+      randomMaster?: () => Uint8Array;
+      secrets?: HarnessSecretStore;
+    }>;
 
 /**
  * Holds the only installation master in Keychain. Callers receive a key bound
@@ -177,8 +188,9 @@ export interface HarnessInstallKeyCustodyOptions {
  */
 export class HarnessInstallKeyCustody
   implements HarnessContextKeyProvider, HarnessRootKeyProvider {
-  readonly #randomMaster: () => Uint8Array;
-  readonly #secrets: HarnessSecretStore;
+  readonly #createSecrets: HarnessSecretStore | null;
+  readonly #randomMaster: (() => Uint8Array) | null;
+  readonly #readSecrets: HarnessEstablishedSecretStore;
   #generation = 1;
   #lifecycle: "active" | "deleting" | "deleted" = "active";
   #deletePending: Promise<boolean> | null = null;
@@ -195,9 +207,20 @@ export class HarnessInstallKeyCustody
   #resolveBorrowersDrained: (() => void) | null = null;
 
   constructor(options: HarnessInstallKeyCustodyOptions = {}) {
+    if ("establishedSecrets" in options) {
+      if (options.establishedSecrets === undefined) {
+        throw new HarnessKeyCustodyError("custody_unavailable");
+      }
+      this.#createSecrets = null;
+      this.#randomMaster = null;
+      this.#readSecrets = options.establishedSecrets;
+      return;
+    }
+    const secrets = options.secrets ?? unavailableHarnessKeychain;
+    this.#createSecrets = secrets;
     this.#randomMaster = options.randomMaster ??
       (() => randomBytes(HARNESS_INSTALL_MASTER_KEY_BYTES));
-    this.#secrets = options.secrets ?? unavailableHarnessKeychain;
+    this.#readSecrets = secrets;
   }
 
   async withContextKey<T>(
@@ -357,10 +380,16 @@ export class HarnessInstallKeyCustody
     this.#assertActiveGeneration(generation);
     if (existing !== null) return parseInstallMaster(existing);
 
+    const createSecrets = this.#createSecrets;
+    const randomMaster = this.#randomMaster;
+    if (createSecrets === null || randomMaster === null) {
+      throw new HarnessKeyCustodyError("custody_unavailable");
+    }
+
     let generated: Uint8Array;
     let generatedSource: Uint8Array | null = null;
     try {
-      generatedSource = this.#randomMaster();
+      generatedSource = randomMaster();
       generated = Uint8Array.from(generatedSource);
     } catch {
       throw new HarnessKeyCustodyError("key_generation_failed");
@@ -374,7 +403,7 @@ export class HarnessInstallKeyCustody
     const value = serializeHarnessInstallMaster(generated);
     try {
       this.#assertActiveGeneration(generation, generated);
-      await this.#secrets.set({ ...harnessInstallKeyDescriptor, value });
+      await createSecrets.set({ ...harnessInstallKeyDescriptor, value });
     } catch (error: unknown) {
       generated.fill(0);
       if (
@@ -445,7 +474,10 @@ export class HarnessInstallKeyCustody
   readonly #deleteAfterQuiesce = async (): Promise<boolean> => {
     await this.quiesceForExternalDeletion();
     try {
-      const deleted = await this.#secrets.delete(harnessInstallKeyDescriptor);
+      if (this.#createSecrets === null) {
+        throw new HarnessKeyCustodyError("custody_unavailable");
+      }
+      const deleted = await this.#createSecrets.delete(harnessInstallKeyDescriptor);
       this.#lifecycle = "deleted";
       return deleted;
     } catch {
@@ -457,7 +489,7 @@ export class HarnessInstallKeyCustody
 
   readonly #get = async (): Promise<string | null> => {
     try {
-      const value = await this.#secrets.get(harnessInstallKeyDescriptor);
+      const value = await this.#readSecrets.get(harnessInstallKeyDescriptor);
       return value;
     } catch {
       throw new HarnessKeyCustodyError("custody_unavailable");

@@ -77,6 +77,7 @@ describe("native Harness Keychain custody client", () => {
       action: "read",
       ok: true,
       state: "present",
+      strictAcl: true,
       value: envelope(7),
       migratedFromLegacy: true,
       legacyPreserved: true,
@@ -103,6 +104,7 @@ describe("native Harness Keychain custody client", () => {
       action: "read",
       ok: true,
       state: "present",
+      strictAcl: true,
       value,
       migratedFromLegacy: true,
       legacyPreserved: true,
@@ -143,6 +145,7 @@ describe("native Harness Keychain custody client", () => {
       ok: true,
       value: envelope(4),
       created: false,
+      strictAcl: true,
     })).toBeTrue();
     await expectCustodyUnavailable(pending);
   });
@@ -205,6 +208,7 @@ describe("native Harness Keychain custody client", () => {
       action: "read",
       ok: true,
       state: "absent",
+      strictAcl: false,
       value: null,
       migratedFromLegacy: false,
       legacyPreserved: false,
@@ -381,6 +385,172 @@ describe("native Harness Keychain custody client", () => {
     expect(ordinaryError).not.toHaveProperty("legacySubstage");
   });
 
+  test("requires the exact strict ACL posture on every successful native result", () => {
+    const common = {
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: `native-harness-${"a".repeat(24)}`,
+      binding: `binding_${"b".repeat(48)}`,
+      ok: true,
+    } as const;
+    const absent = {
+      ...common,
+      action: "read",
+      legacyPreserved: false,
+      migratedFromLegacy: false,
+      state: "absent",
+      strictAcl: false,
+      value: null,
+    } as const;
+    const present = {
+      ...common,
+      action: "read",
+      legacyPreserved: false,
+      migratedFromLegacy: false,
+      state: "present",
+      strictAcl: true,
+      value: envelope(1),
+    } as const;
+    const created = {
+      ...common,
+      action: "setIfAbsent",
+      created: true,
+      strictAcl: true,
+      value: envelope(1),
+    } as const;
+    expect(nativeHarnessCustodyResultSchema.safeParse(absent).success).toBeTrue();
+    expect(nativeHarnessCustodyResultSchema.safeParse(present).success).toBeTrue();
+    expect(nativeHarnessCustodyResultSchema.safeParse(created).success).toBeTrue();
+    for (const invalid of [
+      { ...absent, strictAcl: true },
+      { ...absent, strictAcl: undefined },
+      { ...present, strictAcl: false },
+      { ...present, strictAcl: undefined },
+      { ...created, strictAcl: false },
+      { ...created, strictAcl: undefined },
+      { ...present, unexpectedAclDetail: true },
+    ]) {
+      expect(nativeHarnessCustodyResultSchema.safeParse(invalid).success)
+        .toBeFalse();
+    }
+  });
+
+  test("exposes exact enrollment inspect and create-only adapters", async () => {
+    const requests: NativeHarnessCustodyRequestEnvelope[] = [];
+    const custody = new NativeHarnessKeyCustody({
+      writeRequest: request => {
+        requests.push(request);
+        return Promise.resolve();
+      },
+    });
+    const adapter = custody.enrollmentKeychainAdapter();
+    const inspecting = adapter.inspectExactNoUi();
+    const readRequest = await nextRequest(requests);
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: readRequest.request.id,
+      binding: readRequest.request.binding,
+      action: "read",
+      ok: true,
+      state: "absent",
+      strictAcl: false,
+      value: null,
+      migratedFromLegacy: false,
+      legacyPreserved: false,
+    })).toBeTrue();
+    expect(await inspecting).toEqual({ state: "absent", strictAcl: false });
+
+    const value = envelope(5);
+    const creating = adapter.createExactIfAbsentNoUi(value);
+    const setRequest = await nextRequest(requests);
+    expect(setRequest.request).toMatchObject({
+      action: "setIfAbsent",
+      value,
+    });
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: setRequest.request.id,
+      binding: setRequest.request.binding,
+      action: "setIfAbsent",
+      ok: true,
+      created: true,
+      strictAcl: true,
+      value,
+    })).toBeTrue();
+    expect(await creating).toEqual({
+      created: true,
+      envelope: value,
+      strictAcl: true,
+    });
+  });
+
+  test("established reader never creates and rejects later absence or digest drift", async () => {
+    const requests: NativeHarnessCustodyRequestEnvelope[] = [];
+    const custody = new NativeHarnessKeyCustody({
+      writeRequest: request => {
+        requests.push(request);
+        return Promise.resolve();
+      },
+    });
+    const value = envelope(6);
+    const digest = createHash("sha256").update(value, "utf8").digest("hex");
+    const reader = custody.establishedSecretReader(digest);
+
+    const first = reader.get(harnessInstallKeyDescriptor);
+    const firstRequest = await nextRequest(requests);
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: firstRequest.request.id,
+      binding: firstRequest.request.binding,
+      action: "read",
+      ok: true,
+      state: "present",
+      strictAcl: true,
+      value,
+      migratedFromLegacy: false,
+      legacyPreserved: false,
+    })).toBeTrue();
+    expect(await first).toBe(value);
+
+    const missing = reader.get(harnessInstallKeyDescriptor);
+    const missingRequest = await nextRequest(requests);
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: missingRequest.request.id,
+      binding: missingRequest.request.binding,
+      action: "read",
+      ok: true,
+      state: "absent",
+      strictAcl: false,
+      value: null,
+      migratedFromLegacy: false,
+      legacyPreserved: false,
+    })).toBeTrue();
+    await expectCustodyUnavailable(missing);
+
+    const mismatched = reader.get(harnessInstallKeyDescriptor);
+    const mismatchedRequest = await nextRequest(requests);
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: mismatchedRequest.request.id,
+      binding: mismatchedRequest.request.binding,
+      action: "read",
+      ok: true,
+      state: "present",
+      strictAcl: true,
+      value: envelope(7),
+      migratedFromLegacy: false,
+      legacyPreserved: false,
+    })).toBeTrue();
+    await expectCustodyUnavailable(mismatched);
+    expect(requests).toHaveLength(0);
+  });
+
   test("expires the Native mutation fence before abandoning its reporter", async () => {
     const requests: NativeHarnessCustodyRequestEnvelope[] = [];
     const custody = new NativeHarnessKeyCustody({
@@ -404,6 +574,7 @@ describe("native Harness Keychain custody client", () => {
       action: "read",
       ok: true,
       state: "absent",
+      strictAcl: false,
       value: null,
       migratedFromLegacy: false,
       legacyPreserved: false,

@@ -47,6 +47,12 @@ export const imageNormalizerPackageContract = Object.freeze({
     /^\.hra-image-normalizer-[0-9a-f]{32}\.tmp$/u,
 } as const);
 
+export const custodyProbeSupervisorPackageContract = Object.freeze({
+  identifier: "hra-custody-probe-supervisor",
+  runtimeRelativePath: "bin/hra-custody-probe-supervisor",
+  sourceRelativePath: "zig-out/bin/hra-custody-probe-supervisor-candidate",
+} as const);
+
 export const requiredLicenseFileNames = Object.freeze([
   "BUN-DEPENDENCY-LICENSES.json",
   "BUN-DEPENDENCY-LICENSES.txt",
@@ -100,6 +106,7 @@ export const requiredLicenseFileNames = Object.freeze([
 ] as const);
 
 export const requiredRuntimeBinFileNames = Object.freeze([
+  custodyProbeSupervisorPackageContract.identifier,
   imageNormalizerPackageContract.identifier,
   "oprte-data-remover",
   "oprte-gateway",
