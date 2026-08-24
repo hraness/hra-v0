@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  HRA_V0_C15_BASE_COMMIT,
+  HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
@@ -276,60 +278,51 @@ describe("hermetic release provenance", () => {
     expect(tag?.object).toMatch(/^[0-9a-f]{40}$/u);
   });
 
-  test("resolves C15 when HEAD is C15 or a later descendant", async () => {
+  test("resolves repaired C15 when HEAD is the candidate or a later descendant", async () => {
     const repositoryRoot = await createRepository();
-    const q14Commit = (await runSetupGit(
+    const reviewedSurfaceCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
-    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
-    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
-    const candidateCommit = (await runSetupGit(
+    const candidateCommit = await commitFixture(
       repositoryRoot,
-      ["rev-parse", "HEAD"],
-    )).trim();
+      "candidate.txt",
+      "repaired C15",
+    );
     const candidateRepository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
     });
     expect(await resolveReleaseCandidateCommit(candidateRepository, {
-      expectedParentCommit: q14Commit,
+      expectedSurfaceCommit: reviewedSurfaceCommit,
     })).toBe(candidateCommit);
 
-    await writeFile(join(repositoryRoot, "follow-up.txt"), "archive follow-up\n");
-    await runSetupGit(repositoryRoot, ["add", "follow-up.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "archive follow-up"]);
+    await commitFixture(repositoryRoot, "follow-up.txt", "archive follow-up");
     const descendantRepository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
     });
     expect(descendantRepository.commit).not.toBe(candidateCommit);
     expect(await resolveReleaseCandidateCommit(descendantRepository, {
-      expectedParentCommit: q14Commit,
+      expectedSurfaceCommit: reviewedSurfaceCommit,
     })).toBe(candidateCommit);
   });
 
-  test("rejects resolving C15 when Q14 has two children on the path to HEAD", async () => {
+  test("rejects resolving repaired C15 when the reviewed surface has two children on the path to HEAD", async () => {
     const repositoryRoot = await createRepository();
-    const q14Commit = (await runSetupGit(
+    const reviewedSurfaceCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
     await runSetupGit(repositoryRoot, ["switch", "-c", "other-child"]);
-    await writeFile(join(repositoryRoot, "other.txt"), "other C15\n");
-    await runSetupGit(repositoryRoot, ["add", "other.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "other C15"]);
+    await commitFixture(repositoryRoot, "other.txt", "other repaired C15");
     await runSetupGit(repositoryRoot, ["switch", "main"]);
-    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
-    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     await runSetupGit(repositoryRoot, [
       "merge",
       "--no-ff",
       "other-child",
-      "-m",
-      "merge two Q14 children",
+      "-m", "merge two reviewed-surface children",
     ]);
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -338,13 +331,19 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       resolveReleaseCandidateCommit(repository, {
-        expectedParentCommit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact reviewed public surface as its only direct parent",
     );
   });
 
-  test("binds C15 to exact Q14 as its sole direct parent", async () => {
+  test("binds repaired C15 to the exact reviewed surface, base C15, and Q14 edges", async () => {
+    expect(HRA_V0_C15_BASE_COMMIT).toBe(
+      "a2948a21eb524e89960cfcbd7b68d7c52ab028b4",
+    );
+    expect(HRA_V0_C15_REVIEWED_SURFACE_COMMIT).toBe(
+      "fd33c4561ea161367f2c516d502f1e88d0998f29",
+    );
     expect(HRA_V0_Q14_SURFACE_COMMIT).toBe(
       "ceb647f7a4a68546fc68ce5e70e770b73c8863eb",
     );
@@ -353,28 +352,49 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
-    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
-    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    const candidateCommit = await commitFixture(
+      repositoryRoot,
+      "candidate.txt",
+      "repaired C15",
+    );
     const repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
     });
 
     expect(await inspectReleaseCandidateLineage(repository, {
-      expectedParentCommit: q14Commit,
+      expectedBaseCommit: baseCommit,
+      expectedQ14Commit: q14Commit,
+      expectedSurfaceCommit: reviewedSurfaceCommit,
     })).toEqual({
-      candidateCommit: repository.commit,
-      parentCommit: q14Commit,
-      status: "exact_q14_candidate_child",
+      baseCommit,
+      candidateCommit,
+      q14Commit,
+      reviewedSurfaceCommit,
+      status: "exact_q14_base_c15_reviewed_surface_repaired_candidate_chain",
     });
   });
 
-  test("rejects a C15 candidate with the wrong direct parent", async () => {
+  test("rejects a repaired candidate with the wrong reviewed-surface parent", async () => {
     const repositoryRoot = await createRepository();
-    await writeFile(join(repositoryRoot, "candidate.txt"), "C15\n");
-    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C15"]);
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "wrong-parent.txt", "wrong candidate parent");
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
@@ -382,29 +402,35 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       inspectReleaseCandidateLineage(repository, {
-        expectedParentCommit: "a".repeat(40),
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact reviewed public surface as its only direct parent",
     );
   });
 
-  test("rejects a merge commit as C15", async () => {
+  test("rejects a merge commit as the repaired candidate", async () => {
     const repositoryRoot = await createRepository();
     const q14Commit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
     await runSetupGit(repositoryRoot, ["switch", "-c", "candidate-side"]);
-    await writeFile(join(repositoryRoot, "candidate.txt"), "side\n");
-    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate side"]);
+    await commitFixture(repositoryRoot, "candidate-side.txt", "candidate side");
     await runSetupGit(repositoryRoot, ["switch", "main"]);
     await runSetupGit(repositoryRoot, [
       "merge",
       "--no-ff",
       "candidate-side",
       "-m",
-      "merge candidate C15",
+      "merge repaired C15",
     ]);
     const repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -413,26 +439,28 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       inspectReleaseCandidateLineage(repository, {
-        expectedParentCommit: q14Commit,
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact reviewed public surface as its only direct parent",
     );
   });
 
-  test("rejects a multi-commit Q14-to-C15 range", async () => {
+  test("rejects a multi-commit reviewed-surface-to-candidate range", async () => {
     const repositoryRoot = await createRepository();
     const q14Commit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
-    for (const [path, message] of [
-      ["intermediate.txt", "intermediate"],
-      ["candidate.txt", "candidate C15"],
-    ] as const) {
-      await writeFile(join(repositoryRoot, path), `${message}\n`);
-      await runSetupGit(repositoryRoot, ["add", path]);
-      await runSetupGit(repositoryRoot, ["commit", "-m", message]);
-    }
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "intermediate.txt", "candidate intermediate");
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
     const repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
@@ -440,9 +468,205 @@ describe("hermetic release provenance", () => {
 
     await expectRejection(
       inspectReleaseCandidateLineage(repository, {
-        expectedParentCommit: q14Commit,
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
       }),
-      "exact Q14 as its only direct parent",
+      "exact reviewed public surface as its only direct parent",
+    );
+  });
+
+  test("rejects a reviewed surface with the wrong base-C15 parent", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    await commitFixture(repositoryRoot, "wrong-parent.txt", "wrong surface parent");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "reviewed HRA v0.1.15 public surface must have exact base C15 as its only direct parent",
+    );
+  });
+
+  test("rejects a merge commit as the reviewed surface", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    await runSetupGit(repositoryRoot, ["switch", "-c", "surface-side"]);
+    await commitFixture(repositoryRoot, "surface-side.txt", "surface side");
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "surface-side",
+      "-m",
+      "merge reviewed surface",
+    ]);
+    const reviewedSurfaceCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "reviewed HRA v0.1.15 public surface must have exact base C15 as its only direct parent",
+    );
+  });
+
+  test("rejects a multi-commit base-C15-to-reviewed-surface range", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    await commitFixture(repositoryRoot, "intermediate.txt", "surface intermediate");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "reviewed HRA v0.1.15 public surface must have exact base C15 as its only direct parent",
+    );
+  });
+
+  test("rejects a base C15 with the wrong Q14 parent", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await commitFixture(repositoryRoot, "wrong-parent.txt", "wrong Q14 parent");
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "base commit must have exact Q14 as its only direct parent",
+    );
+  });
+
+  test("rejects a merge commit as base C15", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await runSetupGit(repositoryRoot, ["switch", "-c", "base-side"]);
+    await commitFixture(repositoryRoot, "base-side.txt", "base side");
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "base-side",
+      "-m",
+      "merge base C15",
+    ]);
+    const baseCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "base commit must have exact Q14 as its only direct parent",
+    );
+  });
+
+  test("rejects a multi-commit Q14-to-base-C15 range", async () => {
+    const repositoryRoot = await createRepository();
+    const q14Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await commitFixture(repositoryRoot, "intermediate.txt", "base intermediate");
+    const baseCommit = await commitFixture(repositoryRoot, "base.txt", "base C15");
+    const reviewedSurfaceCommit = await commitFixture(
+      repositoryRoot,
+      "reviewed-surface.txt",
+      "reviewed C15 public surface",
+    );
+    await commitFixture(repositoryRoot, "candidate.txt", "repaired C15");
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleaseCandidateLineage(repository, {
+        expectedBaseCommit: baseCommit,
+        expectedQ14Commit: q14Commit,
+        expectedSurfaceCommit: reviewedSurfaceCommit,
+      }),
+      "base commit must have exact Q14 as its only direct parent",
     );
   });
 
@@ -721,6 +945,17 @@ async function createRepository(): Promise<string> {
   await runSetupGit(root, ["add", "source.txt"]);
   await runSetupGit(root, ["commit", "-m", "initial"]);
   return root;
+}
+
+async function commitFixture(
+  repositoryRoot: string,
+  path: string,
+  message: string,
+): Promise<string> {
+  await writeFile(join(repositoryRoot, path), `${message}\n`);
+  await runSetupGit(repositoryRoot, ["add", path]);
+  await runSetupGit(repositoryRoot, ["commit", "-m", message]);
+  return (await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])).trim();
 }
 
 async function createTemporaryDirectory(prefix: string): Promise<string> {

@@ -26,6 +26,14 @@ export const HRA_CANONICAL_REPOSITORY =
 export const HRA_V0_Q14_SURFACE_COMMIT =
   "ceb647f7a4a68546fc68ce5e70e770b73c8863eb" as const;
 
+/** Original merged HRA v0.1.15 candidate whose repaired child is released. */
+export const HRA_V0_C15_BASE_COMMIT =
+  "a2948a21eb524e89960cfcbd7b68d7c52ab028b4" as const;
+
+/** Reviewed public surface immediately before the repaired release candidate. */
+export const HRA_V0_C15_REVIEWED_SURFACE_COMMIT =
+  "fd33c4561ea161367f2c516d502f1e88d0998f29" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
@@ -69,9 +77,11 @@ export interface ReleasePublicationEvidence {
 }
 
 export interface ReleaseCandidateLineageEvidence {
+  readonly baseCommit: string;
   readonly candidateCommit: string;
-  readonly parentCommit: string;
-  readonly status: "exact_q14_candidate_child";
+  readonly q14Commit: string;
+  readonly reviewedSurfaceCommit: string;
+  readonly status: "exact_q14_base_c15_reviewed_surface_repaired_candidate_chain";
 }
 
 export interface CanonicalReleasePublicationEvidence {
@@ -216,18 +226,19 @@ export async function inspectReleaseTag(
 }
 
 /**
- * Find the unique C15 commit on the path from Q14 to HEAD. HEAD may be C15 or
- * a later descendant; packaging still requires a standalone C15 checkout.
+ * Find the unique repaired C15 candidate on the path from the reviewed public
+ * surface to HEAD. HEAD may be the candidate or a later descendant; packaging
+ * still requires a standalone candidate checkout.
  */
 export async function resolveReleaseCandidateCommit(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
-    expectedParentCommit?: string;
+    expectedSurfaceCommit?: string;
   }> = {},
 ): Promise<string> {
-  const expectedParentCommit = requireObjectId(
-    options.expectedParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
-    "HRA v0.1.15 Q14 parent commit",
+  const expectedSurfaceCommit = requireObjectId(
+    options.expectedSurfaceCommit ?? HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+    "HRA v0.1.15 reviewed public surface commit",
   );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
@@ -236,61 +247,73 @@ export async function resolveReleaseCandidateCommit(
   let mergeBase: string;
   try {
     mergeBase = requireObjectId(
-      await runner.run(["merge-base", expectedParentCommit, repository.commit]),
-      "HRA v0.1.15 Q14 merge base",
+      await runner.run(["merge-base", expectedSurfaceCommit, repository.commit]),
+      "HRA v0.1.15 reviewed public surface merge base",
     );
   } catch {
     throw new Error(
-      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+      "The repaired HRA v0.1.15 candidate must have exact reviewed public surface as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedParentCommit) {
+  if (mergeBase !== expectedSurfaceCommit) {
     throw new Error(
-      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+      "The repaired HRA v0.1.15 candidate must have exact reviewed public surface as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedParentCommit}..${repository.commit}`,
+    `${expectedSurfaceCommit}..${repository.commit}`,
   ])).trim();
-  const q14Children: string[] = [];
+  const surfaceChildren: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedParentCommit) {
-      q14Children.push(requireObjectId(commit, "HRA v0.1.15 candidate commit"));
+    if (parents.length === 1 && parents[0] === expectedSurfaceCommit) {
+      surfaceChildren.push(
+        requireObjectId(commit, "HRA v0.1.15 repaired candidate commit"),
+      );
     }
   }
-  if (q14Children.length !== 1) {
+  if (surfaceChildren.length !== 1) {
     throw new Error(
-      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+      "The repaired HRA v0.1.15 candidate must have exact reviewed public surface as its only direct parent.",
     );
   }
-  return q14Children[0] ?? "";
+  return surfaceChildren[0] ?? "";
 }
 
 /**
- * Bind C15 to the final reviewed Q14 archive surface. The optional expected
- * parent is a focused-test seam; production callers always use the pinned Q14
- * object above.
+ * Bind repaired C15 to the reviewed public surface, original merged C15 base,
+ * and final reviewed Q14 archive surface. Optional expected objects are
+ * focused-test seams; production callers use the three pinned objects above.
  */
 export async function inspectReleaseCandidateLineage(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
     candidateCommit?: string;
-    expectedParentCommit?: string;
+    expectedBaseCommit?: string;
+    expectedQ14Commit?: string;
+    expectedSurfaceCommit?: string;
   }> = {},
 ): Promise<ReleaseCandidateLineageEvidence> {
   const candidateCommit = requireObjectId(
     options.candidateCommit ?? repository.commit,
     "HRA v0.1.15 candidate commit",
   );
-  const expectedParentCommit = requireObjectId(
-    options.expectedParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
-    "HRA v0.1.15 Q14 parent commit",
+  const expectedSurfaceCommit = requireObjectId(
+    options.expectedSurfaceCommit ?? HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+    "HRA v0.1.15 reviewed public surface commit",
+  );
+  const expectedBaseCommit = requireObjectId(
+    options.expectedBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+    "HRA v0.1.15 base commit",
+  );
+  const expectedQ14Commit = requireObjectId(
+    options.expectedQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
+    "HRA v0.1.15 Q14 commit",
   );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
@@ -299,16 +322,20 @@ export async function inspectReleaseCandidateLineage(
   return await inspectReleaseCandidateLineageWithRunner(
     runner,
     candidateCommit,
-    expectedParentCommit,
+    expectedSurfaceCommit,
+    expectedBaseCommit,
+    expectedQ14Commit,
   );
 }
 
 async function inspectReleaseCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
-  expectedParentCommit: string,
+  expectedSurfaceCommit: string,
+  expectedBaseCommit: string,
+  expectedQ14Commit: string,
 ): Promise<ReleaseCandidateLineageEvidence> {
-  const ancestry = (await runner.run([
+  const candidateAncestry = (await runner.run([
     "rev-list",
     "--parents",
     "-n",
@@ -316,18 +343,52 @@ async function inspectReleaseCandidateLineageWithRunner(
     candidateCommit,
   ])).trim().split(/\s+/u);
   if (
-    ancestry.length !== 2
-    || ancestry[0] !== candidateCommit
-    || ancestry[1] !== expectedParentCommit
+    candidateAncestry.length !== 2
+    || candidateAncestry[0] !== candidateCommit
+    || candidateAncestry[1] !== expectedSurfaceCommit
   ) {
     throw new Error(
-      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+      "The repaired HRA v0.1.15 candidate must have exact reviewed public surface as its only direct parent.",
+    );
+  }
+  const surfaceAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedSurfaceCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    surfaceAncestry.length !== 2
+    || surfaceAncestry[0] !== expectedSurfaceCommit
+    || surfaceAncestry[1] !== expectedBaseCommit
+  ) {
+    throw new Error(
+      "The reviewed HRA v0.1.15 public surface must have exact base C15 as its only direct parent.",
+    );
+  }
+  const baseAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedBaseCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    baseAncestry.length !== 2
+    || baseAncestry[0] !== expectedBaseCommit
+    || baseAncestry[1] !== expectedQ14Commit
+  ) {
+    throw new Error(
+      "The HRA v0.1.15 base commit must have exact Q14 as its only direct parent.",
     );
   }
   return Object.freeze({
+    baseCommit: expectedBaseCommit,
     candidateCommit,
-    parentCommit: expectedParentCommit,
-    status: "exact_q14_candidate_child",
+    q14Commit: expectedQ14Commit,
+    reviewedSurfaceCommit: expectedSurfaceCommit,
+    status: "exact_q14_base_c15_reviewed_surface_repaired_candidate_chain",
   });
 }
 
@@ -799,8 +860,9 @@ export async function inspectReleasePublicationObjectStore(options: Readonly<{
 }
 
 /**
- * Fetch only the exact provider commit, its parent, and the release tag from
- * the fixed public HRA repository. Vercel's ambient shallow checkout is never
+ * Fetch only the exact P15 publication, repaired C15 candidate, reviewed
+ * public surface, base C15, and Q14 ancestry plus the release tag from the
+ * fixed public HRA repository. Vercel's ambient shallow checkout is never
  * trusted or inspected.
  */
 export async function inspectCanonicalReleasePublication(options: Readonly<{
@@ -835,7 +897,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=3",
+      "--depth=5",
       "--filter=blob:limit=32768",
       "canonical",
       publicationCommit,
@@ -846,7 +908,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=2",
+      "--depth=4",
       "--filter=blob:limit=32768",
       "canonical",
       `${tagRef}:${tagRef}`,
@@ -860,6 +922,8 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
     await inspectReleaseCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+      HRA_V0_C15_BASE_COMMIT,
       HRA_V0_Q14_SURFACE_COMMIT,
     );
     return evidence;

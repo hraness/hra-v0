@@ -35,7 +35,64 @@ import {
   verifyRegularReleaseEntries,
 } from "../verify-macos-package";
 
+function objectiveCFunctionSource(source: string, signature: string): string {
+  const signatureIndex = source.indexOf(signature);
+  if (signatureIndex < 0) {
+    throw new Error(`Missing Objective-C function signature: ${signature}`);
+  }
+  const bodyIndex = source.indexOf("{", signatureIndex + signature.length);
+  if (bodyIndex < 0) {
+    throw new Error(`Missing Objective-C function body: ${signature}`);
+  }
+  let depth = 0;
+  for (let index = bodyIndex; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(signatureIndex, index + 1);
+    }
+  }
+  throw new Error(`Unterminated Objective-C function body: ${signature}`);
+}
+
 describe("macOS package contract", () => {
+  test("keeps signed helper paths byte-exact across private-tmp aliases", async () => {
+    const gatewayAttestationSource = await readFile(
+      new URL("../../src/macos_gateway_attestation.m", import.meta.url),
+      "utf8",
+    );
+    const keychainCustodianSource = await readFile(
+      new URL("../../src/macos_keychain_custodian.m", import.meta.url),
+      "utf8",
+    );
+
+    const gatewayPathPolicy = objectiveCFunctionSource(
+      gatewayAttestationSource,
+      "static bool HRAPathIsCanonical(",
+    );
+    expect(gatewayPathPolicy).not.toContain("stringByStandardizingPath");
+    expect(gatewayPathPolicy).toContain("realpath(representation, resolved)");
+    expect(gatewayPathPolicy).toContain("strcmp(representation, resolved) == 0");
+
+    expect(keychainCustodianSource).not.toContain("stringByStandardizingPath");
+    const custodianPathPolicy = objectiveCFunctionSource(
+      keychainCustodianSource,
+      "static bool HRAPathResolvesToItself(",
+    );
+    expect(custodianPathPolicy).toContain("realpath(representation, resolved)");
+    expect(custodianPathPolicy).toContain("strcmp(representation, resolved) == 0");
+
+    for (const signature of [
+      "static NSDictionary *_Nullable HRACopyStaticCustodianIdentity(",
+      "static NSDictionary *_Nullable HRACopyStaticLegacyGatewayIdentity(",
+      "bool hra_macos_run_attested_keychain_custodian(",
+      "bool hra_macos_run_attested_legacy_harness_custody(",
+    ]) {
+      expect(objectiveCFunctionSource(keychainCustodianSource, signature))
+        .toContain("HRAPathResolvesToItself(");
+    }
+  });
+
   test("parses only canonical pathless custody status receipts", () => {
     expect(parseCanonicalMacOSCustodyStatus(
       '{"schemaVersion":1,"state":"absent"}\n',

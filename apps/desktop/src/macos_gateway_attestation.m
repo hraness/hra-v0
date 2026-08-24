@@ -121,10 +121,7 @@ static bool HRAFileIdentityMatches(
 }
 
 static bool HRAPathIsCanonical(NSString *path) {
-  if (path == nil || ![path hasPrefix:@"/"] ||
-      ![path isEqualToString:path.stringByStandardizingPath]) {
-    return false;
-  }
+  if (path == nil || ![path hasPrefix:@"/"]) return false;
   char resolved[PATH_MAX];
   memset(resolved, 0, sizeof(resolved));
   const char *representation = path.fileSystemRepresentation;
