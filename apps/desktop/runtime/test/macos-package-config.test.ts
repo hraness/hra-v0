@@ -56,6 +56,55 @@ function objectiveCFunctionSource(source: string, signature: string): string {
 }
 
 describe("macOS package contract", () => {
+  test("canonicalizes the staged DMG path before strict verification", async () => {
+    const [creatorSource, verifierSource] = await Promise.all([
+      readFile(new URL("../create-dmg.ts", import.meta.url), "utf8"),
+      readFile(new URL("../verify-macos-package.ts", import.meta.url), "utf8"),
+    ]);
+    expect(creatorSource).toContain(
+      "const temporaryRoot = await realpath(\n" +
+      "    await mkdtemp(join(tmpdir(), \"hra-dmg-create-\")),\n" +
+      "  );",
+    );
+    expect(verifierSource).toContain("await realpath(dmgPath) !== dmgPath");
+  });
+
+  test("keeps packaged custody probes within the native response bound", async () => {
+    const [hostSource, nativeSource] = await Promise.all([
+      readFile(new URL("../../src/runtime_host.zig", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../src/macos_keychain_custodian.m", import.meta.url),
+        "utf8",
+      ),
+    ]);
+    const hostMaximum =
+      /const custody_helper_maximum_response_bytes = ([0-9]+);/u
+        .exec(hostSource)?.[1];
+    const nativeMaximum = /HRACustodianMaximumResponseBytes = ([0-9]+);/u
+      .exec(nativeSource)?.[1];
+    expect(hostMaximum).toBe("512");
+    expect(hostMaximum).toBe(nativeMaximum);
+    for (const nextSignature of [
+      "pub fn runPackagedCustodyAuthorizationProbe(",
+      "pub fn runPackagedCustodyStatusProbe(",
+    ]) {
+      const start = hostSource.indexOf(nextSignature);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const nextFunction = hostSource.indexOf(
+        "\nfn ",
+        start + nextSignature.length,
+      );
+      const body = hostSource.slice(
+        start,
+        nextFunction < 0 ? hostSource.length : nextFunction,
+      );
+      expect(body).toContain(
+        "var response: [custody_helper_maximum_response_bytes]u8",
+      );
+      expect(body).not.toContain("var response: [1024]u8");
+    }
+  });
+
   test("keeps signed helper paths byte-exact across private-tmp aliases", async () => {
     const gatewayAttestationSource = await readFile(
       new URL("../../src/macos_gateway_attestation.m", import.meta.url),

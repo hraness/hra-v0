@@ -31,6 +31,7 @@ import {
   HRA_CANONICAL_REPOSITORY,
   HRA_HISTORICAL_PUBLICATION_REPOSITORY,
   HRA_V0_C15_BASE_COMMIT,
+  HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
   HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
   HRA_V0_C15_HOST_TRUST_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
@@ -273,6 +274,7 @@ export type RemoteReleaseGateEvidence = RemoteReleaseStateEvidence;
 
 type ReleaseSourceStateOptions = Readonly<{
   candidateBaseCommit?: string;
+  candidateBundleCodeAuthorityCommit?: string;
   candidateCustodyRepairCommit?: string;
   candidateHostTrustCommit?: string;
   candidateQ14Commit?: string;
@@ -695,6 +697,9 @@ export async function verifyReleaseSourceState(
 ): Promise<ReleaseSourceGateEvidence> {
   if (contract.release.availability === "candidate") {
     const repository = await inspectReleaseSourceRepository(options);
+    const expectedBundleCodeAuthorityCommit =
+      options.candidateBundleCodeAuthorityCommit ??
+      HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT;
     const expectedCustodyRepairCommit =
       options.candidateCustodyRepairCommit ?? HRA_V0_C15_CUSTODY_REPAIR_COMMIT;
     const expectedHostTrustCommit =
@@ -702,12 +707,13 @@ export async function verifyReleaseSourceState(
     const expectedSurfaceCommit =
       options.candidateSurfaceCommit ?? HRA_V0_C15_REVIEWED_SURFACE_COMMIT;
     const candidateCommit = await resolveReleaseCandidateCommit(repository, {
-      expectedHostTrustCommit,
+      expectedBundleCodeAuthorityCommit,
     });
     await inspectReleaseCandidateLineage(repository, {
       candidateCommit,
       expectedBaseCommit:
         options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+      expectedBundleCodeAuthorityCommit,
       expectedCustodyRepairCommit,
       expectedHostTrustCommit,
       expectedQ14Commit:
@@ -734,6 +740,9 @@ export async function verifyReleaseSourceState(
         {
           expectedBaseCommit:
             options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+          expectedBundleCodeAuthorityCommit:
+            options.candidateBundleCodeAuthorityCommit ??
+            HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
           expectedCustodyRepairCommit:
             options.candidateCustodyRepairCommit ??
             HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
@@ -822,6 +831,7 @@ export async function verifyPublishedReleaseSourceEvidence(
   repository: ReleaseRepositoryEvidence,
   expectations: Readonly<{
     expectedBaseCommit?: string;
+    expectedBundleCodeAuthorityCommit?: string;
     expectedCustodyRepairCommit?: string;
     expectedHostTrustCommit?: string;
     expectedQ14Commit?: string;
@@ -838,6 +848,9 @@ export async function verifyPublishedReleaseSourceEvidence(
       candidateCommit: contract.release.source.commit,
       expectedBaseCommit:
         expectations.expectedBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
+      expectedBundleCodeAuthorityCommit:
+        expectations.expectedBundleCodeAuthorityCommit ??
+        HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
       expectedCustodyRepairCommit:
         expectations.expectedCustodyRepairCommit ??
         HRA_V0_C15_CUSTODY_REPAIR_COMMIT,

@@ -38,9 +38,13 @@ export const HRA_V0_C15_REVIEWED_SURFACE_COMMIT =
 export const HRA_V0_C15_CUSTODY_REPAIR_COMMIT =
   "045ee7b4b23ea1b61392d0a782f619f2d946eeaf" as const;
 
-/** Reviewed host-trust repair immediately before the final release candidate. */
+/** Reviewed host-trust repair immediately before bundle-code authority. */
 export const HRA_V0_C15_HOST_TRUST_COMMIT =
   "7d284b48577b5747a247cef31952de3c7f7338cd" as const;
+
+/** Reviewed bundle-code authority immediately before the final release candidate. */
+export const HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT =
+  "22f6f21985af4a000f51e2acf8747501fa12536c" as const;
 
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
@@ -86,12 +90,13 @@ export interface ReleasePublicationEvidence {
 
 export interface ReleaseCandidateLineageEvidence {
   readonly baseCommit: string;
+  readonly bundleCodeAuthorityCommit: string;
   readonly candidateCommit: string;
   readonly custodyRepairCommit: string;
   readonly hostTrustCommit: string;
   readonly q14Commit: string;
   readonly reviewedSurfaceCommit: string;
-  readonly status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_final_candidate_chain";
+  readonly status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_bundle_code_authority_final_candidate_chain";
 }
 
 export interface CanonicalReleasePublicationEvidence {
@@ -236,19 +241,20 @@ export async function inspectReleaseTag(
 }
 
 /**
- * Find the unique final C15 candidate on the path from the reviewed host-trust
- * repair to HEAD. HEAD may be the candidate or a later descendant; packaging
- * still requires a standalone candidate checkout.
+ * Find the unique final C15 candidate on the path from the reviewed
+ * bundle-code-authority commit to HEAD. HEAD may be the candidate or a later
+ * descendant; packaging still requires a standalone candidate checkout.
  */
 export async function resolveReleaseCandidateCommit(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
-    expectedHostTrustCommit?: string;
+    expectedBundleCodeAuthorityCommit?: string;
   }> = {},
 ): Promise<string> {
-  const expectedHostTrustCommit = requireObjectId(
-    options.expectedHostTrustCommit ?? HRA_V0_C15_HOST_TRUST_COMMIT,
-    "HRA v0.1.15 host-trust commit",
+  const expectedBundleCodeAuthorityCommit = requireObjectId(
+    options.expectedBundleCodeAuthorityCommit ??
+      HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
+    "HRA v0.1.15 bundle-code-authority commit",
   );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
@@ -259,57 +265,61 @@ export async function resolveReleaseCandidateCommit(
     mergeBase = requireObjectId(
       await runner.run([
         "merge-base",
-        expectedHostTrustCommit,
+        expectedBundleCodeAuthorityCommit,
         repository.commit,
       ]),
-      "HRA v0.1.15 host-trust merge base",
+      "HRA v0.1.15 bundle-code-authority merge base",
     );
   } catch {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact bundle-code-authority commit as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedHostTrustCommit) {
+  if (mergeBase !== expectedBundleCodeAuthorityCommit) {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact bundle-code-authority commit as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedHostTrustCommit}..${repository.commit}`,
+    `${expectedBundleCodeAuthorityCommit}..${repository.commit}`,
   ])).trim();
-  const hostTrustChildren: string[] = [];
+  const bundleCodeAuthorityChildren: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedHostTrustCommit) {
-      hostTrustChildren.push(
+    if (
+      parents.length === 1
+      && parents[0] === expectedBundleCodeAuthorityCommit
+    ) {
+      bundleCodeAuthorityChildren.push(
         requireObjectId(commit, "HRA v0.1.15 final candidate commit"),
       );
     }
   }
-  if (hostTrustChildren.length !== 1) {
+  if (bundleCodeAuthorityChildren.length !== 1) {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact bundle-code-authority commit as its only direct parent.",
     );
   }
-  return hostTrustChildren[0] ?? "";
+  return bundleCodeAuthorityChildren[0] ?? "";
 }
 
 /**
- * Bind final C15 to the reviewed host-trust repair, merged custody repair,
- * reviewed public surface, original merged C15 base, and final reviewed Q14
- * archive surface. Optional expected objects are focused-test seams;
- * production callers use the pinned objects above.
+ * Bind final C15 to reviewed bundle-code authority, the host-trust repair,
+ * merged custody repair, reviewed public surface, original merged C15 base,
+ * and final reviewed Q14 archive surface. Optional expected objects are
+ * focused-test seams; production callers use the pinned objects above.
  */
 export async function inspectReleaseCandidateLineage(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
     candidateCommit?: string;
     expectedBaseCommit?: string;
+    expectedBundleCodeAuthorityCommit?: string;
     expectedCustodyRepairCommit?: string;
     expectedHostTrustCommit?: string;
     expectedQ14Commit?: string;
@@ -319,6 +329,11 @@ export async function inspectReleaseCandidateLineage(
   const candidateCommit = requireObjectId(
     options.candidateCommit ?? repository.commit,
     "HRA v0.1.15 candidate commit",
+  );
+  const expectedBundleCodeAuthorityCommit = requireObjectId(
+    options.expectedBundleCodeAuthorityCommit ??
+      HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
+    "HRA v0.1.15 bundle-code-authority commit",
   );
   const expectedCustodyRepairCommit = requireObjectId(
     options.expectedCustodyRepairCommit ?? HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
@@ -347,6 +362,7 @@ export async function inspectReleaseCandidateLineage(
   return await inspectReleaseCandidateLineageWithRunner(
     runner,
     candidateCommit,
+    expectedBundleCodeAuthorityCommit,
     expectedHostTrustCommit,
     expectedCustodyRepairCommit,
     expectedSurfaceCommit,
@@ -358,6 +374,7 @@ export async function inspectReleaseCandidateLineage(
 async function inspectReleaseCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
+  expectedBundleCodeAuthorityCommit: string,
   expectedHostTrustCommit: string,
   expectedCustodyRepairCommit: string,
   expectedSurfaceCommit: string,
@@ -374,10 +391,26 @@ async function inspectReleaseCandidateLineageWithRunner(
   if (
     candidateAncestry.length !== 2
     || candidateAncestry[0] !== candidateCommit
-    || candidateAncestry[1] !== expectedHostTrustCommit
+    || candidateAncestry[1] !== expectedBundleCodeAuthorityCommit
   ) {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact bundle-code-authority commit as its only direct parent.",
+    );
+  }
+  const bundleCodeAuthorityAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedBundleCodeAuthorityCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    bundleCodeAuthorityAncestry.length !== 2
+    || bundleCodeAuthorityAncestry[0] !== expectedBundleCodeAuthorityCommit
+    || bundleCodeAuthorityAncestry[1] !== expectedHostTrustCommit
+  ) {
+    throw new Error(
+      "The HRA v0.1.15 bundle-code-authority commit must have exact host-trust repair as its only direct parent.",
     );
   }
   const hostTrustAncestry = (await runner.run([
@@ -446,12 +479,13 @@ async function inspectReleaseCandidateLineageWithRunner(
   }
   return Object.freeze({
     baseCommit: expectedBaseCommit,
+    bundleCodeAuthorityCommit: expectedBundleCodeAuthorityCommit,
     candidateCommit,
     custodyRepairCommit: expectedCustodyRepairCommit,
     hostTrustCommit: expectedHostTrustCommit,
     q14Commit: expectedQ14Commit,
     reviewedSurfaceCommit: expectedSurfaceCommit,
-    status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_final_candidate_chain",
+    status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_bundle_code_authority_final_candidate_chain",
   });
 }
 
@@ -923,10 +957,10 @@ export async function inspectReleasePublicationObjectStore(options: Readonly<{
 }
 
 /**
- * Fetch only the exact P15 publication, final C15 candidate, host-trust repair,
- * custody repair, reviewed public surface, base C15, and Q14 ancestry plus the
- * release tag from the fixed public HRA repository. Vercel's ambient shallow
- * checkout is never trusted or inspected.
+ * Fetch only the exact P15 publication, final C15 candidate, bundle-code
+ * authority, host-trust repair, custody repair, reviewed public surface, base
+ * C15, and Q14 ancestry plus the release tag from the fixed public HRA
+ * repository. Vercel's ambient shallow checkout is never trusted or inspected.
  */
 export async function inspectCanonicalReleasePublication(options: Readonly<{
   candidateCommit: string;
@@ -960,7 +994,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=7",
+      "--depth=8",
       "--filter=blob:limit=32768",
       "canonical",
       publicationCommit,
@@ -971,7 +1005,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=6",
+      "--depth=7",
       "--filter=blob:limit=32768",
       "canonical",
       `${tagRef}:${tagRef}`,
@@ -985,6 +1019,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
     await inspectReleaseCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
       HRA_V0_C15_HOST_TRUST_COMMIT,
       HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
       HRA_V0_C15_REVIEWED_SURFACE_COMMIT,

@@ -823,6 +823,7 @@ const CustodyAuthorizationAuthority = struct {
     gateway_file_sha256: [64]u8,
     renderer_authority_sha256: [64]u8,
 };
+const custody_helper_maximum_response_bytes = 512;
 
 fn parseAuthorizationProbeResponse(
     response: []const u8,
@@ -963,7 +964,7 @@ fn runPackagedCustodyHelperProbe(
 /// independent package verifier can bind them to the final package bytes.
 pub fn runPackagedCustodyAuthorizationProbe(init: std.process.Init) !void {
     const request = "{\"action\":\"authorize\",\"version\":1}";
-    var response: [1024]u8 = undefined;
+    var response: [custody_helper_maximum_response_bytes]u8 = undefined;
     defer secureWipe(&response);
     const response_length = try runPackagedCustodyHelperProbe(
         init,
@@ -1045,7 +1046,7 @@ fn parseCustodyStatusResponse(response: []const u8) ?CustodyStatus {
 /// envelope digest, never the envelope or any filesystem path.
 pub fn runPackagedCustodyStatusProbe(init: std.process.Init) !void {
     const request = "{\"action\":\"status\",\"version\":1}";
-    var response: [1024]u8 = undefined;
+    var response: [custody_helper_maximum_response_bytes]u8 = undefined;
     defer secureWipe(&response);
     const response_length = try runPackagedCustodyHelperProbe(
         init,
