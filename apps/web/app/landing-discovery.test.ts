@@ -219,7 +219,7 @@ describe("HRA public discovery contract", () => {
     expect(image).toContain('export const alt = "HRA v0: archived Codex metaharness"');
     expect(image).toContain("height: 630, width: 1200");
     expect(image).toContain("HRA v0 is preserved here.");
-    expect(image).toContain("Final v0.1.14 prerelease · Public source · Preserved history");
+    expect(image).toContain("Archived releases · Public source · Preserved history");
   });
 
   test("renders the local phoenix into the full-size social card", async () => {

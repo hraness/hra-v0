@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   authoritiesOverlap,
   inspectProspectivePathAuthority,
+  renameSwapForwardOnly,
   renameWithPathAuthority,
   revalidatePathAuthority,
 } from "../installation-path-authority";
@@ -167,6 +168,45 @@ describe("installation path authority", () => {
     );
     expect(await Bun.file(destinationPath).text()).toBe("candidate");
     expect(await Bun.file(sourcePath).text()).toBe("prior");
+  });
+
+  test("forward-only exchange performs the exact swap", async () => {
+    const base = await root();
+    const sourcePath = join(base, "candidate.bundle");
+    const destinationPath = join(base, "HRA.app");
+    await writeFile(sourcePath, "candidate");
+    await writeFile(destinationPath, "prior");
+    const result = await renameSwapForwardOnly(
+      await inspectProspectivePathAuthority(sourcePath, "source"),
+      await inspectProspectivePathAuthority(destinationPath, "destination"),
+    );
+    expect(result.status).toBe("published");
+    expect(await Bun.file(destinationPath).text()).toBe("candidate");
+    expect(await Bun.file(sourcePath).text()).toBe("prior");
+  });
+
+  test("forward-only exchange reports an unknown postcondition without compensation", async () => {
+    const base = await root();
+    const sourcePath = join(base, "candidate.bundle");
+    const destinationPath = join(base, "HRA.app");
+    const displacedPath = join(base, "displaced-prior.bundle");
+    await writeFile(sourcePath, "candidate");
+    await writeFile(destinationPath, "prior");
+    const result = await renameSwapForwardOnly(
+      await inspectProspectivePathAuthority(sourcePath, "source"),
+      await inspectProspectivePathAuthority(destinationPath, "destination"),
+      {
+        beforeRenameForTest: async () => {
+          await rename(destinationPath, displacedPath);
+          await writeFile(destinationPath, "racer");
+        },
+      },
+    );
+    expect(result.status).toBe("postcondition_unknown_after_swap");
+    // One RENAME_SWAP occurred: a compensating swap would put candidate back.
+    expect(await Bun.file(destinationPath).text()).toBe("candidate");
+    expect(await Bun.file(sourcePath).text()).toBe("racer");
+    expect(await Bun.file(displacedPath).text()).toBe("prior");
   });
 
   test("detects an exchanged target replacement and restores the observed names", async () => {

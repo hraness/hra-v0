@@ -1,14 +1,18 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   HRA_HUMAN_KEYCHAIN_SERVICE,
   HRA_RUNNER_KEYCHAIN_SERVICE,
 } from "@hraness/hra-human-client";
 
 import {
-  parseInstallationHandoffJournal,
   readKeychainTargets,
 } from "../installation-handoff";
+import {
+  parseFrozenV0114InstallationHandoffReceipt,
+} from "../frozen-v0114-installation-handoff-receipt";
 import {
   expectedHistoricalOprtePreviewSignature,
   expectedHistoricalOprtePreviewTree,
@@ -89,15 +93,25 @@ function receipt(
 
 describe("installation handoff receipt schema", () => {
   test("accepts only the exact v0.1.14 build-15 evidence shape", () => {
-    expect(parseInstallationHandoffJournal(receipt())).toMatchObject({
+    expect(parseFrozenV0114InstallationHandoffReceipt(receipt())).toMatchObject({
       phase: "committed",
       candidateCommit: "b".repeat(40),
     });
   });
 
+  test("frozen v2 parser rejects an otherwise exact schema-v3 receipt", () => {
+    const v3 = receipt();
+    v3["schemaVersion"] = 3;
+    expect(() => parseFrozenV0114InstallationHandoffReceipt(v3)).toThrow(
+      "Frozen v0.1.14 installation-handoff receipt is invalid",
+    );
+  });
+
   test("rejects v1 receipts and any bundle-policy or historical-pin drift", () => {
     const v1 = receipt();
     v1["schemaVersion"] = 1;
+    const v3 = receipt();
+    v3["schemaVersion"] = 3;
 
     const predecessorStrict = receipt();
     (predecessorStrict["predecessor"] as Record<string, unknown>)["signature"] = {
@@ -142,14 +156,24 @@ describe("installation handoff receipt schema", () => {
 
     for (const mutation of [
       v1,
+      v3,
       predecessorStrict,
       candidateHistorical,
       ...pinDrifts,
     ]) {
-      expect(() => parseInstallationHandoffJournal(mutation)).toThrow(
-        "Handoff receipt is invalid",
+      expect(() => parseFrozenV0114InstallationHandoffReceipt(mutation)).toThrow(
+        "Frozen v0.1.14 installation-handoff receipt is invalid",
       );
     }
+  });
+
+  test("forward recovery imports only the frozen v0.1.14 reader", () => {
+    const source = readFileSync(join(
+      import.meta.dir,
+      "../installation-forward-recovery.ts",
+    ), "utf8");
+    expect(source).toContain("parseFrozenV0114InstallationHandoffReceipt");
+    expect(source).not.toContain("parseInstallationHandoffJournal");
   });
 
   test("literal-binds every historical predecessor tree field", () => {
@@ -167,8 +191,8 @@ describe("installation handoff receipt schema", () => {
         ...expectedHistoricalOprtePreviewTree,
         [field]: value,
       };
-      expect(() => parseInstallationHandoffJournal(mutation)).toThrow(
-        "Handoff receipt is invalid",
+      expect(() => parseFrozenV0114InstallationHandoffReceipt(mutation)).toThrow(
+        "Frozen v0.1.14 installation-handoff receipt is invalid",
       );
     }
   });
@@ -182,7 +206,7 @@ describe("installation handoff receipt schema", () => {
       { build: "13", version: "0.1.12" },
       { build: "14", version: "0.1.13" },
     ] as const) {
-      expect(parseInstallationHandoffJournal(receipt(priorHraIdentity)))
+      expect(parseFrozenV0114InstallationHandoffReceipt(receipt(priorHraIdentity)))
         .toMatchObject({
           hadPriorHra: true,
           priorHra: { identity: priorHraIdentity },
@@ -206,8 +230,8 @@ describe("installation handoff receipt schema", () => {
         signature: { policy: "strict" },
         tree,
       };
-      expect(() => parseInstallationHandoffJournal(mutation)).toThrow(
-        "Handoff receipt is invalid",
+      expect(() => parseFrozenV0114InstallationHandoffReceipt(mutation)).toThrow(
+        "Frozen v0.1.14 installation-handoff receipt is invalid",
       );
     }
   });
@@ -237,8 +261,8 @@ describe("installation handoff receipt schema", () => {
     mutations.push(unsortedDescriptors);
 
     for (const mutation of mutations) {
-      expect(() => parseInstallationHandoffJournal(mutation)).toThrow(
-        "Handoff receipt is invalid",
+      expect(() => parseFrozenV0114InstallationHandoffReceipt(mutation)).toThrow(
+        "Frozen v0.1.14 installation-handoff receipt is invalid",
       );
     }
   });
@@ -253,8 +277,8 @@ describe("installation handoff receipt schema", () => {
         [key, []],
       ]);
       expect(Object.hasOwn(candidate["tree"] as object, key)).toBeTrue();
-      expect(() => parseInstallationHandoffJournal(mutation)).toThrow(
-        "Handoff receipt is invalid",
+      expect(() => parseFrozenV0114InstallationHandoffReceipt(mutation)).toThrow(
+        "Frozen v0.1.14 installation-handoff receipt is invalid",
       );
     }
   });

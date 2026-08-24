@@ -1674,6 +1674,133 @@ bool hra_macos_reverify_self_managed_code_identity(
   return matches;
 }
 
+bool hra_macos_verify_adhoc_code_identity_at_descriptor(
+    const HRAMacOSSelfManagedCodeExpectation *expectation,
+    int descriptor,
+    HRAMacOSSelfManagedCodeIdentity *out_identity) {
+  if (descriptor < 0 || out_identity == NULL) return false;
+  memset(out_identity, 0, sizeof(*out_identity));
+  char path[PATH_MAX];
+  memset(path, 0, sizeof(path));
+  if (!HRAExpectationIsWellFormed(expectation, path) ||
+      expectation->expected_code_directory_flags !=
+          (HRA_MACOS_CODE_DIRECTORY_ADHOC |
+           HRA_MACOS_CODE_DIRECTORY_RUNTIME) ||
+      expectation->external_special_slot_count != 0 ||
+      expectation->code_resources_file_count != 0) {
+    return false;
+  }
+  struct stat path_before;
+  struct stat descriptor_before;
+  memset(&path_before, 0, sizeof(path_before));
+  memset(&descriptor_before, 0, sizeof(descriptor_before));
+  bool valid = lstat(path, &path_before) == 0 &&
+      fstat(descriptor, &descriptor_before) == 0 &&
+      S_ISREG(descriptor_before.st_mode) && descriptor_before.st_nlink == 1 &&
+      (uint32_t)descriptor_before.st_uid == expectation->expected_uid &&
+      ((uint32_t)descriptor_before.st_mode & 07777u) ==
+          expectation->expected_permissions &&
+      descriptor_before.st_size > 0 &&
+      HRAStatIdentityMatches(&path_before, &descriptor_before) &&
+      HRAPathAndDescriptorAreExact(path, descriptor, &descriptor_before);
+  uint8_t *signature = NULL;
+  uint64_t signature_offset = 0;
+  size_t signature_length = 0;
+  HRACodeBlob blobs[HRAMaximumSuperBlobCount];
+  size_t blob_count = 0;
+  const HRACodeBlob *code_directory_blob = NULL;
+  const HRACodeBlob *cms_blob = NULL;
+  HRAParsedCodeDirectory code_directory;
+  memset(blobs, 0, sizeof(blobs));
+  memset(&code_directory, 0, sizeof(code_directory));
+  uint8_t full_code_directory_hash[CC_SHA384_DIGEST_LENGTH];
+  uint8_t full_file_sha256[HRA_MACOS_SHA256_LENGTH];
+  memset(full_code_directory_hash, 0, sizeof(full_code_directory_hash));
+  memset(full_file_sha256, 0, sizeof(full_file_sha256));
+  size_t full_code_directory_hash_length = 0;
+  if (valid) {
+    valid = HRAParseMachOSignatureRange(
+        descriptor,
+        (uint64_t)descriptor_before.st_size,
+        &signature_offset,
+        &signature_length);
+  }
+  if (valid) {
+    signature = malloc(signature_length);
+    valid = signature != NULL && HRAPreadAll(
+        descriptor, signature, signature_length, signature_offset);
+  }
+  if (valid) {
+    valid = HRAParseSuperBlob(
+        signature,
+        signature_length,
+        blobs,
+        &blob_count,
+        &code_directory_blob,
+        &cms_blob) &&
+      cms_blob != NULL && cms_blob->magic == HRACSMagicBlobWrapper &&
+      cms_blob->length == 8 &&
+      HRAParseCodeDirectory(
+        code_directory_blob, signature_offset, expectation, &code_directory) &&
+      HRAVerifyCodeAndSpecialSlots(
+        descriptor,
+        &code_directory,
+        blobs,
+        blob_count,
+        NULL,
+        0,
+        expectation) &&
+      HRAHashBytes(
+        code_directory.hash_type,
+        code_directory.bytes,
+        code_directory.length,
+        full_code_directory_hash,
+        &full_code_directory_hash_length) &&
+      full_code_directory_hash_length >= HRA_MACOS_CDHASH_LENGTH &&
+      HRAHashDescriptorSHA256(
+        descriptor,
+        (uint64_t)descriptor_before.st_size,
+        full_file_sha256);
+  }
+  struct stat descriptor_after;
+  memset(&descriptor_after, 0, sizeof(descriptor_after));
+  if (valid) {
+    valid = fstat(descriptor, &descriptor_after) == 0 &&
+        HRAStatIdentityMatches(&descriptor_before, &descriptor_after) &&
+        HRAPathAndDescriptorAreExact(path, descriptor, &descriptor_before);
+  }
+  if (valid) {
+    HRAFillIdentity(
+        &descriptor_before,
+        &code_directory,
+        full_code_directory_hash,
+        full_file_sha256,
+        out_identity);
+  }
+  memset(full_code_directory_hash, 0, sizeof(full_code_directory_hash));
+  memset(full_file_sha256, 0, sizeof(full_file_sha256));
+  if (signature != NULL) {
+    memset(signature, 0, signature_length);
+    free(signature);
+  }
+  if (!valid) memset(out_identity, 0, sizeof(*out_identity));
+  return valid;
+}
+
+bool hra_macos_reverify_adhoc_code_identity_at_descriptor(
+    const HRAMacOSSelfManagedCodeExpectation *expectation,
+    int descriptor,
+    const HRAMacOSSelfManagedCodeIdentity *expected_identity) {
+  if (expected_identity == NULL) return false;
+  HRAMacOSSelfManagedCodeIdentity actual;
+  memset(&actual, 0, sizeof(actual));
+  bool matches = hra_macos_verify_adhoc_code_identity_at_descriptor(
+      expectation, descriptor, &actual) &&
+      HRAIdentityMatches(&actual, expected_identity);
+  memset(&actual, 0, sizeof(actual));
+  return matches;
+}
+
 static bool HRACFStringMatchesBytes(
     CFStringRef string,
     const char *expected,

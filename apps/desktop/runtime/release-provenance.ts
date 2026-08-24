@@ -22,6 +22,10 @@ export const HRA_HISTORICAL_PUBLICATION_REPOSITORY =
 export const HRA_CANONICAL_REPOSITORY =
   HRA_V0_CURRENT_REPOSITORY;
 
+/** Final reviewed HRA v0.1.14 archive/privacy/security surface (Q14). */
+export const HRA_V0_Q14_SURFACE_COMMIT =
+  "ceb647f7a4a68546fc68ce5e70e770b73c8863eb" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
@@ -62,6 +66,12 @@ export interface ReleasePublicationEvidence {
   readonly publicationCommit: string;
   readonly publicationContract: string;
   readonly status: "exact_candidate_publication_transition";
+}
+
+export interface ReleaseCandidateLineageEvidence {
+  readonly candidateCommit: string;
+  readonly parentCommit: string;
+  readonly status: "exact_q14_candidate_child";
 }
 
 export interface CanonicalReleasePublicationEvidence {
@@ -203,6 +213,65 @@ export async function inspectReleaseTag(
     repository.gitDirectory,
   );
   return await inspectReleaseTagWithRunner(runner, tag);
+}
+
+/**
+ * Bind C15 to the final reviewed Q14 archive surface. The optional expected
+ * parent is a focused-test seam; production callers always use the pinned Q14
+ * object above.
+ */
+export async function inspectReleaseCandidateLineage(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{
+    candidateCommit?: string;
+    expectedParentCommit?: string;
+  }> = {},
+): Promise<ReleaseCandidateLineageEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit ?? repository.commit,
+    "HRA v0.1.15 candidate commit",
+  );
+  const expectedParentCommit = requireObjectId(
+    options.expectedParentCommit ?? HRA_V0_Q14_SURFACE_COMMIT,
+    "HRA v0.1.15 Q14 parent commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectReleaseCandidateLineageWithRunner(
+    runner,
+    candidateCommit,
+    expectedParentCommit,
+  );
+}
+
+async function inspectReleaseCandidateLineageWithRunner(
+  runner: ReleaseGitRunner,
+  candidateCommit: string,
+  expectedParentCommit: string,
+): Promise<ReleaseCandidateLineageEvidence> {
+  const ancestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    candidateCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    ancestry.length !== 2
+    || ancestry[0] !== candidateCommit
+    || ancestry[1] !== expectedParentCommit
+  ) {
+    throw new Error(
+      "The HRA v0.1.15 candidate must have exact Q14 as its only direct parent.",
+    );
+  }
+  return Object.freeze({
+    candidateCommit,
+    parentCommit: expectedParentCommit,
+    status: "exact_q14_candidate_child",
+  });
 }
 
 async function inspectReleaseTagWithRunner(
@@ -709,7 +778,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=2",
+      "--depth=3",
       "--filter=blob:limit=32768",
       "canonical",
       publicationCommit,
@@ -725,12 +794,18 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "canonical",
       `${tagRef}:${tagRef}`,
     ]);
-    return await inspectReleasePublicationObjectStore({
+    const evidence = await inspectReleasePublicationObjectStore({
       candidateCommit,
       gitDirectory,
       publicationCommit,
       tag: options.tag,
     });
+    await inspectReleaseCandidateLineageWithRunner(
+      runner,
+      candidateCommit,
+      HRA_V0_Q14_SURFACE_COMMIT,
+    );
+    return evidence;
   } finally {
     await rm(temporaryRoot, { force: true, recursive: true });
   }
