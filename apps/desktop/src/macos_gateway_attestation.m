@@ -224,6 +224,16 @@ static bool HRACodePathIsExact(SecCodeRef code, NSString *expected) {
   return [url.path isEqualToString:expected];
 }
 
+static bool HRAMainExecutablePathIsExact(
+    NSDictionary *information,
+    NSString *expected) {
+  if (information == nil || expected == nil) return false;
+  id raw = information[(__bridge NSString *)kSecCodeInfoMainExecutable];
+  return raw != nil &&
+      CFGetTypeID((__bridge CFTypeRef)raw) == CFURLGetTypeID() &&
+      [[(NSURL *)raw path] isEqualToString:expected];
+}
+
 static bool HRAReleaseCertificateMatches(
     SecCertificateRef certificate,
     const uint8_t expectedSHA1[CC_SHA1_DIGEST_LENGTH],
@@ -461,11 +471,17 @@ static bool HRAReleaseExecutableIdentityIsExact(
   memset(&resource, 0, sizeof(resource));
   NSString *infoPath = nil;
   NSString *resourcesPath = nil;
+  NSString *securityPath = path;
   if (bindOuterSlots) {
     static NSString *const suffix = @"/Contents/MacOS/hra";
     if (![identifier isEqualToString:@"kitchen.hraness"] ||
         ![path hasSuffix:suffix] || path.length <= suffix.length) return false;
     NSString *outer = [path substringToIndex:path.length - suffix.length];
+    // Security.framework models a signed bundle's main executable as the
+    // enclosing bundle code object. The independent descriptor proof below
+    // remains pinned to Contents/MacOS/hra; Security's path proof must bind
+    // the corresponding exact outer object instead.
+    securityPath = outer;
     infoPath = [outer stringByAppendingString:@"/Contents/Info.plist"];
     resourcesPath = [outer stringByAppendingString:
         @"/Contents/_CodeSignature/CodeResources"];
@@ -507,7 +523,7 @@ static bool HRAReleaseExecutableIdentityIsExact(
   SecStaticCodeRef code = NULL;
   SecRequirementRef requirement = HRACopyReleaseRequirement(identifier);
   if (requirement == NULL || SecStaticCodeCreateWithPath(
-          (__bridge CFURLRef)[NSURL fileURLWithPath:path],
+          (__bridge CFURLRef)[NSURL fileURLWithPath:securityPath],
           kSecCSDefaultFlags,
           &code) != errSecSuccess || code == NULL) {
     if (requirement != NULL) CFRelease(requirement);
@@ -529,7 +545,8 @@ static bool HRAReleaseExecutableIdentityIsExact(
           identifier,
           status == CSSMERR_TP_NOT_TRUSTED) &&
       HRAReleaseDesignatedRequirementIsExact((SecCodeRef)code, identifier) &&
-      HRACodePathIsExact((SecCodeRef)code, path) &&
+      HRACodePathIsExact((SecCodeRef)code, securityPath) &&
+      HRAMainExecutablePathIsExact(information, path) &&
       securityHash.length == HRA_MACOS_CDHASH_LENGTH &&
       memcmp(securityHash.bytes,
              identity.cdhash,

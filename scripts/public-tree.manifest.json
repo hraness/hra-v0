@@ -1661,6 +1661,8 @@
     "apps/desktop/runtime/test/fixtures/keychain-access-control-owner.m",
     "apps/desktop/runtime/test/fixtures/keychain-access-control-untrusted.m",
     "apps/desktop/runtime/test/fixtures/reactive-baseline-queue-worker.ts",
+    "apps/desktop/runtime/test/fixtures/release-bundle-code-path.m",
+    "apps/desktop/runtime/test/fixtures/release-dynamic-code-path.m",
     "apps/desktop/runtime/test/fixtures/release-validation-status.c",
     "apps/desktop/runtime/test/fixtures/scenario-contract.ts",
     "apps/desktop/runtime/test/fixtures/shutdown-cleanup-preload.ts",

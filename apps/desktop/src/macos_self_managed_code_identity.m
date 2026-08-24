@@ -1824,6 +1824,22 @@ static bool HRACFStringMatchesBytes(
   return matches;
 }
 
+static bool HRACFURLPathMatchesBytes(
+    CFTypeRef value,
+    const char *expected,
+    size_t expected_length) {
+  if (value == NULL || expected == NULL || expected_length == 0 ||
+      expected_length >= PATH_MAX || CFGetTypeID(value) != CFURLGetTypeID()) {
+    return false;
+  }
+  char actual[PATH_MAX];
+  memset(actual, 0, sizeof(actual));
+  return CFURLGetFileSystemRepresentation(
+          (CFURLRef)value, true, (UInt8 *)actual, sizeof(actual)) &&
+      strlen(actual) == expected_length &&
+      memcmp(actual, expected, expected_length) == 0;
+}
+
 bool hra_macos_self_managed_dynamic_code_matches(
     pid_t process_identifier,
     const char *expected_canonical_path,
@@ -1900,24 +1916,18 @@ bool hra_macos_self_managed_dynamic_code_matches(
       CFRelease(attributes);
       if (status != errSecSuccess || code == NULL) return false;
     }
-    CFURLRef raw_path = NULL;
     CFDictionaryRef information = NULL;
-    bool valid = SecCodeCopyPath(code, kSecCSDefaultFlags, &raw_path) ==
-            errSecSuccess && raw_path != NULL &&
-        SecCodeCopySigningInformation(
-            code,
-            kSecCSSigningInformation | kSecCSDynamicInformation,
-            &information) == errSecSuccess && information != NULL;
-    char actual_path[PATH_MAX];
-    memset(actual_path, 0, sizeof(actual_path));
-    if (valid) {
-      valid = CFURLGetFileSystemRepresentation(
-          raw_path, true, (UInt8 *)actual_path, sizeof(actual_path)) &&
-          strlen(actual_path) == expected_canonical_path_length &&
-          memcmp(actual_path,
-                 expected_canonical_path,
-                 expected_canonical_path_length) == 0;
-    }
+    bool valid = SecCodeCopySigningInformation(
+        code,
+        kSecCSSigningInformation | kSecCSDynamicInformation,
+        &information) == errSecSuccess && information != NULL;
+    CFTypeRef raw_main_executable = valid
+        ? CFDictionaryGetValue(information, kSecCodeInfoMainExecutable)
+        : NULL;
+    valid = valid && HRACFURLPathMatchesBytes(
+        raw_main_executable,
+        expected_canonical_path,
+        expected_canonical_path_length);
     CFTypeRef raw_status = valid
         ? CFDictionaryGetValue(information, kSecCodeInfoStatus)
         : NULL;
@@ -1955,7 +1965,6 @@ bool hra_macos_self_managed_dynamic_code_matches(
             expected_cdhash,
             HRA_MACOS_CDHASH_LENGTH);
     if (information != NULL) CFRelease(information);
-    if (raw_path != NULL) CFRelease(raw_path);
     CFRelease(code);
     return valid;
   }

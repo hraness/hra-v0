@@ -127,9 +127,36 @@ describe("macOS package contract", () => {
     expect(executableIdentity).toContain(
       "status == CSSMERR_TP_NOT_TRUSTED",
     );
+    expect(executableIdentity).toContain("NSString *securityPath = path;");
+    expect(executableIdentity).toContain("securityPath = outer;");
+    expect(executableIdentity).toContain(
+      "[NSURL fileURLWithPath:securityPath]",
+    );
+    expect(executableIdentity).toContain(
+      "HRACodePathIsExact((SecCodeRef)code, securityPath)",
+    );
+    expect(executableIdentity).toContain(
+      "HRAMainExecutablePathIsExact(information, path)",
+    );
+    expect(executableIdentity).not.toContain("[NSURL fileURLWithPath:path]");
+    expect(executableIdentity).not.toContain(
+      "HRACodePathIsExact((SecCodeRef)code, path)",
+    );
     expect(source.match(
       /hra_macos_release_validation_status_is_admissible\(/gu,
     )).toHaveLength(1);
+
+    const selfManagedSource = await readFile(
+      new URL("../../src/macos_self_managed_code_identity.m", import.meta.url),
+      "utf8",
+    );
+    const dynamicIdentity = objectiveCFunctionSource(
+      selfManagedSource,
+      "bool hra_macos_self_managed_dynamic_code_matches(",
+    );
+    expect(dynamicIdentity).toContain("kSecCodeInfoMainExecutable");
+    expect(dynamicIdentity).toContain("HRACFURLPathMatchesBytes(");
+    expect(dynamicIdentity).not.toContain("SecCodeCopyPath(");
     for (const retainedPredicate of [
       "HRAReleaseSignaturePostureIsExact(",
       "HRAReleaseDesignatedRequirementIsExact(",

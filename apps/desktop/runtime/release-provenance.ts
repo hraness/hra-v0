@@ -34,9 +34,13 @@ export const HRA_V0_C15_BASE_COMMIT =
 export const HRA_V0_C15_REVIEWED_SURFACE_COMMIT =
   "fd33c4561ea161367f2c516d502f1e88d0998f29" as const;
 
-/** Merged custody repair immediately before the final host-trust candidate. */
+/** Merged custody repair immediately before the reviewed host-trust repair. */
 export const HRA_V0_C15_CUSTODY_REPAIR_COMMIT =
   "045ee7b4b23ea1b61392d0a782f619f2d946eeaf" as const;
+
+/** Reviewed host-trust repair immediately before the final release candidate. */
+export const HRA_V0_C15_HOST_TRUST_COMMIT =
+  "7d284b48577b5747a247cef31952de3c7f7338cd" as const;
 
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
@@ -84,9 +88,10 @@ export interface ReleaseCandidateLineageEvidence {
   readonly baseCommit: string;
   readonly candidateCommit: string;
   readonly custodyRepairCommit: string;
+  readonly hostTrustCommit: string;
   readonly q14Commit: string;
   readonly reviewedSurfaceCommit: string;
-  readonly status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_candidate_chain";
+  readonly status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_final_candidate_chain";
 }
 
 export interface CanonicalReleasePublicationEvidence {
@@ -231,19 +236,19 @@ export async function inspectReleaseTag(
 }
 
 /**
- * Find the unique final C15 candidate on the path from the merged custody
+ * Find the unique final C15 candidate on the path from the reviewed host-trust
  * repair to HEAD. HEAD may be the candidate or a later descendant; packaging
  * still requires a standalone candidate checkout.
  */
 export async function resolveReleaseCandidateCommit(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
-    expectedCustodyRepairCommit?: string;
+    expectedHostTrustCommit?: string;
   }> = {},
 ): Promise<string> {
-  const expectedCustodyRepairCommit = requireObjectId(
-    options.expectedCustodyRepairCommit ?? HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
-    "HRA v0.1.15 custody repair commit",
+  const expectedHostTrustCommit = requireObjectId(
+    options.expectedHostTrustCommit ?? HRA_V0_C15_HOST_TRUST_COMMIT,
+    "HRA v0.1.15 host-trust commit",
   );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
@@ -254,51 +259,51 @@ export async function resolveReleaseCandidateCommit(
     mergeBase = requireObjectId(
       await runner.run([
         "merge-base",
-        expectedCustodyRepairCommit,
+        expectedHostTrustCommit,
         repository.commit,
       ]),
-      "HRA v0.1.15 custody repair merge base",
+      "HRA v0.1.15 host-trust merge base",
     );
   } catch {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact custody repair as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedCustodyRepairCommit) {
+  if (mergeBase !== expectedHostTrustCommit) {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact custody repair as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedCustodyRepairCommit}..${repository.commit}`,
+    `${expectedHostTrustCommit}..${repository.commit}`,
   ])).trim();
-  const custodyRepairChildren: string[] = [];
+  const hostTrustChildren: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedCustodyRepairCommit) {
-      custodyRepairChildren.push(
+    if (parents.length === 1 && parents[0] === expectedHostTrustCommit) {
+      hostTrustChildren.push(
         requireObjectId(commit, "HRA v0.1.15 final candidate commit"),
       );
     }
   }
-  if (custodyRepairChildren.length !== 1) {
+  if (hostTrustChildren.length !== 1) {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact custody repair as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
     );
   }
-  return custodyRepairChildren[0] ?? "";
+  return hostTrustChildren[0] ?? "";
 }
 
 /**
- * Bind final C15 to the merged custody repair, reviewed public surface,
- * original merged C15 base, and final reviewed Q14 archive surface. Optional
- * expected objects are focused-test seams; production callers use the pinned
- * objects above.
+ * Bind final C15 to the reviewed host-trust repair, merged custody repair,
+ * reviewed public surface, original merged C15 base, and final reviewed Q14
+ * archive surface. Optional expected objects are focused-test seams;
+ * production callers use the pinned objects above.
  */
 export async function inspectReleaseCandidateLineage(
   repository: ReleaseRepositoryEvidence,
@@ -306,6 +311,7 @@ export async function inspectReleaseCandidateLineage(
     candidateCommit?: string;
     expectedBaseCommit?: string;
     expectedCustodyRepairCommit?: string;
+    expectedHostTrustCommit?: string;
     expectedQ14Commit?: string;
     expectedSurfaceCommit?: string;
   }> = {},
@@ -317,6 +323,10 @@ export async function inspectReleaseCandidateLineage(
   const expectedCustodyRepairCommit = requireObjectId(
     options.expectedCustodyRepairCommit ?? HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
     "HRA v0.1.15 custody repair commit",
+  );
+  const expectedHostTrustCommit = requireObjectId(
+    options.expectedHostTrustCommit ?? HRA_V0_C15_HOST_TRUST_COMMIT,
+    "HRA v0.1.15 host-trust commit",
   );
   const expectedSurfaceCommit = requireObjectId(
     options.expectedSurfaceCommit ?? HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
@@ -337,6 +347,7 @@ export async function inspectReleaseCandidateLineage(
   return await inspectReleaseCandidateLineageWithRunner(
     runner,
     candidateCommit,
+    expectedHostTrustCommit,
     expectedCustodyRepairCommit,
     expectedSurfaceCommit,
     expectedBaseCommit,
@@ -347,6 +358,7 @@ export async function inspectReleaseCandidateLineage(
 async function inspectReleaseCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
+  expectedHostTrustCommit: string,
   expectedCustodyRepairCommit: string,
   expectedSurfaceCommit: string,
   expectedBaseCommit: string,
@@ -362,10 +374,26 @@ async function inspectReleaseCandidateLineageWithRunner(
   if (
     candidateAncestry.length !== 2
     || candidateAncestry[0] !== candidateCommit
-    || candidateAncestry[1] !== expectedCustodyRepairCommit
+    || candidateAncestry[1] !== expectedHostTrustCommit
   ) {
     throw new Error(
-      "The final HRA v0.1.15 candidate must have exact custody repair as its only direct parent.",
+      "The final HRA v0.1.15 candidate must have exact host-trust commit as its only direct parent.",
+    );
+  }
+  const hostTrustAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedHostTrustCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    hostTrustAncestry.length !== 2
+    || hostTrustAncestry[0] !== expectedHostTrustCommit
+    || hostTrustAncestry[1] !== expectedCustodyRepairCommit
+  ) {
+    throw new Error(
+      "The HRA v0.1.15 host-trust commit must have exact custody repair as its only direct parent.",
     );
   }
   const custodyRepairAncestry = (await runner.run([
@@ -420,9 +448,10 @@ async function inspectReleaseCandidateLineageWithRunner(
     baseCommit: expectedBaseCommit,
     candidateCommit,
     custodyRepairCommit: expectedCustodyRepairCommit,
+    hostTrustCommit: expectedHostTrustCommit,
     q14Commit: expectedQ14Commit,
     reviewedSurfaceCommit: expectedSurfaceCommit,
-    status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_candidate_chain",
+    status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_final_candidate_chain",
   });
 }
 
@@ -894,10 +923,10 @@ export async function inspectReleasePublicationObjectStore(options: Readonly<{
 }
 
 /**
- * Fetch only the exact P15 publication, final C15 candidate, custody repair,
- * reviewed public surface, base C15, and Q14 ancestry plus the release tag
- * from the fixed public HRA repository. Vercel's ambient shallow checkout is
- * never trusted or inspected.
+ * Fetch only the exact P15 publication, final C15 candidate, host-trust repair,
+ * custody repair, reviewed public surface, base C15, and Q14 ancestry plus the
+ * release tag from the fixed public HRA repository. Vercel's ambient shallow
+ * checkout is never trusted or inspected.
  */
 export async function inspectCanonicalReleasePublication(options: Readonly<{
   candidateCommit: string;
@@ -931,7 +960,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=6",
+      "--depth=7",
       "--filter=blob:limit=32768",
       "canonical",
       publicationCommit,
@@ -942,7 +971,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=5",
+      "--depth=6",
       "--filter=blob:limit=32768",
       "canonical",
       `${tagRef}:${tagRef}`,
@@ -956,6 +985,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
     await inspectReleaseCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      HRA_V0_C15_HOST_TRUST_COMMIT,
       HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
       HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
       HRA_V0_C15_BASE_COMMIT,

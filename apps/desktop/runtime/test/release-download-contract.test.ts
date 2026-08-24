@@ -623,10 +623,17 @@ describe("release and download convergence", () => {
     ).trim();
     await writeFile(join(repositoryRoot, "host-trust.txt"), "host trust repair\n");
     await runSetupGit(repositoryRoot, ["add", "host-trust.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "host-trust repair"]);
+    const hostTrustCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "final C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
       candidateCustodyRepairCommit: custodyRepairCommit,
+      candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
@@ -641,6 +648,7 @@ describe("release and download convergence", () => {
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
       candidateCustodyRepairCommit: custodyRepairCommit,
+      candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
@@ -651,7 +659,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-repair-to-final-C15-to-P15 chain", async () => {
+  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-final-C15-to-P15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
     );
@@ -701,6 +709,12 @@ describe("release and download convergence", () => {
     ).trim();
     await writeFile(join(repositoryRoot, "host-trust.txt"), "host trust repair\n");
     await runSetupGit(repositoryRoot, ["add", "host-trust.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "host-trust repair"]);
+    const hostTrustCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "final C15\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
@@ -708,6 +722,7 @@ describe("release and download convergence", () => {
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
       candidateCustodyRepairCommit: custodyRepairCommit,
+      candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
@@ -777,6 +792,7 @@ describe("release and download convergence", () => {
       {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: surfaceCommit,
       },
@@ -832,6 +848,7 @@ describe("release and download convergence", () => {
       verifyPublishedReleaseSourceEvidence(published, descendant, {
         expectedBaseCommit: baseCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
+        expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: surfaceCommit,
       }),
