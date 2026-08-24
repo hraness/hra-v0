@@ -12,7 +12,6 @@ import {
   hraReleaseAssetUrl,
 } from "./release-history";
 import ReleasesPage from "./releases/page";
-import { HRA_RELEASE } from "./site";
 
 describe("HRA v0 public release history", () => {
   test("binds the exact eight tags, tag-only candidate, and 49 published assets", () => {
@@ -33,13 +32,17 @@ describe("HRA v0 public release history", () => {
     )).toBe(49);
     const finalEntry = HRA_RELEASE_HISTORY.tags.at(-1);
     expect(finalEntry).toMatchObject({
-      build: HRA_RELEASE.build,
-      commit: HRA_RELEASE.source.commit,
-      tag: HRA_RELEASE.tag,
-      tagObject: HRA_RELEASE.source.tagObject,
+      build: 15,
+      commit: "7b39c459827b2acf45aa2d911c94fdb5d4f37860",
+      tag: "v0.1.14",
+      tagObject: "37ed37afb39cacfd6a51044cf7f3c1b873571aa3",
     });
-    const finalDmg = finalEntry?.release?.assets.find(({ name }) => name === HRA_RELEASE.asset);
-    expect(finalDmg?.sha256).toBe(HRA_RELEASE.sha256);
+    const finalDmg = finalEntry?.release?.assets.find(({ name }) =>
+      name === "HRA-0.1.14-15-macos-arm64.dmg"
+    );
+    expect(finalDmg?.sha256).toBe(
+      "7ff49500de3d1fc768c17454ef7642c51f6662dfa5bf0e2ba183a85bb67fcd03",
+    );
   });
 
   test("renders every exact asset link, byte count, and digest from the checked ledger", () => {

@@ -2,11 +2,11 @@
   "entries": [
     {
       "category": "compatibility",
-      "matchingLinesSha256": "859491b2204ff629f260b5c297b90d6d19e3a03f6c2f71d39382f387f8002525",
+      "matchingLinesSha256": "ab6fa338ce5a74101da57e820ae26dd2ae18dde600cb294525042eb59be9b0b8",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 12
+        "oprte": 9
       },
       "path": "apps/desktop/README.md"
     },
@@ -22,11 +22,11 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "1bd4d0e42dfd911432debec5ff96e7b4b6a0a74c6a21d0fd3cc577fefea8c111",
+      "matchingLinesSha256": "d6bbd44e608b0f6c90f68cd463f330548d7ae42d4de79c7fca258d8dac4554d6",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
-        "oprte": 4
+        "oprte": 5
       },
       "path": "apps/desktop/build.zig"
     },
@@ -102,7 +102,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "ffe8477dfef08b4d2a5bb67997f559840f4cdc5b962599e9b4f513ee933aaf1f",
+      "matchingLinesSha256": "492421a189ffda4d43700ab62e2822aad4a8286f21cf93b69fa10f0da35c8928",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -112,11 +112,11 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "9765e1ac2bef5ea4c228d9b5ca5b0a6fa3f51f805ab535de1718127f482991be",
+      "matchingLinesSha256": "955ffbdf5caef43f0f44dc057f482ec663c1028eb8739be936240619804f7555",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
-        "oprte": 1
+        "oprte": 2
       },
       "path": "apps/desktop/runtime/build-release-gateway.ts"
     },
@@ -142,6 +142,16 @@
     },
     {
       "category": "compatibility",
+      "matchingLinesSha256": "5928555487ac86bbf044b0a13f2136420a7df68fcda5a55c104a2407fb65dfaa",
+      "occurrences": {
+        "kitchen": 2,
+        "operateStylized": 0,
+        "oprte": 37
+      },
+      "path": "apps/desktop/runtime/frozen-v0114-installation-handoff-receipt.ts"
+    },
+    {
+      "category": "compatibility",
       "matchingLinesSha256": "047353f86b5d11b78e95a5a1ea35d01f18548be92e002c46c9df72e9e7c06f42",
       "occurrences": {
         "kitchen": 3,
@@ -152,17 +162,57 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "77b46a10ae167296381d6d8b5449827a5f57efc2de6e7030fb39af6b8cf494db",
+      "matchingLinesSha256": "840de6d7d04a3cbab2deab80ef75429de6c19745e9bfc45f35a8a579a49bd9af",
+      "occurrences": {
+        "kitchen": 2,
+        "operateStylized": 0,
+        "oprte": 10
+      },
+      "path": "apps/desktop/runtime/installation-forward-recovery.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "bf79f543cfba854da7251cfe57c8b0eb6220f9ea2d2c6b3e47e0ce24fd8a05c2",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 2
+      },
+      "path": "apps/desktop/runtime/installation-handoff-cli.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "69097827e90baee375efde79ddf38e9ddf95589f93b63d8d82209fd94a6dedd3",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 13
+      },
+      "path": "apps/desktop/runtime/installation-handoff-v3-driver.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "4d2f289dba1fce3f8ac0819d113e0d7554e401f325e85e123cf252e9f8d384dc",
+      "occurrences": {
+        "kitchen": 2,
+        "operateStylized": 0,
+        "oprte": 7
+      },
+      "path": "apps/desktop/runtime/installation-handoff-v3.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "01dafef4d9e9dc6a8affa54d985a1aace8179d2db915ffa85c6d95780c1299cb",
       "occurrences": {
         "kitchen": 13,
         "operateStylized": 0,
-        "oprte": 61
+        "oprte": 59
       },
       "path": "apps/desktop/runtime/installation-handoff.ts"
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "6e9254f9daf76aca9f9c6174f7827e4e160f8cfabff7ce5d10e0c5716651a880",
+      "matchingLinesSha256": "5f1937e28a36950c7e69aceda502853f88513c36750f2fe5bfa2c33d4e931981",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -172,11 +222,11 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "9a96d5c718ca96009d517504a8c79e47895a97f8dc28f022df5522f968f5a278",
+      "matchingLinesSha256": "cbe14598475ade063543371f21c038e6e0ca6289c0b809a1fd452876f32d7245",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 21
+        "oprte": 24
       },
       "path": "apps/desktop/runtime/package-macos.ts"
     },
@@ -442,7 +492,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "e927ea60538d525c3a77963a7568d575d1061bc97d238d3f661607e206cd79c3",
+      "matchingLinesSha256": "19dacc83736dae914ef909597d4e44b3d9372ab71886a57541d1664d4d6c2fed",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -572,7 +622,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "c51bd3218e5070cc5bf4652a163d2bc3f390de7c2c6f7d210bb6fa9115520ea3",
+      "matchingLinesSha256": "b6808bb3b247f1ada132f7dfd4d317583bd0e8f827edfbdab761c6f10677d935",
       "occurrences": {
         "kitchen": 25,
         "operateStylized": 2,
@@ -642,7 +692,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "adc0b3aa9d57d4e4dbefd9f3252ef877f124c8f0ef9b0b0f9c3f5578e2f917ec",
+      "matchingLinesSha256": "c56d88b9cebd5248337237c553807b9d339ad346a94cb63147e9a6c750206031",
       "occurrences": {
         "kitchen": 20,
         "operateStylized": 1,
@@ -709,6 +759,16 @@
         "oprte": 0
       },
       "path": "apps/desktop/runtime/src/state/dispatch-store.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "daa28bf8d446273a69b6691ebc7e735f08af904bb2bfe2033d05d432e19ffbc3",
+      "occurrences": {
+        "kitchen": 10,
+        "operateStylized": 0,
+        "oprte": 2
+      },
+      "path": "apps/desktop/runtime/src/state/harness-key-enrollment.ts"
     },
     {
       "category": "compatibility",
@@ -1012,11 +1072,11 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "68f3b15f9d5e9a32d9a5788ed6d46137bc11717c4365966f67dc4ceabae46b84",
+      "matchingLinesSha256": "78eec77d606b69c32319c893dfc8b0e85a48378278c4f4554cdb4d4c4be33f6f",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
-        "oprte": 10
+        "oprte": 12
       },
       "path": "apps/desktop/runtime/test/control-plane-maintenance.test.ts"
     },
@@ -1132,7 +1192,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "3dc4d6f0acbb789d516b259f61567fe63d2e1e203a935fa74e4dd1162f50a383",
+      "matchingLinesSha256": "07c6a0e3c7fd96233053f16b0db182724279eecdbf21a5bbffd188e9fae6cc83",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1252,7 +1312,17 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "442ca87e38ec7ef3b17562041dced32944f5ba00a156b02ab5a925d5b3eab108",
+      "matchingLinesSha256": "5331a4c66d43c6eff4a8622d1f1475e8fce9dbc68fdef0e2fe18e9898a1c2433",
+      "occurrences": {
+        "kitchen": 5,
+        "operateStylized": 0,
+        "oprte": 1
+      },
+      "path": "apps/desktop/runtime/test/harness-key-enrollment.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "66af1be26602c8c3ac6b60b87d59de269dad4a1feb0ce5792dc5d243874f5dc9",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1262,7 +1332,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "688a9d93ee3a5c6a5955a87917d963ab84adc77547bf6c26fc978e7c5c87ef90",
+      "matchingLinesSha256": "06efab3df2357c29c28f56558cf32bd39b5db69422808cca6c851589519c8f04",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1462,13 +1532,53 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "0571fbea23b32c46dff47f59ae014d1ae37ef4a2ced5f541dfef0a828e3e43dd",
+      "matchingLinesSha256": "5ffa094010788b6ee105e022b000e0eb118f2ad9df0d7df4c760e4ddd8077bab",
+      "occurrences": {
+        "kitchen": 2,
+        "operateStylized": 0,
+        "oprte": 6
+      },
+      "path": "apps/desktop/runtime/test/installation-forward-recovery-schema.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "3da50dd3aafc456ced945648610e1a8b99e3df38fe291651cca1cb025258218e",
+      "occurrences": {
+        "kitchen": 2,
+        "operateStylized": 0,
+        "oprte": 17
+      },
+      "path": "apps/desktop/runtime/test/installation-forward-recovery.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "e5378911e144728fa9f1f533866ac29535e3fc4cbefdada24b4af764d8bac8a4",
       "occurrences": {
         "kitchen": 6,
         "operateStylized": 0,
         "oprte": 20
       },
       "path": "apps/desktop/runtime/test/installation-handoff-schema.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "b1e16c9c9b7ecca490b06b6de0382c7c10af885f12efe5327f6d48a4f3112620",
+      "occurrences": {
+        "kitchen": 3,
+        "operateStylized": 0,
+        "oprte": 12
+      },
+      "path": "apps/desktop/runtime/test/installation-handoff-v3-driver.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "6f9e3211f64d39d0a2d72fb1d0eac6140cd0983a3eee2744a8681b1d909edd46",
+      "occurrences": {
+        "kitchen": 3,
+        "operateStylized": 0,
+        "oprte": 8
+      },
+      "path": "apps/desktop/runtime/test/installation-handoff-v3.test.ts"
     },
     {
       "category": "compatibility",
@@ -1482,7 +1592,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "e4e26fa1b54e3fb00e119e1de8bcae61de9893bc14508eeab312ca5bf87e9743",
+      "matchingLinesSha256": "8ec62367eb5b158de24f7ceb74749ea6405e2cb596152fb4ec62f7980f029fa9",
       "occurrences": {
         "kitchen": 2,
         "operateStylized": 0,
@@ -1542,7 +1652,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "c696ed27df6ed56f3c90a56181f1ab87844308136a21705201fadcf5c371ffcc",
+      "matchingLinesSha256": "7ce07b77a43089627962224073b07f7e1de335ed29fb4461b7e052f3e3d58b4f",
       "occurrences": {
         "kitchen": 5,
         "operateStylized": 0,
@@ -1622,13 +1732,23 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "160d6226a851d16b24195f4a75babeadf4d2a412e2765a1b24b60b0f43ce2158",
+      "matchingLinesSha256": "939dcb0859d6be64e42a65d5de82ce04103f4f566636a3d26a70199ad6004444",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
         "oprte": 1
       },
       "path": "apps/desktop/runtime/test/macos-package-config.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "f88995506efea6cb94739d18072ebf3a0a84d377259e6fddfbbdcbd21c19a001",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 1
+      },
+      "path": "apps/desktop/runtime/test/macos-package-resident-probe.test.ts"
     },
     {
       "category": "compatibility",
@@ -1689,6 +1809,16 @@
         "oprte": 4
       },
       "path": "apps/desktop/runtime/test/release-compatibility.test.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "b3db27d99aef0f5cbf33d49b645cdf5380107f1859486aae12596f366b6adb4d",
+      "occurrences": {
+        "kitchen": 3,
+        "operateStylized": 0,
+        "oprte": 0
+      },
+      "path": "apps/desktop/runtime/test/release-signing-authority.test.ts"
     },
     {
       "category": "compatibility",
@@ -1802,11 +1932,21 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "2284296e2a788b581938be2c73bf83113aacdc37ce50b7c8a6af81a863718a22",
+      "matchingLinesSha256": "64d739e58c4d76daabc76523471bcd1cdd898ffaea36b59ee2b06607f9397ebf",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 7
+      },
+      "path": "apps/desktop/runtime/verify-macos-package-adversarial.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "0c9a3a762fc3d0f3902bba1a75f92891835baabc0aa47f44bc13555395180c06",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 13
+        "oprte": 15
       },
       "path": "apps/desktop/runtime/verify-macos-package.ts"
     },
@@ -1842,6 +1982,36 @@
     },
     {
       "category": "compatibility",
+      "matchingLinesSha256": "01c086738d1b59e80d55a4ceb4f138dca1efcd824ee976c2a8cc48538abcfcc8",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 2
+      },
+      "path": "apps/desktop/src/macos_custody_malicious_parent.c"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "8e78e3eb1900a017eb4c0bfe310f1351c62da3d866169693245b57a5e421a523",
+      "occurrences": {
+        "kitchen": 1,
+        "operateStylized": 0,
+        "oprte": 0
+      },
+      "path": "apps/desktop/src/macos_custody_probe_supervisor.c"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "e64d0829bd6207e33665b3d8c199c84b445a159233f9c01c2e9e56fc74d1157f",
+      "occurrences": {
+        "kitchen": 5,
+        "operateStylized": 0,
+        "oprte": 4
+      },
+      "path": "apps/desktop/src/macos_gateway_attestation.m"
+    },
+    {
+      "category": "compatibility",
       "matchingLinesSha256": "b74f644579fbbcd1c23b143ebee52eb987aa04eaa732cfcec7fa47cc01903cb1",
       "occurrences": {
         "kitchen": 1,
@@ -1862,17 +2032,17 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "19227aaa054f6560cb2fbc7d6cdc2ef390317d9b20353bc9deec27fe7868a26a",
+      "matchingLinesSha256": "fe8df778a85dbd09562826f8d7b623c0126f41d2649b549ea24696e5b117d3c9",
       "occurrences": {
         "kitchen": 3,
         "operateStylized": 0,
-        "oprte": 7
+        "oprte": 10
       },
       "path": "apps/desktop/src/macos_keychain_custodian.m"
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "648b8c24b84dcc8333aa80bacedef70550cb5744f68fa9a0bf0fe61ae3693223",
+      "matchingLinesSha256": "0ff3753461fdb459c4146275fa19e67715d660c746e7f2f01015f000bac430cb",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1892,7 +2062,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "79f50dc90e6efda78b6895ecdf17e3aac422879c79281843ccdf87b72b43222b",
+      "matchingLinesSha256": "52f62cff94f62834baf81c6b1d2656689e72af85184258f2326d3b6243fea135",
       "occurrences": {
         "kitchen": 93,
         "operateStylized": 0,
@@ -1912,7 +2082,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "3e450ce05dc1620d936861132844958386949dc17b40d324d5c30c65143a65ca",
+      "matchingLinesSha256": "1561c4fea0b22cd4f34fe519a62ec16cae8530ad2db6a4c4170746949841e962",
       "occurrences": {
         "kitchen": 8,
         "operateStylized": 0,
@@ -1932,13 +2102,23 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "9444393a7880aa0fdfa173050cd6736cfbd2bb8197207aced374753650ab9ca6",
+      "matchingLinesSha256": "7c357b3f952ab9edc103fdcb1d7de8ce7418d4f420c8dd655d05c22e251ca471",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
         "oprte": 3
       },
       "path": "apps/web/README.md"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "a7a32283c0bdc878bdde5af1fdd4e9b4960cbfafc6b0133e76854eb8a94e2cf4",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 1
+      },
+      "path": "apps/web/app/download/page.tsx"
     },
     {
       "category": "compatibility",
@@ -1959,6 +2139,16 @@
         "oprte": 1
       },
       "path": "apps/web/app/hosted-mutation-attempt-journal.ts"
+    },
+    {
+      "category": "compatibility",
+      "matchingLinesSha256": "e4a64210480e178c91bc3cd7f38c8081d83a598433912df453a5109a9dfa26c2",
+      "occurrences": {
+        "kitchen": 0,
+        "operateStylized": 0,
+        "oprte": 1
+      },
+      "path": "apps/web/app/public-markdown.ts"
     },
     {
       "category": "compatibility",
@@ -2452,7 +2642,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "d1ffe1527ed606fb5e851d273a56ad119d02528354fe60e81180f0eb41379966",
+      "matchingLinesSha256": "3f4a7a91fc7b5332f13962f0ac964d86026cc356a2d4f25e476276d02c3333e9",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,

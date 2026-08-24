@@ -14,7 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { runtimeLocalDataRemovalConfirmation } from "../../contracts/runtime";
 import {
@@ -1312,6 +1312,103 @@ describe("whole-app local-data removal", () => {
       `${HRA_SESSION_SYNC_KEYCHAIN_SERVICE}\u0000${HRA_SESSION_SYNC_KEYCHAIN_NAME}`,
       `${HRA_SESSION_SYNC_KEYCHAIN_SERVICE}\u0000${HRA_SESSION_SYNC_RECOVERY_KEYCHAIN_NAME}`,
     ]);
+  });
+
+  test("retains enrollment authority until durable Keychain deletion proof", async () => {
+    const fixture = await removalFixture();
+    const controlPlane = fixture.inventory.filesystemTargets.find(
+      target => target.category === "control_plane",
+    )?.path;
+    if (controlPlane === undefined) throw new Error("missing control plane");
+    const enrollmentPath = join(
+      dirname(controlPlane),
+      ".hra-harness-key-enrollment-v1.json",
+    );
+    await writeFile(enrollmentPath, "enrollment-authority\n", { mode: 0o600 });
+    const inventory: LocalDataRemovalInventory = {
+      ...fixture.inventory,
+      filesystemTargets: [
+        ...fixture.inventory.filesystemTargets,
+        {
+          category: "control_plane",
+          path: enrollmentPath,
+          kind: "file",
+        },
+      ],
+      keychainTargets: [
+        ...fixture.inventory.keychainTargets,
+        {
+          category: "harness_context_heap_key",
+          service: HRA_HARNESS_LEGACY_KEYCHAIN_SERVICE,
+          name: HRA_HARNESS_KEYCHAIN_NAME,
+        },
+        {
+          category: "harness_context_heap_key",
+          service: HRA_HARNESS_KEYCHAIN_SERVICE,
+          name: HRA_HARNESS_KEYCHAIN_NAME,
+        },
+      ],
+    };
+    const plan = await createLocalDataRemovalPlan({
+      inventory,
+      ownedRoots: fixture.roots,
+      signingKey: SIGNING_KEY,
+      previewId: "removal_example1",
+      now: NOW,
+    });
+    const receipts = new FileLocalDataRemovalReceiptStore(
+      fixture.roots.helperStateRoot,
+    );
+    let injected = false;
+    expect(prepareLocalDataRemovalHelperLaunch({
+      plan,
+      command: confirmation(plan, true),
+      operationId: "op_removal01",
+      parentProcessId: 41_001,
+      nativeRemovalCapability: NATIVE_REMOVAL_CAPABILITY,
+      maintenanceFence: heldMaintenanceFence,
+      revalidateInventory: () => Promise.resolve({
+        inventory,
+        ownedRoots: fixture.roots,
+      }),
+      signingKey: SIGNING_KEY,
+      signingKeyPath: fixture.signingKeyPath,
+      secrets: secretStore([]),
+      receipts,
+      now: NOW,
+      faultInjector(checkpoint) {
+        if (!injected && checkpoint === "after_keychain_receipt") {
+          injected = true;
+          throw new Error("crash:after_keychain_receipt");
+        }
+      },
+    })).rejects.toThrow("crash:after_keychain_receipt");
+    expect(await readFile(enrollmentPath, "utf8")).toBe(
+      "enrollment-authority\n",
+    );
+
+    const launch = await resumeLocalDataRemovalHelperLaunch({
+      operationId: "op_removal01",
+      nativeRemovalCapability: NATIVE_REMOVAL_CAPABILITY,
+      parentProcessId: 41_001,
+      command: confirmation(plan, true),
+      maintenanceFence: heldMaintenanceFence,
+      signingKey: SIGNING_KEY,
+      signingKeyPath: fixture.signingKeyPath,
+      secrets: secretStore([]),
+      receipts,
+      now: new Date(NOW.getTime() + 1_000),
+    });
+    expect(await readFile(enrollmentPath, "utf8")).toBe(
+      "enrollment-authority\n",
+    );
+    expect(executeLocalDataRemovalFilesystemRequest({
+      request: launch.signedRequest,
+      signingKey: SIGNING_KEY,
+      ownedRoots: fixture.roots,
+      now: new Date(NOW.getTime() + 1_000),
+    })).resolves.toEqual({ state: "completed", alreadyCompleted: false });
+    expect(lstat(enrollmentPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("rejects escapes, symlinks, preserved-repository overlap, and non-OPRTE Keychain services", async () => {

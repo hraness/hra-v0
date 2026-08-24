@@ -18,6 +18,7 @@ import {
 } from "./corresponding-sources";
 import { macosPackage } from "./macos-package-config";
 import { inspectReleaseSourceRepository } from "./release-provenance";
+import { productionReleaseSigning } from "./release-signing-authority";
 import {
   sha256File,
   verifyMacOSApp,
@@ -158,7 +159,7 @@ async function main(): Promise<void> {
           commit: appEvidence.commit,
           minimumMacOS: macosPackage.minimumMacOS,
           notarized: false,
-          signing: "adhoc",
+          signing: productionReleaseSigning,
           version: macosPackage.version,
         },
         runtimeTreeSha256: appEvidence.treeSha256,

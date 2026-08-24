@@ -39,6 +39,16 @@ extern fn hra_macos_update_preparation_failure_next(
 ) bool;
 extern fn hra_macos_instance_guard_acquire() c_int;
 extern fn hra_macos_instance_guard_release() void;
+extern fn hra_macos_establish_child_process_policy() bool;
+extern fn hra_macos_custody_probe_parent_gate(
+    process_identifier: [*]const u8,
+    process_identifier_length: usize,
+    start_seconds: [*]const u8,
+    start_seconds_length: usize,
+    start_microseconds: [*]const u8,
+    start_microseconds_length: usize,
+) bool;
+extern fn hra_macos_custody_probe_parent_remains_live_or_retire() bool;
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -85,6 +95,10 @@ const dev_hmr_environment = "NATIVE_SDK_HMR";
 const dev_session_environment = "HRA_DEV_SESSION_ID";
 const legacy_oprte_dev_session_environment = "OPRTE_DEV_SESSION_ID";
 const dev_session_id_length = 64;
+const custody_probe_authorize_argument = "--custody-authorization-probe";
+const custody_probe_status_argument = "--custody-status-probe";
+const package_smoke_probe_argument = "--package-smoke-probe";
+const custody_probe_parent_marker = "--hra-probe-parent-v1";
 
 comptime {
     if (cloud_config.enabled) {
@@ -204,9 +218,60 @@ const App = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    if (init.environ_map.get("HRA_PACKAGE_SMOKE_ROOT")) |root| {
-        try runtime_host.runPackagedSmoke(init, root);
-        return;
+    if (comptime std.mem.eql(u8, build_options.platform, "macos")) {
+        if (!hra_macos_establish_child_process_policy()) {
+            return error.HRAChildProcessPolicyUnavailable;
+        }
+    }
+    var arguments = std.process.Args.Iterator.init(init.minimal.args);
+    defer arguments.deinit();
+    _ = arguments.next();
+    if (arguments.next()) |argument| {
+        const ProbeKind = enum { authorize, status, smoke };
+        const probe_kind: ?ProbeKind =
+            if (std.mem.eql(u8, argument, custody_probe_authorize_argument))
+                .authorize
+            else if (std.mem.eql(u8, argument, custody_probe_status_argument))
+                .status
+            else if (std.mem.eql(u8, argument, package_smoke_probe_argument))
+                .smoke
+            else
+                null;
+        if (probe_kind) |kind| {
+            const marker = arguments.next() orelse
+                return error.HRACustodyProbeParentUnavailable;
+            const parent_process = arguments.next() orelse
+                return error.HRACustodyProbeParentUnavailable;
+            const parent_start_seconds = arguments.next() orelse
+                return error.HRACustodyProbeParentUnavailable;
+            const parent_start_microseconds = arguments.next() orelse
+                return error.HRACustodyProbeParentUnavailable;
+            if (!std.mem.eql(u8, marker, custody_probe_parent_marker) or
+                arguments.next() != null or
+                (comptime !std.mem.eql(u8, build_options.platform, "macos")) or
+                !hra_macos_custody_probe_parent_gate(
+                    parent_process.ptr,
+                    parent_process.len,
+                    parent_start_seconds.ptr,
+                    parent_start_seconds.len,
+                    parent_start_microseconds.ptr,
+                    parent_start_microseconds.len,
+                ) or
+                !hra_macos_custody_probe_parent_remains_live_or_retire())
+            {
+                return error.HRACustodyProbeParentUnavailable;
+            }
+            switch (kind) {
+                .authorize => try runtime_host.runPackagedCustodyAuthorizationProbe(init),
+                .status => try runtime_host.runPackagedCustodyStatusProbe(init),
+                .smoke => {
+                    const root = init.environ_map.get("HRA_PACKAGE_SMOKE_ROOT") orelse
+                        return error.HRAPackageSmokeRootUnavailable;
+                    try runtime_host.runPackagedSmoke(init, root);
+                },
+            }
+            return;
+        }
     }
     const development_frontend_enabled = try developmentFrontendEnabled(
         builtin.mode,

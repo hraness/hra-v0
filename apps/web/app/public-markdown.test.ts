@@ -23,7 +23,7 @@ describe("HRA public markdown representations", () => {
     expect(HRA_LLMS_TXT.startsWith("# HRA v0 archive\n")).toBeTrue();
     expect(HRA_LLMS_TXT).toContain(`> ${hraSearchSite.description}`);
     expect(HRA_LLMS_TXT).toContain("maintained archive for HRA v0");
-    expect(HRA_LLMS_TXT).toContain("final v0.1.14 macOS prerelease");
+    expect(HRA_LLMS_TXT).toContain("frozen v0.1.7–v0.1.14 compatibility ledger");
     expect(HRA_LLMS_TXT).toContain("How an agent should use this archive:");
     expect(HRA_LLMS_TXT).toContain("Accept: text/markdown");
     expect(HRA_LLMS_TXT).not.toContain("OAuth client");
@@ -56,11 +56,13 @@ describe("HRA public markdown representations", () => {
     const markdown = createDownloadMarkdown();
     expect(markdown).toContain("# Download HRA v0 for your Mac.");
     expect(markdown).toContain(`macOS ${HRA_RELEASE.minimumMacOS}`);
-    expect(markdown).toContain("not Developer ID signed or notarized");
+    expect(markdown).toContain("Neither signing boundary is Developer ID signed or notarized");
     expect(markdown).toContain("https://hra-weld.vercel.app/llms.txt");
-    expect(HRA_RELEASE.availability).toBe("published");
-    expect(markdown).toContain(HRA_RELEASE.asset);
-    expect(markdown).not.toContain("Do not install an unpublished draft asset.");
+    if (HRA_RELEASE.availability === "candidate") {
+      expect(markdown).toContain("Do not install an unpublished draft asset.");
+    } else {
+      expect(markdown).toContain(HRA_RELEASE.asset);
+    }
   });
 
   test("renders every comparison from the existing first-party rows", () => {
@@ -79,7 +81,7 @@ describe("HRA public markdown representations", () => {
     const markdown = createReleaseHistoryMarkdown();
     expect(markdown).toContain("# HRA v0 release history");
     expect(markdown).toContain("v0.1.11 was a tagged candidate only");
-    expect(markdown).toContain(HRA_RELEASE.source.tagObject);
+    expect(markdown).toContain("37ed37afb39cacfd6a51044cf7f3c1b873571aa3");
     expect(publicDocumentMarkdown("/releases")).toBe(markdown);
   });
 
