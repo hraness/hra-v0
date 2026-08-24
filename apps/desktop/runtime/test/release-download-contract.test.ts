@@ -573,7 +573,7 @@ describe("release and download convergence", () => {
     }
   });
 
-  test("keeps candidate source valid on a descendant of exact repaired C15", async () => {
+  test("keeps candidate source valid on a descendant of exact final C15", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-candidate-descendant-")),
     );
@@ -617,9 +617,16 @@ describe("release and download convergence", () => {
     ).trim();
     await writeFile(join(repositoryRoot, "repair.txt"), "repaired C15\n");
     await runSetupGit(repositoryRoot, ["add", "repair.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "custody repair"]);
+    const custodyRepairCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "host-trust.txt"), "host trust repair\n");
+    await runSetupGit(repositoryRoot, ["add", "host-trust.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
+      candidateCustodyRepairCommit: custodyRepairCommit,
       candidateQ14Commit: q14Commit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
@@ -633,6 +640,7 @@ describe("release and download convergence", () => {
     await runSetupGit(repositoryRoot, ["commit", "-m", "archive follow-up"]);
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
+      candidateCustodyRepairCommit: custodyRepairCommit,
       candidateQ14Commit: q14Commit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
@@ -643,7 +651,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-repaired-C15-to-P15 chain", async () => {
+  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-repair-to-final-C15-to-P15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
     );
@@ -687,12 +695,19 @@ describe("release and download convergence", () => {
     ).trim();
     await writeFile(join(repositoryRoot, "repair.txt"), "repaired C15\n");
     await runSetupGit(repositoryRoot, ["add", "repair.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "repaired C15"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "custody repair"]);
+    const custodyRepairCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "host-trust.txt"), "host trust repair\n");
+    await runSetupGit(repositoryRoot, ["add", "host-trust.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateBaseCommit: baseCommit,
+      candidateCustodyRepairCommit: custodyRepairCommit,
       candidateQ14Commit: q14Commit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
@@ -761,6 +776,7 @@ describe("release and download convergence", () => {
       repository,
       {
         expectedBaseCommit: baseCommit,
+        expectedCustodyRepairCommit: custodyRepairCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: surfaceCommit,
       },
@@ -815,6 +831,7 @@ describe("release and download convergence", () => {
     await expectRejection(
       verifyPublishedReleaseSourceEvidence(published, descendant, {
         expectedBaseCommit: baseCommit,
+        expectedCustodyRepairCommit: custodyRepairCommit,
         expectedQ14Commit: q14Commit,
         expectedSurfaceCommit: surfaceCommit,
       }),

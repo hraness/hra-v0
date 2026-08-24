@@ -93,6 +93,130 @@ describe("macOS package contract", () => {
     }
   });
 
+  test("scopes the private-root trust result behind the complete pinned proof", async () => {
+    const source = await readFile(
+      new URL("../../src/macos_gateway_attestation.m", import.meta.url),
+      "utf8",
+    );
+    const executableIdentity = objectiveCFunctionSource(
+      source,
+      "static bool HRAReleaseExecutableIdentityIsExact(",
+    );
+    const pinnedProof = executableIdentity.indexOf(
+      "hra_macos_verify_self_managed_code_identity(",
+    );
+    const securityValidation = executableIdentity.indexOf(
+      "SecStaticCodeCheckValidity(",
+    );
+    const statusPolicy = executableIdentity.indexOf(
+      "hra_macos_release_validation_status_is_admissible(",
+    );
+    const finalReverification = executableIdentity.indexOf(
+      "hra_macos_reverify_self_managed_code_identity(",
+    );
+    expect(pinnedProof).toBeGreaterThanOrEqual(0);
+    expect(securityValidation).toBeGreaterThan(pinnedProof);
+    expect(statusPolicy).toBeGreaterThan(securityValidation);
+    expect(finalReverification).toBeGreaterThan(statusPolicy);
+    expect(executableIdentity).toContain(
+      "if (!pinnedSelfManagedIdentityIsExact) return false;",
+    );
+    expect(executableIdentity).toContain(
+      "pinnedSelfManagedIdentityIsExact, status",
+    );
+    expect(executableIdentity).toContain(
+      "status == CSSMERR_TP_NOT_TRUSTED",
+    );
+    expect(source.match(
+      /hra_macos_release_validation_status_is_admissible\(/gu,
+    )).toHaveLength(1);
+    for (const retainedPredicate of [
+      "HRAReleaseSignaturePostureIsExact(",
+      "HRAReleaseDesignatedRequirementIsExact(",
+      "HRACodePathIsExact(",
+      "securityHash.length == HRA_MACOS_CDHASH_LENGTH",
+      "memcmp(securityHash.bytes,",
+      "hra_macos_reverify_self_managed_code_identity(",
+    ]) {
+      expect(executableIdentity).toContain(retainedPredicate);
+    }
+
+    const embeddedChain = objectiveCFunctionSource(
+      source,
+      "static bool HRAEmbeddedReleaseCertificateChainIsExact(",
+    );
+    expect(embeddedChain).toContain("CMSDecoderGetNumSigners(");
+    expect(embeddedChain).toContain("signerCount == 1");
+    expect(embeddedChain).toContain("CMSDecoderCopySignerCert(");
+    expect(embeddedChain).toContain("HRAReleaseLeafCertificateSHA1");
+    expect(embeddedChain).toContain("HRAReleaseLeafCertificateSHA256");
+    expect(embeddedChain).toContain(
+      "HRAReleaseEmbeddedCertificateSetIsExact(",
+    );
+    expect(embeddedChain).not.toContain("HRAReleaseCertificateArrayIsExact(");
+
+    const orderedSecurityChain = objectiveCFunctionSource(
+      source,
+      "static bool HRAReleaseCertificateArrayIsExact(",
+    );
+    expect(orderedSecurityChain).toContain("id leaf = certificates[0]");
+    expect(orderedSecurityChain).toContain("id root = certificates[1]");
+
+    const unorderedEmbeddedSet = objectiveCFunctionSource(
+      source,
+      "static bool HRAReleaseEmbeddedCertificateSetIsExact(",
+    );
+    expect(unorderedEmbeddedSet).toContain("certificates.count != 2");
+    expect(unorderedEmbeddedSet).toContain(
+      "hra_macos_release_record_certificate_role(",
+    );
+    expect(unorderedEmbeddedSet).toContain("HRAReleaseLeafCertificateSHA1");
+    expect(unorderedEmbeddedSet).toContain("HRAReleaseRootCertificateSHA1");
+    expect(unorderedEmbeddedSet).toContain("return foundLeaf && foundRoot");
+
+    const certificateChain = objectiveCFunctionSource(
+      source,
+      "static bool HRAReleaseCertificateChainIsExact(",
+    );
+    expect(certificateChain).toContain(
+      "HRAReleaseCertificateArrayIsExact(raw)",
+    );
+    expect(certificateChain).toContain(
+      "securityCertificateChainIsExact ||",
+    );
+    expect(certificateChain).toContain(
+      "hra_macos_release_should_validate_embedded_certificate_set(",
+    );
+    expect(certificateChain).toContain(
+      "allowEmbeddedChainAfterPinnedTrustFailure",
+    );
+    expect(certificateChain).toContain(
+      "HRAEmbeddedReleaseCertificateChainIsExact(cms)",
+    );
+
+    for (const successOnlySignature of [
+      "static bool HRAInspectStaticGateway(",
+      "static bool HRADynamicGatewayIsExact(",
+      "bool hra_macos_release_outer_bundle_is_exact(",
+    ]) {
+      const successOnlyValidation = objectiveCFunctionSource(
+        source,
+        successOnlySignature,
+      );
+      expect(successOnlyValidation).toContain("status == errSecSuccess");
+      expect(successOnlyValidation).not.toContain(
+        "hra_macos_release_validation_status_is_admissible(",
+      );
+      expect(successOnlyValidation).not.toContain("CSSMERR_TP_NOT_TRUSTED");
+      if (successOnlySignature ===
+          "bool hra_macos_release_outer_bundle_is_exact(") {
+        expect(successOnlyValidation).toContain(
+          'information, @"kitchen.hraness", false',
+        );
+      }
+    }
+  });
+
   test("parses only canonical pathless custody status receipts", () => {
     expect(parseCanonicalMacOSCustodyStatus(
       '{"schemaVersion":1,"state":"absent"}\n',
