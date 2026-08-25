@@ -72,7 +72,7 @@ describe("macOS package contract", () => {
     expect(verifierSource).toContain("await realpath(dmgPath) !== dmgPath");
     for (const prefix of ["hra-dmg-snapshot-", "hra-dmg-verify-"]) {
       expect(verifierSource).toContain(
-        `await createCanonicalTemporaryDirectory(\n    \"${prefix}\",\n  );`,
+        `await createCanonicalTemporaryDirectory(\n    "${prefix}",\n  );`,
       );
     }
   });
