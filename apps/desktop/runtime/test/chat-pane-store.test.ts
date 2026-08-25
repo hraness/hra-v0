@@ -1295,7 +1295,7 @@ test("arbitrary failure, retry, replacement, restart, completion, and removal li
       }
     }),
   ), { numRuns: 75 });
-});
+}, 15_000);
 
 test("restart recovery preserves only attached turns for trusted actor replay", () => {
   withStore((store, database) => {

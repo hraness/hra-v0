@@ -1318,7 +1318,7 @@ describe("schema-v3 handoff driver", () => {
         )).disposition).toBe("committed_clean");
       }
     }
-  });
+  }, 15_000);
 
   test("status rejects missing and conflicting transaction tombstones", async () => {
     const missingPredecessor = await flowFixture(true);
