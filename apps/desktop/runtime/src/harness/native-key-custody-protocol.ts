@@ -2,6 +2,8 @@ export const nativeHarnessCustodyFailureStages = Object.freeze([
   "admission",
   "marker_read",
   "envelope_read",
+  "envelope_validate_prepared_acl",
+  "envelope_migrate_prepared_acl",
   "legacy_read",
   "marker_prepare",
   "envelope_set_if_absent",

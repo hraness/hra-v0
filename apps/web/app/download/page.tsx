@@ -76,7 +76,7 @@ export default function DownloadPage() {
             <p className="download-summary">
               {published
                 ? <>This archived v{HRA_RELEASE.version} prerelease bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS {HRA_RELEASE.minimumMacOS} or newer.</>
-                : <>HRA v{HRA_RELEASE.version} is the checked forward-recovery candidate for the archived product. The verified v0.1.14 release remains in the history ledger while publication evidence is completed.</>} New users should start with <a href={CURRENT_HRA_SITE}>the current HRA</a>.
+                : <>HRA v{HRA_RELEASE.version} is the checked native compatibility hotfix candidate for the archived product. The verified v0.1.15 release remains in the history ledger while publication evidence is completed.</>} New users should start with <a href={CURRENT_HRA_SITE}>the current HRA</a>.
             </p>
             <p className="download-trust-callout">
               <strong>Unknown developer.</strong> The outer app, native host, and custody-authorizing helpers use HRA&apos;s self-managed certificate chain. Other HRA-owned nested executables retain pinned ad-hoc signatures, including the exact runtime/JIT gateway. Neither signing boundary is Developer ID signed or notarized by Apple. {published

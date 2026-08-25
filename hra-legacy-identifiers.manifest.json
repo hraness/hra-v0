@@ -2,7 +2,7 @@
   "entries": [
     {
       "category": "compatibility",
-      "matchingLinesSha256": "b551731383b937f95c203db6566474f89bb3e0881b27fad07087cdceb512ecfc",
+      "matchingLinesSha256": "819d76334b507f99e003eda41842d128ce94b2e045de27aa548a4d29a2c5ca61",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -762,9 +762,9 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "daa28bf8d446273a69b6691ebc7e735f08af904bb2bfe2033d05d432e19ffbc3",
+      "matchingLinesSha256": "e98e8875256d2d882675469f6d1a7150af098bd04b3ebec315f243ead375a163",
       "occurrences": {
-        "kitchen": 10,
+        "kitchen": 11,
         "operateStylized": 0,
         "oprte": 2
       },
@@ -1312,7 +1312,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "5331a4c66d43c6eff4a8622d1f1475e8fce9dbc68fdef0e2fe18e9898a1c2433",
+      "matchingLinesSha256": "f59cd57cb4014637deb091270a4de80d06c7a998ed544465ab331e5b646b38bc",
       "occurrences": {
         "kitchen": 5,
         "operateStylized": 0,
@@ -1332,7 +1332,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "06efab3df2357c29c28f56558cf32bd39b5db69422808cca6c851589519c8f04",
+      "matchingLinesSha256": "d6f5253afb0b342e36025a8bcbc01784fd2c1669544c5c823236401eaf333403",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -2042,7 +2042,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "d53d45b6c8b9f034b09e735ed7fc3773bd10f0745457de93f64826fa91d073fd",
+      "matchingLinesSha256": "3b1a91fb45495f260b607aa9e7d858a7d82bf8804453190b8ba4d027ef6643c1",
       "occurrences": {
         "kitchen": 3,
         "operateStylized": 0,
@@ -2092,7 +2092,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "7cdaa47625fd9e87c3144412efd3e7f22fac3e52260fdbd45fc014cce1930d46",
+      "matchingLinesSha256": "4ca722a060ad73c5a3003c5a3251a3d10fcd0dd9494cfef773f11493907d439c",
       "occurrences": {
         "kitchen": 8,
         "operateStylized": 0,
@@ -2112,7 +2112,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "da80de77af4502e7936047f1bcab4dbb522d45c14c5b97785fba199c482dba2a",
+      "matchingLinesSha256": "2decac616f1714d7735d7ec7e5daffbe4d184c00876a9143cbf9afa388eea88e",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,

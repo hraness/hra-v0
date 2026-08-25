@@ -66,6 +66,10 @@ export const HRA_V0_P15_CONCURRENT_MAIN_COMMIT =
 export const HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT =
   "af3296e59e2173e1e7737dee7a3194592de1105e" as const;
 
+/** Reviewed generation-1 HRA v0.1.15 archive surface (Q15). */
+export const HRA_V0_Q15_SURFACE_COMMIT =
+  "443448b79e9016e00d52501f047fce3a408de092" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
@@ -120,9 +124,28 @@ export interface ReleaseCandidateLineageEvidence {
   readonly status: "exact_q14_base_c15_reviewed_surface_custody_repair_host_trust_bundle_code_authority_signed_release_probe_repair_final_candidate_chain";
 }
 
+export interface ReleaseHotfixCandidateLineageEvidence {
+  readonly candidateCommit: string;
+  readonly q15Commit: string;
+  readonly status: "exact_q15_c16_candidate_chain";
+}
+
+/** A Q16 surface that is the sole direct child of exact publication P16. */
+export interface ReleasePublicationSurfaceEvidence {
+  readonly publication: ReleasePublicationEvidence;
+  readonly status: "verified_linear_publication_surface";
+  readonly surfaceCommit: string;
+}
+
 export interface CanonicalReleasePublicationEvidence {
   readonly publication: ReleasePublicationEvidence;
   readonly tag: ReleaseTagEvidence;
+}
+
+/** Canonical remote evidence for the linear Q15/C16/P16/Q16 topology. */
+export interface CanonicalReleasePublicationSurfaceEvidence
+  extends CanonicalReleasePublicationEvidence {
+  readonly surface: ReleasePublicationSurfaceEvidence;
 }
 
 /**
@@ -358,6 +381,118 @@ export async function resolveReleaseCandidateCommit(
     );
   }
   return signedReleaseProbeRepairChildren[0] ?? "";
+}
+
+/**
+ * Find the unique C16 hotfix candidate on the linear path from Q15 to HEAD.
+ * HEAD may be the candidate or a later CI descendant, but the candidate itself
+ * must remain Q15's sole-parent child.
+ */
+export async function resolveReleaseHotfixCandidateCommit(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{ expectedQ15Commit?: string }> = {},
+): Promise<string> {
+  const expectedQ15Commit = requireObjectId(
+    options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+    "HRA v0.1.15 Q15 surface commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  let mergeBase: string;
+  try {
+    mergeBase = requireObjectId(
+      await runner.run(["merge-base", expectedQ15Commit, repository.commit]),
+      "HRA v0.1.16 Q15 merge base",
+    );
+  } catch {
+    throw new Error(
+      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+    );
+  }
+  if (mergeBase !== expectedQ15Commit) {
+    throw new Error(
+      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+    );
+  }
+  const historyOutput = (await runner.run([
+    "rev-list",
+    "--parents",
+    "--ancestry-path",
+    `${expectedQ15Commit}..${repository.commit}`,
+  ])).trim();
+  const q15Children: string[] = [];
+  for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
+    const objectIds = line.trim().split(/\s+/u);
+    const commit = objectIds[0] ?? "";
+    const parents = objectIds.slice(1);
+    if (parents.length === 1 && parents[0] === expectedQ15Commit) {
+      q15Children.push(
+        requireObjectId(commit, "HRA v0.1.16 candidate commit"),
+      );
+    }
+  }
+  if (q15Children.length !== 1) {
+    throw new Error(
+      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+    );
+  }
+  return q15Children[0] ?? "";
+}
+
+export async function inspectReleaseHotfixCandidateLineage(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{
+    candidateCommit?: string;
+    expectedQ15Commit?: string;
+  }> = {},
+): Promise<ReleaseHotfixCandidateLineageEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit ?? repository.commit,
+    "HRA v0.1.16 candidate commit",
+  );
+  const expectedQ15Commit = requireObjectId(
+    options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+    "HRA v0.1.15 Q15 surface commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectReleaseHotfixCandidateLineageWithRunner(
+    runner,
+    candidateCommit,
+    expectedQ15Commit,
+  );
+}
+
+async function inspectReleaseHotfixCandidateLineageWithRunner(
+  runner: ReleaseGitRunner,
+  candidateCommit: string,
+  expectedQ15Commit: string,
+): Promise<ReleaseHotfixCandidateLineageEvidence> {
+  const ancestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    candidateCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    ancestry.length !== 2
+    || ancestry[0] !== candidateCommit
+    || ancestry[1] !== expectedQ15Commit
+  ) {
+    throw new Error(
+      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+    );
+  }
+  return Object.freeze({
+    candidateCommit,
+    q15Commit: expectedQ15Commit,
+    status: "exact_q15_c16_candidate_chain",
+  });
 }
 
 /**
@@ -668,6 +803,85 @@ export async function inspectReleasePublicationAtCommit(
     candidateCommit,
     publicationCommit,
   );
+}
+
+/**
+ * Verify the linear P16-to-Q16 surface. Q16 must be P16's sole direct child
+ * and must preserve the published release-download contract byte for byte.
+ */
+export async function inspectReleasePublicationSurface(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{
+    candidateCommit: string;
+    publicationCommit: string;
+    surfaceCommit?: string;
+  }>,
+): Promise<ReleasePublicationSurfaceEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const surfaceCommit = requireObjectId(
+    options.surfaceCommit ?? repository.commit,
+    "Publication surface commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectReleasePublicationSurfaceWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+    surfaceCommit,
+  );
+}
+
+async function inspectReleasePublicationSurfaceWithRunner(
+  runner: ReleaseGitRunner,
+  candidateCommit: string,
+  publicationCommit: string,
+  surfaceCommit: string,
+): Promise<ReleasePublicationSurfaceEvidence> {
+  const publication = await inspectReleasePublicationWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+  );
+  const surfaceAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    surfaceCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    surfaceAncestry.length !== 2
+    || surfaceAncestry[0] !== surfaceCommit
+    || surfaceAncestry[1] !== publicationCommit
+  ) {
+    throw new Error(
+      "The v0.1.16 publication surface must have P16 as its only direct parent.",
+    );
+  }
+  const surfaceContract = await readBoundedReleaseContractAtCommit(
+    runner,
+    surfaceCommit,
+  );
+  if (surfaceContract !== publication.publicationContract) {
+    throw new Error(
+      "The v0.1.16 publication surface must preserve the P16 release contract exactly.",
+    );
+  }
+  return Object.freeze({
+    publication,
+    status: "verified_linear_publication_surface",
+    surfaceCommit,
+  });
 }
 
 /**
@@ -1320,6 +1534,99 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       HRA_V0_Q14_SURFACE_COMMIT,
     );
     return evidence;
+  } finally {
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Fetch and verify the exact linear Q15/C16/P16/Q16 publication topology from
+ * the canonical HRA v0 repository without trusting a provider checkout.
+ */
+export async function inspectCanonicalReleasePublicationSurface(
+  options: Readonly<{
+    candidateCommit: string;
+    expectedQ15Commit?: string;
+    publicationCommit: string;
+    surfaceCommit: string;
+    tag: string;
+  }>,
+): Promise<CanonicalReleasePublicationSurfaceEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const surfaceCommit = requireObjectId(
+    options.surfaceCommit,
+    "Publication surface commit",
+  );
+  const expectedQ15Commit = requireObjectId(
+    options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+    "HRA v0.1.15 Q15 surface commit",
+  );
+  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
+    throw new Error("Release tag is invalid.");
+  }
+  const temporaryRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "hra-release-surface-fetch-")),
+  );
+  const gitDirectory = join(temporaryRoot, "publication.git");
+  try {
+    await runHermeticGit(
+      ["init", "--bare", "--initial-branch=main", gitDirectory],
+      temporaryRoot,
+    );
+    const runner = releaseGitObjectRunner(gitDirectory);
+    await runner.run(["remote", "add", "canonical", canonicalGitRepository]);
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=4",
+      "--filter=blob:limit=32768",
+      "canonical",
+      surfaceCommit,
+    ]);
+    const tagRef = `refs/tags/${options.tag}`;
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=2",
+      "--filter=blob:limit=32768",
+      "canonical",
+      `${tagRef}:${tagRef}`,
+    ]);
+    const [surface, tag] = await Promise.all([
+      inspectReleasePublicationSurfaceWithRunner(
+        runner,
+        candidateCommit,
+        publicationCommit,
+        surfaceCommit,
+      ),
+      inspectReleaseTagWithRunner(runner, options.tag),
+    ]);
+    if (tag === null) {
+      throw new Error(
+        "The canonical release repository has no annotated release tag.",
+      );
+    }
+    await inspectReleaseHotfixCandidateLineageWithRunner(
+      runner,
+      candidateCommit,
+      expectedQ15Commit,
+    );
+    return Object.freeze({
+      publication: surface.publication,
+      surface,
+      tag,
+    });
   } finally {
     await rm(temporaryRoot, { force: true, recursive: true });
   }

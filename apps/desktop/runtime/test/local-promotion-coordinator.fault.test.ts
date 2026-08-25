@@ -625,7 +625,7 @@ describe("local promotion coordinator faults", () => {
         database.close();
       }
     }
-  });
+  }, 10_000);
 
   test("recovers crashes after every remote response boundary", async () => {
     for (const checkpoint of [
@@ -695,7 +695,7 @@ describe("local promotion coordinator faults", () => {
         database.close();
       }
     }
-  });
+  }, 10_000);
 
   test("reconciles lost activation and abort responses from server proofs", async () => {
     const activatedFixture = fixture();

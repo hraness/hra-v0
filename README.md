@@ -3,8 +3,10 @@
 [![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)
 
 > [!IMPORTANT]
-> This repository preserves HRA v0. Its generation-1 release ledger ends at
-> the final v0.1.15 compatibility and recovery correction. The current HRA is
+> This repository preserves HRA v0. Its generation-1 release ledger currently
+> ends at the immutable v0.1.15 recovery release. HRA v0.1.16 build 17 is a
+> checked native compatibility hotfix candidate and has no download until its
+> release evidence is published. The current HRA is
 > at [hra.sh](https://hra.sh) with
 > source at [github.com/hraness/hra](https://github.com/hraness/hra).
 
@@ -15,9 +17,10 @@ and bringing it back for review.
 [Download for macOS](https://hra-weld.vercel.app/download) · [Release history](https://hra-weld.vercel.app/releases) · [Website](https://hra-weld.vercel.app) ·
 [Historical comparisons](https://hra-weld.vercel.app/alternatives) · [Current HRA](https://hra.sh)
 
-> The checked release contract publishes HRA 0.1.15 build 16 for Apple Silicon
-> Macs. The download page exposes only the exact source commit, annotated tag,
-> runtime tree, manifest, checksum, and artifact hashes recorded by that
+> The checked release contract declares HRA 0.1.16 build 17 for Apple Silicon
+> Macs as a candidate. The download page exposes no candidate artifact. After
+> publication it may expose only the exact source commit, annotated tag,
+> runtime tree, manifest, checksum, and artifact hashes recorded by the
 > contract. The outer
 > app, native host, and custody-authorizing helpers use HRA's self-managed
 > certificate chain. Other HRA-owned nested executables, including the exact
@@ -87,17 +90,22 @@ and data boundary.
 ## Install the prerelease
 
 The native app targets Apple Silicon and macOS 13 or newer. The
-[download page](https://hra-weld.vercel.app/download) exposes only the exact
-v0.1.15 DMG, checksum, and manifest bound by the published contract. Verify
-the SHA-256 and follow the unknown-developer instructions.
+[download page](https://hra-weld.vercel.app/download) keeps HRA v0.1.16 build
+17 closed while its contract is a candidate. The immutable v0.1.15 DMG,
+checksum, manifest, and source archives remain available through the release
+history. Verify the SHA-256 and follow the unknown-developer instructions for
+any published package.
 
 The generation-1 [release history](https://hra-weld.vercel.app/releases)
-records every tag from v0.1.7 through v0.1.15, all eight immutable GitHub
-prereleases, and every asset's exact byte count, SHA-256 digest, and archive
-download link. v0.1.11 is preserved as a tag-only candidate. Candidate C15 is
-`0c7764da0dea0a71bbccca817539a02d8e4284d0`; annotated tag object
+currently records every tag from v0.1.7 through v0.1.15, all eight immutable
+GitHub prereleases, and every asset's exact byte count, SHA-256 digest, and
+archive download link. v0.1.11 is preserved as a tag-only candidate. Candidate
+C15 is `0c7764da0dea0a71bbccca817539a02d8e4284d0`; annotated tag object
 `e5bcf5c919e8a7ffcdccc337b8940b60a70f0489` points directly to it, and
 publication P15 is `d96173c3556799cb203a4d659f29856180838029`.
+Reviewed archive surface Q15 is
+`443448b79e9016e00d52501f047fce3a408de092`; C16 must be its single-parent
+direct child.
 
 ## Develop HRA v0
 

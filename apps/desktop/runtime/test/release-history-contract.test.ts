@@ -88,7 +88,7 @@ describe("HRA v0 remote release history", () => {
     );
   });
 
-  test("allows a generation-0 v0.1.15 recovery overlay and forbids it for generation 1", async () => {
+  test("allows only the next exact release overlay for each frozen generation", async () => {
     const current = currentReleaseEntry();
     const frozen = createRemoteHistoryFixture(generationZeroContract());
     expect(await verifyRemoteReleaseHistoryState(
@@ -125,9 +125,50 @@ describe("HRA v0 remote release history", () => {
         generationOne.fetcher,
         current,
       ),
-      "current-release overlay is forbidden",
+      "accepts only a v0.1.16 current-release overlay",
     );
     expect(generationOne.requests).toHaveLength(0);
+
+    const hotfix = currentHotfixReleaseEntry();
+    const hotfixFixture = createRemoteHistoryFixture(
+      readReleaseHistoryContract(),
+      hotfix,
+    );
+    expect(await verifyRemoteReleaseHistoryState(
+      hotfixFixture.contract,
+      hotfixFixture.fetcher,
+      hotfix,
+    )).toEqual({
+      assetCount: 63,
+      releaseCount: 9,
+      repository,
+      status: "verified_exact_published_remote_release_history",
+      tagCount: 10,
+      tagOnly: ["v0.1.11"],
+    });
+    expect(hotfixFixture.requests).toHaveLength(12);
+
+    const promoted = generationTwoContract(hotfix);
+    const promotedFixture = createRemoteHistoryFixture(promoted);
+    expect(await verifyRemoteReleaseHistoryState(
+      promotedFixture.contract,
+      promotedFixture.fetcher,
+    )).toEqual({
+      assetCount: 63,
+      releaseCount: 9,
+      repository,
+      status: "verified_exact_published_remote_release_history",
+      tagCount: 10,
+      tagOnly: ["v0.1.11"],
+    });
+    await expectRejects(
+      verifyRemoteReleaseHistoryState(
+        promotedFixture.contract,
+        promotedFixture.fetcher,
+        hotfix,
+      ),
+      "current-release overlay is forbidden",
+    );
 
     const drift = createRemoteHistoryFixture(generationZeroContract(), current);
     const currentRelease = drift.releases.find(
@@ -185,7 +226,7 @@ describe("HRA v0 remote release history", () => {
     );
   });
 
-  test("parses only the exact ordered generation-0 and generation-1 sequences", () => {
+  test("parses only the exact ordered generation-0 through generation-2 sequences", () => {
     const contract = readReleaseHistoryContract();
     expect(contract.generation).toBe(1);
     expect(contract.publicationCommit).toBe("d96173c3556799cb203a4d659f29856180838029");
@@ -229,6 +270,19 @@ describe("HRA v0 remote release history", () => {
     expect(() => parseReleaseHistoryContract({
       ...structuredClone(generationZero),
       tags: [...generationZero.tags, contract.tags.at(-1)],
+    })).toThrow();
+
+    const generationTwo = generationTwoContract();
+    expect(generationTwo.generation).toBe(2);
+    expect(generationTwo.tags).toHaveLength(10);
+    expect(generationTwo.tags.at(-1)).toMatchObject({
+      build: 17,
+      tag: "v0.1.16",
+      version: "0.1.16",
+    });
+    expect(() => parseReleaseHistoryContract({
+      ...structuredClone(generationTwo),
+      tags: generationTwo.tags.slice(0, 9),
     })).toThrow();
   });
 });
@@ -365,6 +419,59 @@ function currentReleaseEntry(): CurrentRemoteReleaseHistoryEntry {
     releaseId: 900_100,
     tag: "v0.1.15",
     tagObject: "b".repeat(40),
+  });
+}
+
+function currentHotfixReleaseEntry(): CurrentRemoteReleaseHistoryEntry {
+  return Object.freeze({
+    assets: Object.freeze([
+      "HRA-0.1.16-17-macos-arm64.dmg",
+      "HRA-0.1.16-17-macos-arm64.dmg.sha256",
+      "HRA-0.1.16-17-release-manifest.json",
+      "bun-source.tar.gz",
+      "libarchive-source.tar.gz",
+      "native-sdk-source.tar.gz",
+      "zig-source.tar.gz",
+    ].toSorted().map((name, index) => Object.freeze({
+      bytes: 2_000 + index,
+      id: 910_000 + index,
+      name,
+      sha256: String(index + 1).repeat(64),
+    }))),
+    commit: "c".repeat(40),
+    publishedAt: "2026-08-25T00:00:00Z",
+    releaseId: 910_100,
+    tag: "v0.1.16",
+    tagObject: "d".repeat(40),
+  });
+}
+
+function generationTwoContract(
+  current: CurrentRemoteReleaseHistoryEntry = currentHotfixReleaseEntry(),
+): ReleaseHistoryContract {
+  const generationOne = readReleaseHistoryContract();
+  return parseReleaseHistoryContract({
+    ...generationOne,
+    generation: 2,
+    publicationCommit: "e".repeat(40),
+    tags: [
+      ...generationOne.tags,
+      {
+        build: 17,
+        commit: current.commit,
+        objectKind: "annotated",
+        release: {
+          assets: current.assets,
+          id: current.releaseId,
+          immutable: true,
+          prerelease: true,
+          publishedAt: current.publishedAt,
+        },
+        tag: current.tag,
+        tagObject: current.tagObject,
+        version: "0.1.16",
+      },
+    ],
   });
 }
 

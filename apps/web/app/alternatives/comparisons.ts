@@ -39,7 +39,10 @@ export function hraComparisonCitationVersion(
     version: string;
   }>,
 ): string {
-  return release.availability === "published" ? release.version : "0.1.14";
+  if (release.availability === "published") return release.version;
+  if (release.version === "0.1.16") return "0.1.15";
+  if (release.version === "0.1.15") return "0.1.14";
+  throw new Error("The candidate comparison citation version is unsupported.");
 }
 
 const HRA_COMPARISON_CITATION_VERSION =

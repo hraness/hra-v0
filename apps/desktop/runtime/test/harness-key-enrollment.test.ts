@@ -45,6 +45,7 @@ import {
   HARNESS_INSTALL_MASTER_KEY_BYTES,
   serializeHarnessInstallMaster,
 } from "../src/harness/key-custody";
+import { hraReleaseIdentity } from "../release-identity";
 
 const roots: string[] = [];
 const supportedPriorHraIdentities = [
@@ -76,6 +77,10 @@ describe("Harness key enrollment", () => {
           ? { state: "present", envelope, strictAcl: true }
           : { state: "absent", strictAcl: false });
       },
+      migratePreparedAcl: () =>
+        Promise.reject(new Error("fresh enrollment must not migrate ACLs")),
+      validatePreparedAcl: () =>
+        Promise.reject(new Error("fresh enrollment must not validate ACLs")),
       createExactIfAbsentNoUi: (attempted) => {
         events.push("create");
         expect(attempted).toBe(envelope);
@@ -155,6 +160,342 @@ describe("Harness key enrollment", () => {
     });
     expect(enrolled.sidecar.phase).toBe("enrolled");
     expect(keychain.createCalls).toBe(0);
+  });
+
+  test("v0.1.16 finishes an exact v0.1.15 prepared sidecar without rewriting authorization", async () => {
+    expect(hraReleaseIdentity).toEqual({ build: 17, version: "0.1.16" });
+    const controlPlanePath = await emptyControlPlanePath();
+    const envelope = fixtureEnvelope(13);
+    const prepared = await writePrepared(controlPlanePath, envelope);
+    expect(prepared.sidecar).toMatchObject({
+      authorization: {
+        candidate: {
+          bundle: { identity: { build: "16", version: "0.1.15" } },
+        },
+        kind: "forward_recovery_v1",
+      },
+      phase: "prepared",
+    });
+    const exactAuthorization = JSON.stringify(prepared.sidecar.authorization);
+    const keychain = fixtureKeychain({
+      state: "present",
+      envelope,
+      strictAcl: true,
+    });
+
+    const enrolled = await ensureHarnessKeyEnrollment({
+      allowFreshAuthorization: false,
+      controlPlanePath,
+      keychain,
+    });
+
+    expect(enrolled.sidecar.phase).toBe("enrolled");
+    expect(keychain.createCalls).toBe(0);
+    expect(JSON.stringify(enrolled.sidecar.authorization)).toBe(
+      exactAuthorization,
+    );
+    expect(enrolled.sidecar.authorization).toEqual(
+      prepared.sidecar.authorization,
+    );
+  });
+
+  test("exact v0.1.15 prepared custody validates and migrates in separate native actions", async () => {
+    const controlPlanePath = await emptyControlPlanePath();
+    const value = fixtureEnvelope(13);
+    const prepared = await writePrepared(controlPlanePath, value);
+    if (prepared.sidecar.phase !== "prepared") throw new Error("expected prepared");
+    const authorizationBefore = JSON.stringify(prepared.sidecar.authorization);
+    const expectedDigest = prepared.sidecar.attempt.envelopeSha256;
+    const events: string[] = [];
+    let migrated = false;
+    const keychain: HarnessKeyEnrollmentKeychain = {
+      inspectExactNoUi: () => {
+        events.push("inspect");
+        return migrated
+          ? Promise.resolve({ state: "present" as const, envelope: value, strictAcl: true as const })
+          : Promise.reject(new Error("old ACL requires interaction"));
+      },
+      validatePreparedAcl: (digest) => {
+        events.push("validate");
+        expect(digest).toBe(expectedDigest);
+        return Promise.resolve({ envelopeSha256: digest, validated: true });
+      },
+      migratePreparedAcl: (digest) => {
+        events.push("migrate");
+        expect(digest).toBe(expectedDigest);
+        migrated = true;
+        return Promise.resolve({ envelopeSha256: digest, strictAcl: true });
+      },
+      createExactIfAbsentNoUi: () =>
+        Promise.reject(new Error("prepared migration must not create custody")),
+    };
+    const enrolled = await ensureHarnessKeyEnrollment({
+      allowFreshAuthorization: false,
+      controlPlanePath,
+      keychain,
+    });
+    expect(enrolled.sidecar.phase).toBe("enrolled");
+    expect(JSON.stringify(enrolled.sidecar.authorization)).toBe(
+      authorizationBefore,
+    );
+    expect(events).toEqual(["inspect", "validate", "migrate", "inspect"]);
+  });
+
+  test("migration reporter loss leaves prepared authority and restart converges without UI", async () => {
+    const controlPlanePath = await emptyControlPlanePath();
+    const value = fixtureEnvelope(14);
+    const prepared = await writePrepared(controlPlanePath, value);
+    if (prepared.sidecar.phase !== "prepared") throw new Error("expected prepared");
+    const expectedDigest = prepared.sidecar.attempt.envelopeSha256;
+    let strict = false;
+    let validateCalls = 0;
+    let migrateCalls = 0;
+    const keychain: HarnessKeyEnrollmentKeychain = {
+      inspectExactNoUi: () => strict
+        ? Promise.resolve({ state: "present" as const, envelope: value, strictAcl: true as const })
+        : Promise.reject(new Error("old ACL requires interaction")),
+      validatePreparedAcl: (digest) => {
+        validateCalls += 1;
+        return Promise.resolve({ envelopeSha256: digest, validated: true });
+      },
+      migratePreparedAcl: () => {
+        migrateCalls += 1;
+        strict = true;
+        return Promise.reject(new Error("reporter interrupted after normalization"));
+      },
+      createExactIfAbsentNoUi: () =>
+        Promise.reject(new Error("prepared migration must not create custody")),
+    };
+    expect(
+      ensureHarnessKeyEnrollment({
+        allowFreshAuthorization: false,
+        controlPlanePath,
+        keychain,
+      }),
+    ).rejects.toMatchObject({ code: "custody_unavailable" });
+    expect((await readHarnessKeyEnrollmentSidecar(controlPlanePath))?.sidecar.phase)
+      .toBe("prepared");
+    const enrolled = await ensureHarnessKeyEnrollment({
+      allowFreshAuthorization: false,
+      controlPlanePath,
+      keychain,
+    });
+    expect(enrolled.sidecar.phase).toBe("enrolled");
+    expect(enrolled.sidecar.phase === "enrolled"
+      ? enrolled.sidecar.attempt.envelopeSha256
+      : null).toBe(expectedDigest);
+    expect(validateCalls).toBe(1);
+    expect(migrateCalls).toBe(1);
+  });
+
+  test("prepared ACL migration fails closed on sidecar drift at every CAS boundary", async () => {
+    for (const cut of [
+      "beforeValidate",
+      "betweenValidateAndMigrate",
+      "afterMigrate",
+    ] as const) {
+      const controlPlanePath = await emptyControlPlanePath();
+      const value = fixtureEnvelope(15);
+      let prepared = await writePrepared(controlPlanePath, value);
+      if (prepared.sidecar.phase !== "prepared") {
+        throw new Error("expected prepared");
+      }
+      const expectedDigest = prepared.sidecar.attempt.envelopeSha256;
+      const events: string[] = [];
+      const drift = async () => {
+        if (prepared.sidecar.phase !== "prepared") {
+          throw new Error("expected prepared");
+        }
+        prepared = await writeHarnessKeyEnrollmentSidecar(
+          controlPlanePath,
+          {
+            ...prepared.sidecar,
+            attempt: {
+              ...prepared.sidecar.attempt,
+              nonce: "8".repeat(64),
+            },
+          },
+          prepared,
+        );
+      };
+      const keychain: HarnessKeyEnrollmentKeychain = {
+        inspectExactNoUi: async () => {
+          events.push("inspect");
+          if (cut === "beforeValidate") await drift();
+          throw new Error("old ACL requires interaction");
+        },
+        validatePreparedAcl: async (digest) => {
+          events.push("validate");
+          if (cut === "betweenValidateAndMigrate") await drift();
+          return { envelopeSha256: digest, validated: true };
+        },
+        migratePreparedAcl: async (digest) => {
+          events.push("migrate");
+          if (cut === "afterMigrate") await drift();
+          return { envelopeSha256: digest, strictAcl: true };
+        },
+        createExactIfAbsentNoUi: () =>
+          Promise.reject(new Error("migration must not create custody")),
+      };
+
+      expect(ensureHarnessKeyEnrollment({
+        allowFreshAuthorization: false,
+        controlPlanePath,
+        keychain,
+      })).rejects.toMatchObject({ code: "custody_conflict" });
+      expect((await readHarnessKeyEnrollmentSidecar(controlPlanePath))?.sidecar.phase)
+        .toBe("prepared");
+      expect(events).toEqual(cut === "beforeValidate"
+        ? ["inspect"]
+        : cut === "betweenValidateAndMigrate"
+          ? ["inspect", "validate"]
+          : ["inspect", "validate", "migrate"]);
+      if (prepared.sidecar.phase !== "prepared") {
+        throw new Error("expected prepared");
+      }
+      expect(prepared.sidecar.attempt.envelopeSha256).toBe(expectedDigest);
+    }
+  });
+
+  test("cancel or timeout in either interactive ACL stage preserves prepared authority", async () => {
+    for (const stage of ["validate", "migrate"] as const) {
+      for (const failure of ["cancelled", "timed out"] as const) {
+        const controlPlanePath = await emptyControlPlanePath();
+        const value = fixtureEnvelope(stage === "validate" ? 16 : 17);
+        const prepared = await writePrepared(controlPlanePath, value);
+        if (prepared.sidecar.phase !== "prepared") {
+          throw new Error("expected prepared");
+        }
+        const events: string[] = [];
+        const keychain: HarnessKeyEnrollmentKeychain = {
+          inspectExactNoUi: () => {
+            events.push("inspect");
+            return Promise.reject(new Error("old ACL requires interaction"));
+          },
+          validatePreparedAcl: (digest) => {
+            events.push("validate");
+            return stage === "validate"
+              ? Promise.reject(new Error(failure))
+              : Promise.resolve({ envelopeSha256: digest, validated: true });
+          },
+          migratePreparedAcl: (digest) => {
+            events.push("migrate");
+            return stage === "migrate"
+              ? Promise.reject(new Error(failure))
+              : Promise.resolve({ envelopeSha256: digest, strictAcl: true });
+          },
+          createExactIfAbsentNoUi: () =>
+            Promise.reject(new Error("migration must not create custody")),
+        };
+
+        expect(ensureHarnessKeyEnrollment({
+          allowFreshAuthorization: false,
+          controlPlanePath,
+          keychain,
+        })).rejects.toMatchObject({ code: "custody_unavailable" });
+        expect(await readHarnessKeyEnrollmentSidecar(controlPlanePath))
+          .toEqual(prepared);
+        expect(events).toEqual(stage === "validate"
+          ? ["inspect", "validate"]
+          : ["inspect", "validate", "migrate"]);
+      }
+    }
+  });
+
+  test("wrong validation or migration digest preserves prepared authority", async () => {
+    for (const stage of ["validate", "migrate"] as const) {
+      const controlPlanePath = await emptyControlPlanePath();
+      const value = fixtureEnvelope(stage === "validate" ? 18 : 19);
+      const prepared = await writePrepared(controlPlanePath, value);
+      if (prepared.sidecar.phase !== "prepared") {
+        throw new Error("expected prepared");
+      }
+      const events: string[] = [];
+      const wrongDigest = `${prepared.sidecar.attempt.envelopeSha256[0] === "0"
+        ? "1"
+        : "0"}${prepared.sidecar.attempt.envelopeSha256.slice(1)}`;
+      const keychain: HarnessKeyEnrollmentKeychain = {
+        inspectExactNoUi: () => {
+          events.push("inspect");
+          return Promise.reject(new Error("old ACL requires interaction"));
+        },
+        validatePreparedAcl: (digest) => {
+          events.push("validate");
+          return Promise.resolve({
+            envelopeSha256: stage === "validate" ? wrongDigest : digest,
+            validated: true,
+          });
+        },
+        migratePreparedAcl: () => {
+          events.push("migrate");
+          return Promise.resolve({
+            envelopeSha256: wrongDigest,
+            strictAcl: true,
+          });
+        },
+        createExactIfAbsentNoUi: () =>
+          Promise.reject(new Error("migration must not create custody")),
+      };
+
+      expect(ensureHarnessKeyEnrollment({
+        allowFreshAuthorization: false,
+        controlPlanePath,
+        keychain,
+      })).rejects.toMatchObject({ code: "custody_unavailable" });
+      expect(await readHarnessKeyEnrollmentSidecar(controlPlanePath))
+        .toEqual(prepared);
+      expect(events).toEqual(stage === "validate"
+        ? ["inspect", "validate"]
+        : ["inspect", "validate", "migrate"]);
+    }
+  });
+
+  test("non-v0.1.15 prepared authority cannot invoke ACL migration", async () => {
+    const controlPlanePath = await emptyControlPlanePath();
+    const value = fixtureEnvelope(20);
+    const authorized = await writeHarnessKeyEnrollmentSidecar(
+      controlPlanePath,
+      installationHandoffV3AuthorizedSidecar(supportedPriorHraIdentities[6]),
+      null,
+    );
+    const prepared = await writeHarnessKeyEnrollmentSidecar(
+      controlPlanePath,
+      {
+        ...authorized.sidecar,
+        phase: "prepared",
+        attempt: {
+          envelopeSha256: createHash("sha256").update(value).digest("hex"),
+          nonce: "9".repeat(64),
+        },
+      },
+      authorized,
+    );
+    let validateCalls = 0;
+    let migrateCalls = 0;
+    const keychain: HarnessKeyEnrollmentKeychain = {
+      inspectExactNoUi: () =>
+        Promise.reject(new Error("custody unavailable")),
+      validatePreparedAcl: () => {
+        validateCalls += 1;
+        return Promise.reject(new Error("must not validate"));
+      },
+      migratePreparedAcl: () => {
+        migrateCalls += 1;
+        return Promise.reject(new Error("must not migrate"));
+      },
+      createExactIfAbsentNoUi: () =>
+        Promise.reject(new Error("must not create custody")),
+    };
+
+    expect(ensureHarnessKeyEnrollment({
+      allowFreshAuthorization: false,
+      controlPlanePath,
+      keychain,
+    })).rejects.toMatchObject({ code: "custody_unavailable" });
+    expect(await readHarnessKeyEnrollmentSidecar(controlPlanePath))
+      .toEqual(prepared);
+    expect(validateCalls).toBe(0);
+    expect(migrateCalls).toBe(0);
   });
 
   test("prepared different or permissive custody fails closed", async () => {
@@ -665,6 +1006,10 @@ function fixtureKeychain(
       return createCalls;
     },
     inspectExactNoUi: () => Promise.resolve(observation),
+    migratePreparedAcl: () =>
+      Promise.reject(new Error("fixture migration was not configured")),
+    validatePreparedAcl: () =>
+      Promise.reject(new Error("fixture validation was not configured")),
     createExactIfAbsentNoUi: (envelope) => {
       createCalls += 1;
       if (createResult) {

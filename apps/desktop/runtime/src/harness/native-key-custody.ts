@@ -30,9 +30,12 @@ const nativeRequestIdSchema = z.string()
 const nativeBindingSchema = z.string()
   .regex(/^binding_[a-f0-9]{48}$/u);
 const canonicalEnvelopeSchema = z.string().min(1).max(256);
+const envelopeSha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
 
 export const nativeHarnessCustodyActionSchema = z.enum([
   "read",
+  "validatePreparedAcl",
+  "migratePreparedAcl",
   "setIfAbsent",
   "deleteBoth",
 ]);
@@ -124,6 +127,22 @@ const nativeHarnessCustodySetResultSchema = z.object({
   strictAcl: z.literal(true),
 }).strict();
 
+const nativeHarnessCustodyPreparedMigrationResultSchema = z.object({
+  ...nativeHarnessCustodyResultBase,
+  action: z.literal("migratePreparedAcl"),
+  ok: z.literal(true),
+  envelopeSha256: envelopeSha256Schema,
+  strictAcl: z.literal(true),
+}).strict();
+
+const nativeHarnessCustodyPreparedValidationResultSchema = z.object({
+  ...nativeHarnessCustodyResultBase,
+  action: z.literal("validatePreparedAcl"),
+  ok: z.literal(true),
+  envelopeSha256: envelopeSha256Schema,
+  validated: z.literal(true),
+}).strict();
+
 const nativeHarnessCustodyDeleteResultSchema = z.object({
   ...nativeHarnessCustodyResultBase,
   action: z.literal("deleteBoth"),
@@ -152,6 +171,8 @@ const nativeLegacyHarnessCustodyFailureResultSchema = z.object({
 export const nativeHarnessCustodyResultSchema = z.union([
   nativeHarnessCustodyReadAbsentResultSchema,
   nativeHarnessCustodyReadPresentResultSchema,
+  nativeHarnessCustodyPreparedValidationResultSchema,
+  nativeHarnessCustodyPreparedMigrationResultSchema,
   nativeHarnessCustodySetResultSchema,
   nativeHarnessCustodyDeleteResultSchema,
   nativeHarnessCustodyFailureResultSchema,
@@ -165,6 +186,20 @@ export type NativeHarnessCustodyRequestEnvelope = Readonly<{
   kind: "harnessCustodyNativeRequest";
   version: 1;
   request:
+    | Readonly<{
+        id: string;
+        binding: string;
+        action: "validatePreparedAcl";
+        deadlineUnixMilliseconds: number;
+        expectedEnvelopeSha256: string;
+      }>
+    | Readonly<{
+        id: string;
+        binding: string;
+        action: "migratePreparedAcl";
+        deadlineUnixMilliseconds: number;
+        expectedEnvelopeSha256: string;
+      }>
     | Readonly<{
         id: string;
         binding: string;
@@ -229,6 +264,12 @@ export type NativeHarnessEnrollmentCreation = Readonly<{
 
 export interface NativeHarnessEnrollmentKeychain {
   inspectExactNoUi(): Promise<NativeHarnessEnrollmentObservation>;
+  validatePreparedAcl(
+    expectedEnvelopeSha256: string,
+  ): Promise<Readonly<{ envelopeSha256: string; validated: true }>>;
+  migratePreparedAcl(
+    expectedEnvelopeSha256: string,
+  ): Promise<Readonly<{ envelopeSha256: string; strictAcl: true }>>;
   createExactIfAbsentNoUi(
     envelope: string,
   ): Promise<NativeHarnessEnrollmentCreation>;
@@ -268,8 +309,10 @@ export function nativeHarnessCustodyFailureLegacySubstage(
 }
 
 const defaultTimeoutMs = 55_000;
+const defaultMigrationTimeoutMs = 300_000;
 const maximumTimeoutMs = 60_000;
 const maximumNativeDeadlineMs = 50_000;
+const maximumMigrationNativeDeadlineMs = 270_000;
 
 /**
  * Fixed-descriptor gateway client for the private Native custody lane.
@@ -282,6 +325,8 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
   readonly #writeRequest: NativeHarnessCustodyRequestWriter;
   readonly #timeoutMs: number;
   readonly #nativeDeadlineMs: number;
+  readonly #migrationTimeoutMs: number;
+  readonly #migrationNativeDeadlineMs: number;
   readonly #pending = new Map<string, PendingNativeHarnessCustodyOperation>();
   #operationTail: Promise<void> = Promise.resolve();
   #closed = false;
@@ -297,6 +342,9 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
       throw new HarnessKeyCustodyError("custody_unavailable");
     }
     this.#timeoutMs = timeoutMs;
+    this.#migrationTimeoutMs = options.timeoutMs === undefined
+      ? defaultMigrationTimeoutMs
+      : timeoutMs;
     const reporterGraceMs = Math.min(
       5_000,
       Math.max(1, Math.floor(timeoutMs / 10)),
@@ -304,6 +352,14 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
     this.#nativeDeadlineMs = Math.min(
       maximumNativeDeadlineMs,
       timeoutMs - reporterGraceMs,
+    );
+    const migrationReporterGraceMs = Math.min(
+      30_000,
+      Math.max(1, Math.floor(this.#migrationTimeoutMs / 10)),
+    );
+    this.#migrationNativeDeadlineMs = Math.min(
+      maximumMigrationNativeDeadlineMs,
+      this.#migrationTimeoutMs - migrationReporterGraceMs,
     );
   }
 
@@ -370,11 +426,65 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
     });
   }
 
+  async migratePreparedEnrollmentAcl(
+    expectedEnvelopeSha256: string,
+  ): Promise<Readonly<{ envelopeSha256: string; strictAcl: true }>> {
+    const expected = envelopeSha256Schema.parse(expectedEnvelopeSha256);
+    const result = await this.#enqueue(async () =>
+      await this.#request(
+        "migratePreparedAcl",
+        undefined,
+        undefined,
+        expected,
+      )
+    );
+    if (
+      !result.ok
+      || result.action !== "migratePreparedAcl"
+      || result.envelopeSha256 !== expected
+    ) {
+      throw new HarnessKeyCustodyError("custody_unavailable");
+    }
+    return Object.freeze({
+      envelopeSha256: result.envelopeSha256,
+      strictAcl: true,
+    });
+  }
+
+  async validatePreparedEnrollmentAcl(
+    expectedEnvelopeSha256: string,
+  ): Promise<Readonly<{ envelopeSha256: string; validated: true }>> {
+    const expected = envelopeSha256Schema.parse(expectedEnvelopeSha256);
+    const result = await this.#enqueue(async () =>
+      await this.#request(
+        "validatePreparedAcl",
+        undefined,
+        undefined,
+        expected,
+      )
+    );
+    if (
+      !result.ok
+      || result.action !== "validatePreparedAcl"
+      || result.envelopeSha256 !== expected
+    ) {
+      throw new HarnessKeyCustodyError("custody_unavailable");
+    }
+    return Object.freeze({
+      envelopeSha256: result.envelopeSha256,
+      validated: true,
+    });
+  }
+
   enrollmentKeychainAdapter(): NativeHarnessEnrollmentKeychain {
     return Object.freeze({
       createExactIfAbsentNoUi: async (envelope: string) =>
         await this.createEnrollmentIfAbsent(envelope),
       inspectExactNoUi: async () => await this.inspectEnrollment(),
+      validatePreparedAcl: async (expectedEnvelopeSha256: string) =>
+        await this.validatePreparedEnrollmentAcl(expectedEnvelopeSha256),
+      migratePreparedAcl: async (expectedEnvelopeSha256: string) =>
+        await this.migratePreparedEnrollmentAcl(expectedEnvelopeSha256),
     });
   }
 
@@ -486,28 +596,45 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
     action: NativeHarnessCustodyAction,
     value?: string,
     authenticatedRemoval?: AuthenticatedHarnessCustodyRemoval,
+    expectedEnvelopeSha256?: string,
   ): Promise<NativeHarnessCustodyResult> {
     if (
       this.#closed
       || (action === "setIfAbsent") !== (value !== undefined)
       || (action === "deleteBoth") !== (authenticatedRemoval !== undefined)
+      || (action === "migratePreparedAcl" || action === "validatePreparedAcl") !==
+        (expectedEnvelopeSha256 !== undefined)
     ) {
       throw new HarnessKeyCustodyError("custody_unavailable");
     }
     const id = `native-harness-${randomBytes(12).toString("hex")}`;
     const binding = `binding_${randomBytes(24).toString("hex")}`;
-    const deadlineUnixMilliseconds = Date.now() + this.#nativeDeadlineMs;
+    const isPreparedMigration = action === "migratePreparedAcl"
+      || action === "validatePreparedAcl";
+    const deadlineUnixMilliseconds = Date.now() +
+      (isPreparedMigration
+        ? this.#migrationNativeDeadlineMs
+        : this.#nativeDeadlineMs);
     const result = new Promise<NativeHarnessCustodyResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
         reject(new HarnessKeyCustodyError("custody_unavailable"));
-      }, this.#timeoutMs);
+      }, isPreparedMigration ? this.#migrationTimeoutMs : this.#timeoutMs);
       this.#pending.set(id, { action, binding, resolve, reject, timer });
     });
     const request: NativeHarnessCustodyRequestEnvelope = {
       kind: "harnessCustodyNativeRequest",
       version: 1,
-      request: action === "setIfAbsent"
+      request: action === "migratePreparedAcl" || action === "validatePreparedAcl"
+        ? {
+            id,
+            binding,
+            action,
+            deadlineUnixMilliseconds,
+            expectedEnvelopeSha256:
+              envelopeSha256Schema.parse(expectedEnvelopeSha256),
+          }
+        : action === "setIfAbsent"
         ? {
             id,
             binding,

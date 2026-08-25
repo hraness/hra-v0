@@ -23,10 +23,48 @@ hra_macos_copy_generic_password_add_attributes(
 /// installation-envelope generic-password item. The caller owns the result.
 SecAccessRef _Nullable hra_macos_copy_strict_install_envelope_access(void);
 
-/// Requires the stored item to have exactly the constructor's authorization
-/// partition and the currently executing helper as the sole trusted app for
-/// every ACL. Nil/all-app lists, prompts, duplicate tags, and unknown tags fail.
+/// Classifies either the exact three-ACL constructor draft or the exact
+/// five-ACL persisted shape. The currently executing helper remains the sole
+/// trusted app on every sensitive ACL, while system-managed payload ACLs carry
+/// no trusted-application list. Stored items use the stricter API below.
+bool hra_macos_install_envelope_access_is_strict(
+    SecAccessRef _Nullable access);
+
+/// Requires the exact persisted five-ACL Keychain shape, including macOS's
+/// system-managed integrity and current-helper partition-ID payload ACLs. Each
+/// carries no trusted-application list. Three-ACL constructor drafts, nil or
+/// all-app lists on sensitive ACLs, application subjects on system ACLs,
+/// prompts, duplicate tags, unknown tags, and every other shape fail.
 bool hra_macos_install_envelope_item_access_is_strict(
     SecKeychainItemRef _Nullable item);
+
+/// Public-projection classifier used by deterministic native fixtures for the
+/// exact v0.1.15 prepared migration source. Production uses the item API.
+bool hra_macos_install_envelope_access_is_prepared_migration_source(
+    SecAccessRef _Nullable access);
+
+/// Classifies only the transient exact semantic partition set containing the
+/// unique audited v0.1.15 and current-helper CDHashes in a bounded
+/// lowercase-hex XML plist. It exists for the explicit user-authorized
+/// migration and is never a final strict state.
+bool hra_macos_install_envelope_access_is_prepared_migration_transition(
+    SecAccessRef _Nullable access);
+
+/// Requires the exact persisted five-ACL source shape accepted solely by the
+/// prepared v0.1.15 migration. Core ACLs must name the current helper by exact
+/// path and exact designated-requirement bytes. System metadata remains
+/// strict, while the exact semantic partition set in its bounded
+/// lowercase-hex XML plist may still name the authorized prior build.
+bool hra_macos_install_envelope_item_access_is_prepared_migration_source(
+    SecKeychainItemRef _Nullable item);
+
+bool hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+    SecKeychainItemRef _Nullable item);
+
+#if defined(HRA_KEYCHAIN_ACCESS_CONTROL_TESTING)
+/// Deterministic fail-closed fixture seam for an unavailable requirement SPI.
+void hra_macos_keychain_access_control_test_force_requirement_spi_unavailable(
+    bool unavailable);
+#endif
 
 #endif

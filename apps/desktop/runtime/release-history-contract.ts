@@ -28,9 +28,9 @@ const tagSchema = z.object({
   commit: objectIdSchema,
   objectKind: z.literal("annotated"),
   release: releaseSchema.nullable(),
-  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
+  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14|15|16)$/u),
   tagObject: objectIdSchema,
-  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
+  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14|15|16)$/u),
 }).strict();
 const generationZeroVersions = [
   "0.1.7",
@@ -43,6 +43,7 @@ const generationZeroVersions = [
   "0.1.14",
 ] as const;
 const generationOneVersions = [...generationZeroVersions, "0.1.15"] as const;
+const generationTwoVersions = [...generationOneVersions, "0.1.16"] as const;
 const releaseHistoryBaseSchema = {
   repository: z.literal(repository),
   repositoryId: z.literal(1_334_876_494),
@@ -60,13 +61,22 @@ const generationOneReleaseHistorySchema = z.object({
   ...releaseHistoryBaseSchema,
   tags: z.array(tagSchema).length(9),
 }).strict();
+const generationTwoReleaseHistorySchema = z.object({
+  generation: z.literal(2),
+  publicationCommit: objectIdSchema,
+  ...releaseHistoryBaseSchema,
+  tags: z.array(tagSchema).length(10),
+}).strict();
 const releaseHistorySchema = z.discriminatedUnion("generation", [
   generationZeroReleaseHistorySchema,
   generationOneReleaseHistorySchema,
+  generationTwoReleaseHistorySchema,
 ]).superRefine((history, context) => {
   const expected = history.generation === 0
     ? generationZeroVersions
-    : generationOneVersions;
+    : history.generation === 1
+      ? generationOneVersions
+      : generationTwoVersions;
   for (const [index, version] of expected.entries()) {
     const entry = history.tags[index];
     if (
@@ -78,7 +88,7 @@ const releaseHistorySchema = z.discriminatedUnion("generation", [
     ) {
       context.addIssue({
         code: "custom",
-        message: `Release history must contain the exact ordered v0.1.7–v0.1.${history.generation === 0 ? "14" : "15"} sequence.`,
+        message: `Release history must contain the exact ordered v0.1.7–v0.1.${history.generation === 0 ? "14" : history.generation === 1 ? "15" : "16"} sequence.`,
       });
       break;
     }
@@ -130,6 +140,13 @@ export type PublishedRemoteReleaseHistoryEvidence = Readonly<{
   status: "verified_exact_published_remote_release_history";
   tagCount: 9;
   tagOnly: readonly ["v0.1.11"];
+}> | Readonly<{
+  assetCount: 63;
+  releaseCount: 9;
+  repository: typeof repository;
+  status: "verified_exact_published_remote_release_history";
+  tagCount: 10;
+  tagOnly: readonly ["v0.1.11"];
 }>;
 export type RemoteReleaseHistoryEvidence =
   | FrozenRemoteReleaseHistoryEvidence
@@ -145,7 +162,7 @@ export type CurrentRemoteReleaseHistoryEntry = Readonly<{
   commit: string;
   publishedAt: string;
   releaseId: number;
-  tag: "v0.1.15";
+  tag: "v0.1.15" | "v0.1.16";
   tagObject: string;
 }>;
 
@@ -154,7 +171,7 @@ const currentRemoteReleaseHistoryEntrySchema = z.object({
   commit: objectIdSchema,
   publishedAt: z.string().regex(/^2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/u),
   releaseId: z.number().int().positive().safe(),
-  tag: z.literal("v0.1.15"),
+  tag: z.union([z.literal("v0.1.15"), z.literal("v0.1.16")]),
   tagObject: objectIdSchema,
 }).strict().superRefine((entry, context) => {
   const names = entry.assets.map(({ name }) => name);
@@ -200,9 +217,19 @@ export async function verifyRemoteReleaseHistoryState(
   const currentEntry = currentEntryValue === undefined
     ? undefined
     : currentRemoteReleaseHistoryEntrySchema.parse(currentEntryValue);
-  if (contract.generation === 1 && currentEntry !== undefined) {
+  const expectedCurrentTag = contract.generation === 0
+    ? "v0.1.15"
+    : contract.generation === 1
+      ? "v0.1.16"
+      : null;
+  if (currentEntry !== undefined && expectedCurrentTag === null) {
     throw new Error(
-      "Generation 1 release history already contains v0.1.15; a current-release overlay is forbidden.",
+      "Generation 2 release history already contains v0.1.16; a current-release overlay is forbidden.",
+    );
+  }
+  if (currentEntry !== undefined && currentEntry.tag !== expectedCurrentTag) {
+    throw new Error(
+      `Generation ${String(contract.generation)} release history accepts only a ${expectedCurrentTag} current-release overlay.`,
     );
   }
   if (currentEntry !== undefined && contract.tags.some(
@@ -220,7 +247,7 @@ export async function verifyRemoteReleaseHistoryState(
   }
   const remoteReleases = requireArray(releaseResponse.value, "GitHub release history", 100);
   const expectedPublished = contract.tags.filter((entry) => entry.release !== null);
-  const overlaysCurrentRelease = contract.generation === 0 && currentEntry !== undefined;
+  const overlaysCurrentRelease = currentEntry !== undefined;
   if (
     remoteReleases.length
       !== expectedPublished.length + (overlaysCurrentRelease ? 1 : 0)
@@ -282,23 +309,34 @@ export async function verifyRemoteReleaseHistoryState(
     await tagVerifier(expectedTags);
   }
 
-  return contract.generation === 0 && !overlaysCurrentRelease
-    ? Object.freeze({
-        assetCount: 49,
-        releaseCount: 7,
-        repository,
-        status: "verified_exact_candidate_remote_release_history",
-        tagCount: 8,
-        tagOnly: Object.freeze(["v0.1.11"] as const),
-      })
-    : Object.freeze({
-        assetCount: 56,
-        releaseCount: 8,
-        repository,
-        status: "verified_exact_published_remote_release_history",
-        tagCount: 9,
-        tagOnly: Object.freeze(["v0.1.11"] as const),
-      });
+  if (!overlaysCurrentRelease && contract.generation === 0) {
+    return Object.freeze({
+      assetCount: 49,
+      releaseCount: 7,
+      repository,
+      status: "verified_exact_candidate_remote_release_history",
+      tagCount: 8,
+      tagOnly: Object.freeze(["v0.1.11"] as const),
+    });
+  }
+  if (contract.generation === 0 || (contract.generation === 1 && !overlaysCurrentRelease)) {
+    return Object.freeze({
+      assetCount: 56,
+      releaseCount: 8,
+      repository,
+      status: "verified_exact_published_remote_release_history",
+      tagCount: 9,
+      tagOnly: Object.freeze(["v0.1.11"] as const),
+    });
+  }
+  return Object.freeze({
+    assetCount: 63,
+    releaseCount: 9,
+    repository,
+    status: "verified_exact_published_remote_release_history",
+    tagCount: 10,
+    tagOnly: Object.freeze(["v0.1.11"] as const),
+  });
 }
 
 function verifyCurrentReleaseMetadata(

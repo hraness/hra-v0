@@ -83,15 +83,15 @@ describe("HRA public landing", () => {
 
     expect(HRA_RELEASE).toMatchObject({
       architecture: "Apple Silicon",
-      asset: "HRA-0.1.15-16-macos-arm64.dmg",
-      build: 16,
-      checksumAsset: "HRA-0.1.15-16-macos-arm64.dmg.sha256",
-      manifestAsset: "HRA-0.1.15-16-release-manifest.json",
+      asset: "HRA-0.1.16-17-macos-arm64.dmg",
+      build: 17,
+      checksumAsset: "HRA-0.1.16-17-macos-arm64.dmg.sha256",
+      manifestAsset: "HRA-0.1.16-17-release-manifest.json",
       minimumMacOS: "13",
       historicalPublicationRepository: "https://github.com/hraness/hra",
       repository: "https://github.com/hraness/hra-v0",
-      tag: "v0.1.15",
-      version: "0.1.15",
+      tag: "v0.1.16",
+      version: "0.1.16",
     });
     if (HRA_RELEASE.availability === "candidate") {
       expect(HRA_RELEASE.source).toEqual({
@@ -107,11 +107,11 @@ describe("HRA public landing", () => {
       expect(HRA_RELEASE.source.runtimeTreeSha256).toMatch(/^[0-9a-f]{64}$/u);
       expect(HRA_RELEASE.source.tagObject).toMatch(/^[0-9a-f]{40}$/u);
       expect(HRA_RELEASE_URL).toBe(
-        "https://github.com/hraness/hra-v0/releases/download/v0.1.15/HRA-0.1.15-16-macos-arm64.dmg",
+        "https://github.com/hraness/hra-v0/releases/download/v0.1.16/HRA-0.1.16-17-macos-arm64.dmg",
       );
       expect(HRA_RELEASE_CHECKSUM_URL).toBe(`${HRA_RELEASE_URL}.sha256`);
       expect(HRA_RELEASE_MANIFEST_URL).toBe(
-        "https://github.com/hraness/hra-v0/releases/download/v0.1.15/HRA-0.1.15-16-release-manifest.json",
+        "https://github.com/hraness/hra-v0/releases/download/v0.1.16/HRA-0.1.16-17-release-manifest.json",
       );
     }
     expect(download).toContain("Unknown developer.");

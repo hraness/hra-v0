@@ -132,7 +132,7 @@ export default function PrivacyPage() {
               Read the archived <a href={HRA_SECURITY_POLICY_URL}>security policy</a> and <a href="https://github.com/hraness/hra-v0/blob/main/SECURITY_ARCHITECTURE.md">security architecture</a>. Report a vulnerability through <a href={HRA_SECURITY_CONTACT_URL}>GitHub private vulnerability reporting</a>. The standard contact file is available at <a href={HRA_SECURITY_TXT_PATH}>{HRA_SECURITY_TXT_PATH}</a>.
             </p>
             <p>
-              HRA v0 is archived. Its checked compatibility ledger remains anchored at v0.1.14 until a separately reviewed history update. A material correction to this notice will update its date and the checked public source. Privacy information for the current HRA belongs at <a href={CURRENT_HRA_SITE}>hra.sh</a>.
+              HRA v0 is archived. Its generation-1 compatibility ledger ends at the immutable v0.1.15 prerelease. A material correction to this notice will update its date and the checked public source. Privacy information for the current HRA belongs at <a href={CURRENT_HRA_SITE}>hra.sh</a>.
             </p>
           </div>
         </section>

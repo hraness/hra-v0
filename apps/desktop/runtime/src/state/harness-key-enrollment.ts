@@ -306,6 +306,14 @@ export type HarnessKeyEnrollmentObservation =
 
 export interface HarnessKeyEnrollmentKeychain {
   inspectExactNoUi(): Promise<HarnessKeyEnrollmentObservation>;
+  validatePreparedAcl(expectedEnvelopeSha256: string): Promise<Readonly<{
+    envelopeSha256: string;
+    validated: true;
+  }>>;
+  migratePreparedAcl(expectedEnvelopeSha256: string): Promise<Readonly<{
+    envelopeSha256: string;
+    strictAcl: true;
+  }>>;
   createExactIfAbsentNoUi(envelope: string): Promise<Readonly<{
     created: boolean;
     envelope: string;
@@ -714,7 +722,52 @@ export async function ensureHarnessKeyEnrollment(
       );
     }
   } else {
-    const observation = await inspectCustody(options.keychain);
+    let observation: HarnessKeyEnrollmentObservation;
+    try {
+      observation = await inspectCustody(options.keychain);
+    } catch (error: unknown) {
+      if (
+        !isExactV015PreparedAclMigration(current)
+        || !(error instanceof HarnessKeyEnrollmentError)
+        || error.code !== "custody_unavailable"
+      ) throw error;
+      const rebound = await readHarnessKeyEnrollmentSidecar(
+        options.controlPlanePath,
+      );
+      if (!sameEnrollmentFile(current, rebound)) {
+        throw new HarnessKeyEnrollmentError(
+          "custody_conflict",
+          "Prepared Harness key enrollment changed before ACL migration.",
+        );
+      }
+      await validatePreparedCustody(
+        options.keychain,
+        current.sidecar.attempt.envelopeSha256,
+      );
+      const validatedUnchanged = await readHarnessKeyEnrollmentSidecar(
+        options.controlPlanePath,
+      );
+      if (!sameEnrollmentFile(current, validatedUnchanged)) {
+        throw new HarnessKeyEnrollmentError(
+          "custody_conflict",
+          "Prepared Harness key enrollment changed during ACL validation.",
+        );
+      }
+      await migratePreparedCustody(
+        options.keychain,
+        current.sidecar.attempt.envelopeSha256,
+      );
+      const migratedUnchanged = await readHarnessKeyEnrollmentSidecar(
+        options.controlPlanePath,
+      );
+      if (!sameEnrollmentFile(current, migratedUnchanged)) {
+        throw new HarnessKeyEnrollmentError(
+          "custody_conflict",
+          "Prepared Harness key enrollment changed during ACL migration.",
+        );
+      }
+      observation = await inspectCustody(options.keychain);
+    }
     if (observation.state === "present") {
       assertMatchingStrictCustody(
         current.sidecar.attempt.envelopeSha256,
@@ -778,6 +831,24 @@ export async function ensureHarnessKeyEnrollment(
   );
 }
 
+function isExactV015PreparedAclMigration(
+  current: HarnessKeyEnrollmentFile,
+): current is HarnessKeyEnrollmentFile & Readonly<{
+  sidecar: Extract<HarnessKeyEnrollmentSidecar, { phase: "prepared" }>;
+}> {
+  if (current.sidecar.phase !== "prepared") return false;
+  const authorization = current.sidecar.authorization;
+  if (authorization.kind !== "forward_recovery_v1") return false;
+  const identity = authorization.candidate.bundle.identity;
+  return identity.version === "0.1.15"
+    && identity.build === "16"
+    && identity.bundleIdentifier === "kitchen.hraness"
+    && identity.executable === "hra"
+    && current.sidecar.descriptor.service === harnessInstallKeyDescriptor.service
+    && current.sidecar.descriptor.name === harnessInstallKeyDescriptor.name
+    && current.sidecar.expectedKeychainState === "absent";
+}
+
 function freshAuthorizedSidecar(operationId: string): HarnessKeyEnrollmentSidecar {
   return parseHarnessKeyEnrollmentSidecar({
     schemaVersion: 1,
@@ -823,6 +894,46 @@ async function createCustody(
     throw new HarnessKeyEnrollmentError(
       "custody_unavailable",
       "Harness key enrollment custody is unavailable.",
+    );
+  }
+}
+
+async function migratePreparedCustody(
+  keychain: HarnessKeyEnrollmentKeychain,
+  expectedEnvelopeSha256: string,
+): Promise<void> {
+  try {
+    const result = await keychain.migratePreparedAcl(
+      hexSha256Schema.parse(expectedEnvelopeSha256),
+    );
+    if (
+      result.strictAcl !== true
+      || result.envelopeSha256 !== expectedEnvelopeSha256
+    ) throw new Error("prepared ACL migration result differs");
+  } catch {
+    throw new HarnessKeyEnrollmentError(
+      "custody_unavailable",
+      "Harness key enrollment ACL migration is unavailable.",
+    );
+  }
+}
+
+async function validatePreparedCustody(
+  keychain: HarnessKeyEnrollmentKeychain,
+  expectedEnvelopeSha256: string,
+): Promise<void> {
+  try {
+    const result = await keychain.validatePreparedAcl(
+      hexSha256Schema.parse(expectedEnvelopeSha256),
+    );
+    if (
+      result.validated !== true
+      || result.envelopeSha256 !== expectedEnvelopeSha256
+    ) throw new Error("prepared ACL validation result differs");
+  } catch {
+    throw new HarnessKeyEnrollmentError(
+      "custody_unavailable",
+      "Harness key enrollment ACL validation is unavailable.",
     );
   }
 }

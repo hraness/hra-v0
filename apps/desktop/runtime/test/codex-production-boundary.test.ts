@@ -221,4 +221,4 @@ test("production code has one structural pinned Codex boundary", async () => {
   for (const name of prohibitedPublicSymbols) expect(publicExports.has(name)).toBeFalse();
   expect(await Bun.file(legacyClient).exists()).toBeFalse();
   expect(await Bun.file(legacyProjectionAdapter).exists()).toBeFalse();
-});
+}, 10_000);

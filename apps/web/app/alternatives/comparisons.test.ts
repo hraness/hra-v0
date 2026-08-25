@@ -32,9 +32,7 @@ describe("HRA comparison registry", () => {
 
   test("binds every HRA and alternative claim to current HTTPS sources", () => {
     const hraSourceIds = new Set<string>(hraComparisonSources.map(({ id }) => id));
-    const repositoryCitationVersion = HRA_RELEASE.availability === "published"
-      ? "0.1.15"
-      : "0.1.14";
+    const repositoryCitationVersion = hraComparisonCitationVersion(HRA_RELEASE);
     const versionedHraPrefix =
       `https://github.com/hraness/hra-v0/blob/v${repositoryCitationVersion}/` as const;
 
@@ -43,11 +41,19 @@ describe("HRA comparison registry", () => {
       version: "0.1.15",
     })).toBe("0.1.14");
     expect(hraComparisonCitationVersion({
+      availability: "candidate",
+      version: "0.1.16",
+    })).toBe("0.1.15");
+    expect(hraComparisonCitationVersion({
       availability: "published",
       version: "0.1.15",
     })).toBe("0.1.15");
     expect(hraComparisonCitationVersion(HRA_RELEASE))
       .toBe(repositoryCitationVersion);
+    expect(() => hraComparisonCitationVersion({
+      availability: "candidate",
+      version: "0.1.17",
+    })).toThrow("The candidate comparison citation version is unsupported.");
 
     expect(hraComparisonSources.map(({ url }) => url)).toEqual([
       `${versionedHraPrefix}README.md`,

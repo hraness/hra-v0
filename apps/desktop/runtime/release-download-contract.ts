@@ -43,23 +43,30 @@ import {
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P15_PUBLICATION_COMMIT,
   HRA_V0_Q14_SURFACE_COMMIT,
+  HRA_V0_Q15_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
   inspectCanonicalArchiveRelease,
   inspectCanonicalReleasePublication,
   inspectCanonicalReleasePublicationIntegrationSurface,
+  inspectCanonicalReleasePublicationSurface,
   inspectReleaseCandidateLineage,
+  inspectReleaseHotfixCandidateLineage,
   inspectReleasePublicationAtCommit,
   inspectReleasePublicationIntegrationSurface,
+  inspectReleasePublicationSurface,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
   resolveReleaseCandidateCommit,
+  resolveReleaseHotfixCandidateCommit,
   type ArchiveReleaseSurfaceEvidence,
   type CanonicalArchiveReleaseEvidence,
   type CanonicalReleasePublicationEvidence,
   type CanonicalReleasePublicationIntegrationSurfaceEvidence,
+  type CanonicalReleasePublicationSurfaceEvidence,
   type ReleasePublicationIntegrationBridgeEvidence,
   type ReleasePublicationIntegrationSurfaceEvidence,
+  type ReleasePublicationSurfaceEvidence,
   type ReleasePublicationEvidence,
   type ReleaseRepositoryEvidence,
   type ReleaseTagEvidence,
@@ -224,6 +231,11 @@ export interface PublishedReleaseIntegrationSurfaceSourceEvidence
   readonly surface: ReleasePublicationIntegrationSurfaceEvidence;
 }
 
+export interface PublishedReleaseSurfaceSourceEvidence
+  extends PublishedReleaseSourceEvidence {
+  readonly surface: ReleasePublicationSurfaceEvidence;
+}
+
 export type ReleaseSourceGateEvidence =
   | Readonly<{
       availability: "candidate";
@@ -247,6 +259,7 @@ const releaseGitHubApiReadUrls = new Set([
   "https://api.github.com/repos/hraness/hra-v0/git/matching-refs/tags/v0.1",
   "https://api.github.com/repos/hraness/hra-v0/releases?per_page=100",
   "https://api.github.com/repos/hraness/hra-v0/releases/tags/v0.1.15",
+  "https://api.github.com/repos/hraness/hra-v0/releases/tags/v0.1.16",
 ]);
 
 export type VercelReleaseSourceGateEvidence =
@@ -269,6 +282,13 @@ export type VercelReleaseSourceGateEvidence =
       availability: "published";
       contract: PublishedReleaseDownloadContract;
       publicationCommit: string;
+      status: "verified_vercel_publication_surface_binding";
+      surfaceCommit: string;
+    }>
+  | Readonly<{
+      availability: "published";
+      contract: PublishedReleaseDownloadContract;
+      publicationCommit: string;
       repositoryMigrationCommit: string;
       status: "verified_vercel_archive_surface_binding";
       surfaceCommit: string;
@@ -283,14 +303,20 @@ export type RemoteReleaseStateEvidence =
   | Readonly<{
       availability: "candidate";
       contract: ReleaseDownloadContract;
-      history: Extract<RemoteReleaseHistoryEvidence, { assetCount: 49 }>;
+      history: Extract<
+        RemoteReleaseHistoryEvidence,
+        { assetCount: 49 | 56 }
+      >;
       status: "verified_candidate_remote_collision_absence";
     }>
   | Readonly<{
       assets: LocalReleaseCandidateEvidence["artifacts"];
       availability: "published";
       contract: PublishedReleaseDownloadContract;
-      history: Extract<RemoteReleaseHistoryEvidence, { assetCount: 56 }>;
+      history: Extract<
+        RemoteReleaseHistoryEvidence,
+        { assetCount: 56 | 63 }
+      >;
       immutable: true;
       releaseId: number;
       status: "verified_immutable_remote_release";
@@ -303,10 +329,12 @@ type ReleaseSourceStateOptions = Readonly<{
   candidateCustodyRepairCommit?: string;
   candidateHostTrustCommit?: string;
   candidateQ14Commit?: string;
+  candidateQ15Commit?: string;
   candidateSignedReleaseProbeRepairCommit?: string;
   candidateSurfaceCommit?: string;
   concurrentMainCommit?: string;
   environment?: Readonly<Record<string, string | undefined>>;
+  historyContract?: ReleaseHistoryContract;
   integrationBridgeCommit?: string;
   publicationCommit?: string;
   repositoryRoot?: string;
@@ -383,9 +411,9 @@ export async function verifyReleaseSourceGate(): Promise<ReleaseSourceGateEviden
 }
 
 /**
- * Candidate state proves the frozen generation-0 8/7/49 history and the
- * absence of a v0.1.15 collision. Published state overlays its exact current
- * release on that frozen ledger and proves the combined 9/8/56 remote set.
+ * Candidate state proves the frozen generation-1 9/8/56 history and the
+ * absence of a v0.1.16 collision. Published state overlays its exact current
+ * release on that frozen ledger and proves the combined 10/9/63 remote set.
  */
 export async function verifyRemoteReleaseGate(
   fetcher: ReleaseHttpFetcher = defaultReleaseFetcher,
@@ -411,8 +439,11 @@ export async function verifyRemoteReleaseState(
       undefined,
       tagVerifier,
     );
-    if (history.assetCount !== 49) {
-      throw new Error("Candidate history unexpectedly contains v0.1.15.");
+    const expectedAssetCount = contract.release.version === "0.1.16" ? 56 : 49;
+    if (history.assetCount !== expectedAssetCount) {
+      throw new Error(
+        `Candidate history differs from the frozen predecessor for ${contract.release.tag}.`,
+      );
     }
     return Object.freeze({
       availability: "candidate",
@@ -528,6 +559,10 @@ export async function verifyRemoteReleaseState(
       assetsByName,
     )
   );
+  const historyTag = publishedContract.release.tag;
+  if (historyTag !== "v0.1.15" && historyTag !== "v0.1.16") {
+    throw new Error("Published remote history requires a supported HRA v0 tag.");
+  }
   const historyEntry: CurrentRemoteReleaseHistoryEntry = Object.freeze({
     assets: Object.freeze([
       checksum,
@@ -542,14 +577,22 @@ export async function verifyRemoteReleaseState(
     commit: publishedContract.release.source.commit,
     publishedAt,
     releaseId,
-    tag: "v0.1.15",
+    tag: historyTag,
     tagObject: publishedContract.release.source.tagObject,
   });
-  if (publishedContract.release.tag !== historyEntry.tag) {
-    throw new Error("Published remote history requires the exact v0.1.15 tag.");
-  }
-  const currentEntry = historyContract.generation === 0 ? historyEntry : undefined;
-  if (historyContract.generation === 1) {
+  const currentEntry = publishedContract.release.version === "0.1.16"
+    && historyContract.generation === 1
+    ? historyEntry
+    : publishedContract.release.version === "0.1.15"
+      && historyContract.generation === 0
+      ? historyEntry
+      : undefined;
+  if (
+    (publishedContract.release.version === "0.1.15"
+      && historyContract.generation === 1)
+    || (publishedContract.release.version === "0.1.16"
+      && historyContract.generation === 2)
+  ) {
     verifyPublishedReleaseHistoryBinding(
       publishedContract,
       historyEntry,
@@ -562,8 +605,13 @@ export async function verifyRemoteReleaseState(
     currentEntry,
     tagVerifier,
   );
-  if (history.assetCount !== 56) {
-    throw new Error("Published history is missing the exact v0.1.15 overlay.");
+  const expectedAssetCount = publishedContract.release.version === "0.1.16"
+    ? 63
+    : 56;
+  if (history.assetCount !== expectedAssetCount) {
+    throw new Error(
+      `Published history is missing the exact ${publishedContract.release.tag} overlay.`,
+    );
   }
   return Object.freeze({
     assets: Object.freeze({
@@ -582,9 +630,9 @@ export async function verifyRemoteReleaseState(
 
 /**
  * Vercel Git builds are intentionally shallow. The provider binds immutable P
- * and one allowlisted surface, then fetches canonical history to prove either
- * the fixed P15 integration bridge or the earlier archive migration without
- * trusting the ambient shallow .git directory.
+ * and one allowlisted surface, then fetches canonical history to prove the
+ * exact linear Q16 surface, the fixed P15 integration bridge, or the earlier
+ * archive migration without trusting the ambient shallow .git directory.
  */
 export async function verifyVercelReleaseSourceGate(
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -620,6 +668,14 @@ export async function verifyVercelReleaseSourceState(
     tag: string;
   }>) => Promise<CanonicalReleasePublicationIntegrationSurfaceEvidence> =
     inspectCanonicalReleasePublicationIntegrationSurface,
+  inspectCanonicalSurface: (options: Readonly<{
+    candidateCommit: string;
+    publicationCommit: string;
+    surfaceCommit: string;
+    tag: string;
+  }>) => Promise<CanonicalReleasePublicationSurfaceEvidence> =
+    inspectCanonicalReleasePublicationSurface,
+  historyContract: ReleaseHistoryContract = readReleaseHistoryContract(),
 ): Promise<VercelReleaseSourceGateEvidence> {
   if (
     environment.VERCEL !== "1"
@@ -662,6 +718,59 @@ export async function verifyVercelReleaseSourceState(
     "Trusted Vercel publication commit allowlist",
   );
   const publishedContract = asPublishedContract(contract);
+  if (publishedContract.release.version === "0.1.16") {
+    if (
+      historyContract.generation !== 2
+      || historyContract.publicationCommit !== publicationCommit
+    ) {
+      throw new Error(
+        "The v0.1.16 provider surface requires the exact generation-2 P16 release ledger.",
+      );
+    }
+    const allowedSurfaceCommits = parseCommitAllowlist(
+      environment[releaseSurfaceCommitAllowlistEnvironmentVariable],
+      "Trusted HRA v0 surface commit allowlist",
+    );
+    if (
+      allowedSurfaceCommits.size !== 1
+      || !allowedSurfaceCommits.has(surfaceCommit)
+    ) {
+      throw new Error(
+        "The Q16 provider source must be the singleton allowlisted HRA v0 surface commit.",
+      );
+    }
+    verifyPublishedContractGenerationTwoHistoryBinding(
+      publishedContract,
+      historyContract,
+    );
+    const canonical = await inspectCanonicalSurface({
+      candidateCommit: publishedContract.release.source.commit,
+      publicationCommit,
+      surfaceCommit,
+      tag: publishedContract.release.tag,
+    });
+    verifyPublicationContractTransition(
+      publishedContract,
+      canonical.publication,
+    );
+    verifyPublishedTagBinding(publishedContract, canonical.tag);
+    if (
+      canonical.surface.publication.publicationCommit !== publicationCommit
+      || canonical.surface.surfaceCommit !== surfaceCommit
+      || canonical.surface.status !== "verified_linear_publication_surface"
+    ) {
+      throw new Error(
+        "The canonical Q16 publication surface differs from provider source.",
+      );
+    }
+    return Object.freeze({
+      availability: "published",
+      contract: publishedContract,
+      publicationCommit,
+      status: "verified_vercel_publication_surface_binding",
+      surfaceCommit,
+    });
+  }
   if (publishedContract.release.version === "0.1.15") {
     if (surfaceCommit === publicationCommit) {
       const canonical = await inspectCanonicalPublication({
@@ -790,6 +899,23 @@ export async function verifyReleaseSourceState(
 ): Promise<ReleaseSourceGateEvidence> {
   if (contract.release.availability === "candidate") {
     const repository = await inspectReleaseSourceRepository(options);
+    if (contract.release.version === "0.1.16") {
+      const expectedQ15Commit = options.candidateQ15Commit
+        ?? HRA_V0_Q15_SURFACE_COMMIT;
+      const candidateCommit = await resolveReleaseHotfixCandidateCommit(
+        repository,
+        { expectedQ15Commit },
+      );
+      await inspectReleaseHotfixCandidateLineage(repository, {
+        candidateCommit,
+        expectedQ15Commit,
+      });
+      return Object.freeze({
+        availability: "candidate",
+        contract,
+        status: "valid_candidate_contract",
+      });
+    }
     const expectedBundleCodeAuthorityCommit =
       options.candidateBundleCodeAuthorityCommit ??
       HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT;
@@ -825,6 +951,13 @@ export async function verifyReleaseSourceState(
   }
   const publishedContract = asPublishedContract(contract);
   const repository = await inspectReleaseSourceRepository(options);
+  const historyContract = options.historyContract ?? readReleaseHistoryContract();
+  const v16SurfacePublicationCommit = publishedContract.release.version === "0.1.16"
+    ? options.publicationCommit
+      ?? (historyContract.generation === 2
+        ? historyContract.publicationCommit
+        : undefined)
+    : undefined;
   const lineageExpectations = {
     expectedBaseCommit:
       options.candidateBaseCommit ?? HRA_V0_C15_BASE_COMMIT,
@@ -853,25 +986,46 @@ export async function verifyReleaseSourceState(
         repository,
         publicationCommit,
       )
-    : repository.commit === publicationCommit
-      ? await verifyPublishedReleaseSourceEvidence(
-          publishedContract,
-          repository,
-          lineageExpectations,
-        )
-      : await verifyPublishedReleaseIntegrationSurfaceEvidence(
-          publishedContract,
-          repository,
-          {
-            ...lineageExpectations,
-            concurrentMainCommit:
-              options.concurrentMainCommit ?? HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
-            integrationBridgeCommit:
-              options.integrationBridgeCommit
-              ?? HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
-            publicationCommit,
-          },
-        );
+    : publishedContract.release.version === "0.1.16"
+      ? v16SurfacePublicationCommit !== undefined
+          && repository.commit !== v16SurfacePublicationCommit
+        ? await verifyPublishedReleaseSurfaceEvidence(
+            publishedContract,
+            repository,
+            {
+              expectedQ15Commit:
+                options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+              historyContract,
+              publicationCommit: v16SurfacePublicationCommit,
+            },
+          )
+        : await verifyPublishedReleaseSourceEvidence(
+            publishedContract,
+            repository,
+            {
+              expectedQ15Commit:
+                options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+            },
+          )
+      : repository.commit === publicationCommit
+        ? await verifyPublishedReleaseSourceEvidence(
+            publishedContract,
+            repository,
+            lineageExpectations,
+          )
+        : await verifyPublishedReleaseIntegrationSurfaceEvidence(
+            publishedContract,
+            repository,
+            {
+              ...lineageExpectations,
+              concurrentMainCommit:
+                options.concurrentMainCommit ?? HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
+              integrationBridgeCommit:
+                options.integrationBridgeCommit
+                ?? HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
+              publicationCommit,
+            },
+          );
   return Object.freeze({
     ...published,
     availability: "published",
@@ -890,7 +1044,11 @@ export async function verifyLocalReleaseCandidate(
     throw new Error("Local candidate verification requires a candidate download contract.");
   }
   const repository = await inspectReleaseSourceRepository();
-  await inspectReleaseCandidateLineage(repository);
+  if (contract.release.version === "0.1.16") {
+    await inspectReleaseHotfixCandidateLineage(repository);
+  } else {
+    await inspectReleaseCandidateLineage(repository);
+  }
   const evidence = await inspectReleaseArtifactSet(releaseDirectory, contract);
   if (evidence.commit !== repository.commit) {
     throw new Error("The release manifest commit differs from the clean source commit.");
@@ -1008,6 +1166,51 @@ export async function verifyPublishedReleaseIntegrationSurfaceEvidence(
   });
 }
 
+export async function verifyPublishedReleaseSurfaceEvidence(
+  contract: PublishedReleaseDownloadContract,
+  repository: ReleaseRepositoryEvidence,
+  expectations: Readonly<{
+    expectedQ15Commit?: string;
+    historyContract?: ReleaseHistoryContract;
+    publicationCommit: string;
+  }>,
+): Promise<PublishedReleaseSurfaceSourceEvidence> {
+  const historyContract = expectations.historyContract
+    ?? readReleaseHistoryContract();
+  if (
+    historyContract.generation !== 2
+    || historyContract.publicationCommit !== expectations.publicationCommit
+  ) {
+    throw new Error(
+      "The v0.1.16 publication surface requires the exact generation-2 P16 release ledger.",
+    );
+  }
+  const surface = await inspectReleasePublicationSurface(repository, {
+    candidateCommit: contract.release.source.commit,
+    publicationCommit: expectations.publicationCommit,
+  });
+  const publication = surface.publication;
+  verifyPublicationContractTransition(contract, publication);
+  await inspectReleaseHotfixCandidateLineage(repository, {
+    candidateCommit: contract.release.source.commit,
+    expectedQ15Commit:
+      expectations.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+  });
+  const tag = await inspectReleaseTag(repository, contract.release.tag);
+  if (tag === null) {
+    throw new Error("The local annotated release tag is missing.");
+  }
+  verifyPublishedTagBinding(contract, tag);
+  verifyPublishedContractGenerationTwoHistoryBinding(contract, historyContract);
+  return Object.freeze({
+    contract,
+    publication,
+    repository,
+    surface,
+    tag,
+  });
+}
+
 export async function verifyPublishedReleaseSourceEvidence(
   contract: PublishedReleaseDownloadContract,
   repository: ReleaseRepositoryEvidence,
@@ -1019,6 +1222,7 @@ export async function verifyPublishedReleaseSourceEvidence(
     expectedQ14Commit?: string;
     expectedSignedReleaseProbeRepairCommit?: string;
     expectedSurfaceCommit?: string;
+    expectedQ15Commit?: string;
   }> = {},
 ): Promise<PublishedReleaseSourceEvidence> {
   const publication = await inspectReleasePublicationTransition(
@@ -1047,6 +1251,12 @@ export async function verifyPublishedReleaseSourceEvidence(
       expectedSurfaceCommit:
         expectations.expectedSurfaceCommit ??
         HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+    });
+  } else if (contract.release.version === "0.1.16") {
+    await inspectReleaseHotfixCandidateLineage(repository, {
+      candidateCommit: contract.release.source.commit,
+      expectedQ15Commit:
+        expectations.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
     });
   }
   const tag = await inspectReleaseTag(repository, contract.release.tag);
@@ -1128,8 +1338,14 @@ function verifyPublishedReleaseHistoryBinding(
 ): void {
   const finalEntry = history.tags.at(-1);
   const finalRelease = finalEntry?.release;
+  const expectedGeneration = contract.release.version === "0.1.15"
+    ? 1
+    : contract.release.version === "0.1.16"
+      ? 2
+      : null;
   if (
-    history.generation !== 1
+    expectedGeneration === null
+    || history.generation !== expectedGeneration
     || finalEntry === undefined
     || finalRelease === null
     || finalRelease === undefined
@@ -1143,7 +1359,7 @@ function verifyPublishedReleaseHistoryBinding(
     || !isDeepStrictEqual(finalRelease.assets, currentEntry.assets)
   ) {
     throw new Error(
-      "The generation-1 release ledger differs from the published v0.1.15 evidence.",
+      `The generation-${String(expectedGeneration ?? "unsupported")} release ledger differs from the published ${contract.release.tag} evidence.`,
     );
   }
   const contractAssets = [
@@ -1159,7 +1375,7 @@ function verifyPublishedReleaseHistoryBinding(
     .map(({ bytes, name, sha256 }) => ({ bytes, name, sha256 }));
   if (!isDeepStrictEqual(ledgerContractAssets, contractAssets)) {
     throw new Error(
-      "The generation-1 release ledger does not bind the published download artifacts.",
+      `The generation-${String(expectedGeneration)} release ledger does not bind the published download artifacts.`,
     );
   }
 }
@@ -1181,6 +1397,35 @@ function verifyPublishedContractGenerationOneHistoryBinding(
       publishedAt: finalRelease.publishedAt,
       releaseId: finalRelease.id,
       tag: "v0.1.15",
+      tagObject: finalEntry.tagObject,
+    }),
+    history,
+  );
+}
+
+function verifyPublishedContractGenerationTwoHistoryBinding(
+  contract: PublishedReleaseDownloadContract,
+  history: ReleaseHistoryContract = readReleaseHistoryContract(),
+): void {
+  const finalEntry = history.tags.at(-1);
+  const finalRelease = finalEntry?.release;
+  if (
+    history.generation !== 2
+    || finalEntry === undefined
+    || finalRelease === null
+    || finalRelease === undefined
+    || finalEntry.tag !== "v0.1.16"
+  ) {
+    throw new Error("The generation-2 release ledger has no final v0.1.16 release.");
+  }
+  verifyPublishedReleaseHistoryBinding(
+    contract,
+    Object.freeze({
+      assets: finalRelease.assets,
+      commit: finalEntry.commit,
+      publishedAt: finalRelease.publishedAt,
+      releaseId: finalRelease.id,
+      tag: "v0.1.16",
       tagObject: finalEntry.tagObject,
     }),
     history,
@@ -1667,7 +1912,7 @@ function isExactReleaseAssetDownloadUrl(url: string): boolean {
   ];
   return names.some((name) =>
     url
-      === `${HRA_V0_CURRENT_REPOSITORY}/releases/download/v0.1.15/${name}`
+      === `${HRA_V0_CURRENT_REPOSITORY}/releases/download/v${macosPackage.version}/${name}`
   );
 }
 
