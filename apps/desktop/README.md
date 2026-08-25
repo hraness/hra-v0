@@ -1,8 +1,9 @@
 # HRA v0 for macOS
 
 This directory preserves the archived HRA v0 macOS application. Its
-generation-1 release ledger ends at the final v0.1.15 compatibility and
-recovery correction. The current HRA is at
+generation-1 release ledger currently ends at the immutable v0.1.15 recovery
+release. HRA v0.1.16 build 17 is the checked native compatibility hotfix
+candidate. The current HRA is at
 [hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
@@ -242,6 +243,12 @@ bun run installation:forward-cleanup \
 
 The first normal v0.1.15 launch advances enrollment monotonically from its authorized sidecar through prepared custody to `enrolled`. It creates the exact strict-ACL Keychain item only when both the authorization and Keychain absence are proven. An enrolled installation never regenerates that key. A missing item, changed envelope digest, weaker access control, or changed sidecar fails closed.
 
+### v0.1.15 to v0.1.16 Keychain compatibility
+
+The first v0.1.16 launch from an exact prepared v0.1.15 recovery may show the legacy macOS Keychain password prompt. macOS 26 can persist the required partition transition after either Allow or Always Allow. If a second prompt appears, choose Always Allow so a fresh helper process can finish the update. The legacy dialog does not reliably display HRA's custom operation text.
+
+Canceling the prompt or reaching the bounded timeout leaves the immutable sidecar in `prepared`, so the next launch can retry safely. HRA changes that sidecar to `enrolled` only after a separate no-UI read proves the unchanged envelope digest and the exact five-ACL current-helper shape. The envelope and password never cross the digest-only migration protocol.
+
 There is no destructive state-restore command after HRA has launched or changed state. Restoring only the old SQLite tree cannot prove or restore the Keychain slots it references. The pre-cutover and forward-recovery backups remain diagnostic evidence rather than complete secret-custody images. Keep them until the v0.1.15 installation, account flow, and local worktrees have been verified. These commands never rewrite historical tags or releases and never mutate a provider.
 
 ## Verification
@@ -273,9 +280,9 @@ bun run --cwd apps/desktop package:macos
 
 ```text
 zig-out/release/macos/arm64/
-  HRA-0.1.15-16-macos-arm64.dmg
-  HRA-0.1.15-16-macos-arm64.dmg.sha256
-  HRA-0.1.15-16-release-manifest.json
+  HRA-0.1.16-17-macos-arm64.dmg
+  HRA-0.1.16-17-macos-arm64.dmg.sha256
+  HRA-0.1.16-17-release-manifest.json
   bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz
   bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz
   git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz
@@ -284,17 +291,18 @@ zig-out/release/macos/arm64/
 
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
-The root `release-download.json` is the strict HRA v0.1.15 build 16 download
-and publication contract for `https://github.com/hraness/hra-v0`. Publication
-commit P15 records its `published` evidence, and the website exposes only the
-exact verified v0.1.15 assets. HRA v0.1.14 remains the frozen forward-recovery
-origin.
+The root `release-download.json` is the strict HRA v0.1.16 build 17 download
+and publication contract for `https://github.com/hraness/hra-v0`. C16 keeps
+artifact hashes and source identities null, so the website exposes no v0.1.16
+download. The immutable v0.1.15 release remains the current frozen ledger
+entry and the v0.1.14 origin remains available for its bounded forward
+recovery.
 
 The separate root `release-history.json` is the generation-1 compatibility
 ledger. It fixes the v0.1.7–v0.1.15 annotated tags, eight immutable GitHub
 releases, 56 assets, and v0.1.11 tag-only state. Remote verification requires
-that exact set and binds the v0.1.15 tag, release, and assets to the published
-download contract.
+that exact set and preserves the v0.1.15 tag, release, assets, and frozen P15
+publication evidence while v0.1.16 is a candidate.
 
 Publication uses two commits so no commit must contain its own object ID.
 Candidate C15 `0c7764da0dea0a71bbccca817539a02d8e4284d0`
@@ -308,7 +316,18 @@ has ordered parents `[P15, U]`, preserves P15's download contract byte for
 byte, and is followed by the single Q15 archive-surface commit. The verifier
 rejects parent-order drift, candidate drift, a tag that
 does not peel to C15, or artifacts that do not embed C15 and its runtime-tree
-digest.
+digest. Q15 is `443448b79e9016e00d52501f047fce3a408de092`. C16 is Q15's
+single-parent direct child. P16 must be C16's exact contract-only child, and
+the later Q16 archive promotion must remain on that linear history.
+
+The active `main` rulesets require a pull request, the strict `Required` status
+check on an up-to-date head, resolved review threads, and linear history; only
+squash and rebase merges are allowed. `Required` verifies both the pull-request
+head and the resulting `main` push. Keep the hotfix based on exact Q15 and
+integrate it as one direct child. If a squash or rebase changes the object ID,
+the resulting `main` commit is C16: build, package, verify, and tag only a clean
+checkout of that final commit. A concurrent `main` commit after Q15 requires a
+reviewed provenance-contract change rather than merging around the Q15 edge.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -324,7 +343,7 @@ C14 and P14 record the repository's historical name,
 contract byte remains fixed. C15 descends from the maintained archive surface,
 so its new candidate and publication contracts use `hraness/hra-v0` directly.
 
-Run candidate checks from a clean standalone C15 checkout:
+Run candidate checks from a clean standalone C16 checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
@@ -336,22 +355,23 @@ The gate requires the canonical top level with a real `.git` directory, a clean
 tree, and no submodules, alternates, grafts, replacement refs, shallow history,
 included local Git configuration, or inherited `GIT_*` steering.
 
-The candidate command verifies clean C15, collision-free tag state, the DMG,
-checksum, manifest, runtime tree, and exact production signing authority. It
-emits the exact evidence for P15. Historical tags, releases, and assets remain
+The candidate command verifies clean C16 as Q15's direct child, collision-free
+tag state, the DMG, checksum, manifest, runtime tree, and exact production
+signing authority. It emits the exact evidence for P16. Historical tags,
+releases, and assets remain
 immutable inputs and are never rewritten.
 
 After the full package and candidate verifier pass, create the new direct
-annotated tag and immutable prerelease from the clean standalone C15 checkout.
+annotated tag and immutable prerelease from the clean standalone C16 checkout.
 Do not use `--clobber`, a glob, or an existing release:
 
 ```sh
-git tag -a v0.1.15 -m "HRA v0.1.15" HEAD
-git push origin refs/tags/v0.1.15
-gh release create v0.1.15 \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.15-16-macos-arm64.dmg \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.15-16-macos-arm64.dmg.sha256 \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.15-16-release-manifest.json \
+git tag -a v0.1.16 -m "HRA v0.1.16" HEAD
+git push origin refs/tags/v0.1.16
+gh release create v0.1.16 \
+  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.16-17-macos-arm64.dmg \
+  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.16-17-macos-arm64.dmg.sha256 \
+  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.16-17-release-manifest.json \
   apps/desktop/zig-out/release/macos/arm64/bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz \
   apps/desktop/zig-out/release/macos/arm64/bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz \
   apps/desktop/zig-out/release/macos/arm64/git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz \
@@ -360,24 +380,23 @@ gh release create v0.1.15 \
   --verify-tag \
   --prerelease \
   --latest=false \
-  --title "HRA v0.1.15" \
+  --title "HRA v0.1.16" \
   --notes-from-tag
 ```
 
 GitHub publishes only after every upload succeeds, and repository release
 immutability must report the release immutable. Fill only
 `release-download.json` with the candidate verifier's exact evidence, create
-P15, then run `check:release-source`, `verify:published-release`, and
-`verify:remote-release` from clean P15. The remote gate binds the list and
+P16, then run `check:release-source`, `verify:published-release`, and
+`verify:remote-release` from clean P16. The remote gate binds the list and
 per-tag GitHub records, the exact annotated tag, all seven asset IDs, names,
 sizes, and digests, the checksum and manifest, and the four corresponding-source
 records without redownloading the multi-gigabyte DMG.
 
-The reviewed archive-surface commit Q15 promotes the immutable v0.1.15 release
-metadata into generation 1 of `release-history.json`, proves the ordered
-P15/U/M15 bridge preserved the exact P15 download contract, and becomes the
-Vercel surface allowlist. Installation recovery runs from a clean detached P15
-operator checkout, while Q15 remains the deployed archive surface.
+Only after P16 and the immutable remote release pass may Q16 promote the
+v0.1.16 metadata into generation 2 of `release-history.json` and become the
+new Vercel surface allowlist. Until then, P15 remains the publication
+allowlist and Q15 remains the deployed generation-1 archive surface.
 
 The production package uses the locally self-managed HRA release-signing
 authority v2 for the outer app, native host, and custody-authorizing helpers.

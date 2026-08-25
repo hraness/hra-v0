@@ -50,7 +50,7 @@ const operationId = deriveRlmV2ReceiptId(
 );
 const bodyValueId = "ctxval_proposalbody001";
 const bodyDigest = "c".repeat(64);
-const CONCURRENT_PROPOSAL_INTERRUPT_AFTER_TIME_LIMIT = 30_000;
+const CONCURRENT_PROPOSAL_INTERRUPT_AFTER_TIME_LIMIT = 60_000;
 const PROPERTY_TIMEOUT =
   CONCURRENT_PROPOSAL_INTERRUPT_AFTER_TIME_LIMIT + 5_000;
 

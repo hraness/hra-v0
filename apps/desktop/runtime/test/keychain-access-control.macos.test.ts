@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const exactReceipt =
-  '{"created":true,"customSearchListScoped":true,"deleted":true,"duplicateCreated":false,"loginKeychainChanged":false,"noPromptQueryExact":true,"ok":true,"strictAcl":true,"untrustedSubjectExcluded":true,"version":1}\n';
+  '{"created":true,"customSearchListScoped":true,"deleted":true,"duplicateCreated":false,"loginKeychainChanged":false,"malformedAclRejected":true,"migrationPartitionPinned":true,"migrationTransitionExact":true,"noPromptQueryExact":true,"ok":true,"requirementSpiFailClosed":true,"samePathRequirementRejected":true,"storedDraftRejected":true,"strictAcl":true,"systemPayloadProjectionAccepted":true,"untrustedSubjectExcluded":true,"version":1}\n';
 
 async function run(
   arguments_: readonly string[],
@@ -28,7 +28,7 @@ async function run(
   return { exitCode: outcome.exitCode, stderr, stdout };
 }
 
-test("strict helper ACL round-trips in an isolated Keychain with an exact sole subject", async () => {
+test("persisted ACL classifier accepts only the exact system payload projection", async () => {
   if (process.platform !== "darwin" || process.arch !== "arm64") {
     throw new Error("The Keychain ACL integration requires Apple Silicon macOS.");
   }
@@ -50,6 +50,7 @@ test("strict helper ACL round-trips in an isolated Keychain with an exact sole s
     expect(untrustedBuild).toEqual({ exitCode: 0, stderr: "", stdout: "" });
     const ownerBuild = await run([
       "xcrun", "clang", "-fobjc-arc", "-Wno-deprecated-declarations",
+      "-DHRA_KEYCHAIN_ACCESS_CONTROL_TESTING=1",
       "-mmacosx-version-min=13.0", "-framework", "Foundation",
       "-framework", "LocalAuthentication",
       "-framework", "Security", "-I", nativeRoot,
@@ -58,10 +59,13 @@ test("strict helper ACL round-trips in an isolated Keychain with an exact sole s
       "-o", owner,
     ]);
     expect(ownerBuild).toEqual({ exitCode: 0, stderr: "", stdout: "" });
-    for (const executable of [owner, untrusted]) {
+    for (const [executable, identifier] of [
+      [owner, "org.hraness.hra.keychain-acl-fixture"],
+      [untrusted, "org.hraness.hra.keychain-acl-fixture-untrusted"],
+    ] as const) {
       const signed = await run([
         "/usr/bin/codesign", "--force", "--sign", "-",
-        "--identifier", "org.hraness.hra.keychain-acl-fixture",
+        "--identifier", identifier,
         executable,
       ]);
       expect(signed.exitCode).toBe(0);

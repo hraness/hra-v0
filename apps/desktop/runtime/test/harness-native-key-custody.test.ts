@@ -228,6 +228,8 @@ describe("native Harness Keychain custody client", () => {
       "admission",
       "marker_read",
       "envelope_read",
+      "envelope_validate_prepared_acl",
+      "envelope_migrate_prepared_acl",
       "legacy_read",
       "marker_prepare",
       "envelope_set_if_absent",
@@ -461,6 +463,60 @@ describe("native Harness Keychain custody client", () => {
     })).toBeTrue();
     expect(await inspecting).toEqual({ state: "absent", strictAcl: false });
 
+    const migrationDigest = "ab".repeat(32);
+    const validating = adapter.validatePreparedAcl(migrationDigest);
+    const validationRequest = await nextRequest(requests);
+    expect(validationRequest.request).toMatchObject({
+      action: "validatePreparedAcl",
+      expectedEnvelopeSha256: migrationDigest,
+    });
+    expect(
+      validationRequest.request.deadlineUnixMilliseconds - Date.now(),
+    ).toBeGreaterThan(240_000);
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: validationRequest.request.id,
+      binding: validationRequest.request.binding,
+      action: "validatePreparedAcl",
+      ok: true,
+      envelopeSha256: migrationDigest,
+      validated: true,
+    })).toBeTrue();
+    expect(await validating).toEqual({
+      envelopeSha256: migrationDigest,
+      validated: true,
+    });
+
+    const migrating = adapter.migratePreparedAcl(migrationDigest);
+    const migrationRequest = await nextRequest(requests);
+    expect(migrationRequest.request).toEqual({
+      action: "migratePreparedAcl",
+      binding: migrationRequest.request.binding,
+      deadlineUnixMilliseconds:
+        migrationRequest.request.deadlineUnixMilliseconds,
+      expectedEnvelopeSha256: migrationDigest,
+      id: migrationRequest.request.id,
+    });
+    expect(
+      migrationRequest.request.deadlineUnixMilliseconds - Date.now(),
+    ).toBeGreaterThan(240_000);
+    expect(JSON.stringify(migrationRequest)).not.toContain(envelope(5));
+    expect(custody.complete({
+      kind: "harnessCustodyNativeResult",
+      version: 1,
+      nativeRequestId: migrationRequest.request.id,
+      binding: migrationRequest.request.binding,
+      action: "migratePreparedAcl",
+      ok: true,
+      envelopeSha256: migrationDigest,
+      strictAcl: true,
+    })).toBeTrue();
+    expect(await migrating).toEqual({
+      envelopeSha256: migrationDigest,
+      strictAcl: true,
+    });
+
     const value = envelope(5);
     const creating = adapter.createExactIfAbsentNoUi(value);
     const setRequest = await nextRequest(requests);
@@ -484,6 +540,95 @@ describe("native Harness Keychain custody client", () => {
       envelope: value,
       strictAcl: true,
     });
+  });
+
+  test("prepared ACL actions reject a substituted result digest", async () => {
+    for (const action of ["validatePreparedAcl", "migratePreparedAcl"] as const) {
+      const requests: NativeHarnessCustodyRequestEnvelope[] = [];
+      const custody = new NativeHarnessKeyCustody({
+        writeRequest: request => {
+          requests.push(request);
+          return Promise.resolve();
+        },
+      });
+      const expected = "ab".repeat(32);
+      const pending = action === "validatePreparedAcl"
+        ? custody.validatePreparedEnrollmentAcl(expected)
+        : custody.migratePreparedEnrollmentAcl(expected);
+      const request = await nextRequest(requests);
+      expect(request.request.action).toBe(action);
+      expect(custody.complete(action === "validatePreparedAcl"
+        ? {
+            kind: "harnessCustodyNativeResult",
+            version: 1,
+            nativeRequestId: request.request.id,
+            binding: request.request.binding,
+            action,
+            ok: true,
+            envelopeSha256: "cd".repeat(32),
+            validated: true,
+          }
+        : {
+            kind: "harnessCustodyNativeResult",
+            version: 1,
+            nativeRequestId: request.request.id,
+            binding: request.request.binding,
+            action,
+            ok: true,
+            envelopeSha256: "cd".repeat(32),
+            strictAcl: true,
+          })).toBeTrue();
+      await expectCustodyUnavailable(pending);
+    }
+  });
+
+  test("prepared ACL action timeout and close reject late results", async () => {
+    for (const mode of ["timeout", "close"] as const) {
+      for (const action of [
+        "validatePreparedAcl",
+        "migratePreparedAcl",
+      ] as const) {
+        const requests: NativeHarnessCustodyRequestEnvelope[] = [];
+        const custody = new NativeHarnessKeyCustody({
+          timeoutMs: 20,
+          writeRequest: request => {
+            requests.push(request);
+            return Promise.resolve();
+          },
+        });
+        const expected = "ef".repeat(32);
+        const pending = action === "validatePreparedAcl"
+          ? custody.validatePreparedEnrollmentAcl(expected)
+          : custody.migratePreparedEnrollmentAcl(expected);
+        const request = await nextRequest(requests);
+        const remaining = request.request.deadlineUnixMilliseconds - Date.now();
+        expect(remaining).toBeGreaterThan(0);
+        expect(remaining).toBeLessThan(20);
+        if (mode === "close") custody.close();
+        await expectCustodyUnavailable(pending);
+        expect(custody.complete(action === "validatePreparedAcl"
+          ? {
+              kind: "harnessCustodyNativeResult",
+              version: 1,
+              nativeRequestId: request.request.id,
+              binding: request.request.binding,
+              action,
+              ok: true,
+              envelopeSha256: expected,
+              validated: true,
+            }
+          : {
+              kind: "harnessCustodyNativeResult",
+              version: 1,
+              nativeRequestId: request.request.id,
+              binding: request.request.binding,
+              action,
+              ok: true,
+              envelopeSha256: expected,
+              strictAcl: true,
+            })).toBeFalse();
+      }
+    }
   });
 
   test("established reader never creates and rejects later absence or digest drift", async () => {

@@ -81,14 +81,15 @@ const removal_deletion_capability_hex_bytes: usize =
 // budget below the gateway client's fixed timeout so a mutation can never
 // finish after its reporter abandons it.
 const harness_custody_helper_timeout_ms: u32 = 5_000;
+const harness_custody_migration_helper_timeout_ms: u32 = 240_000;
 const legacy_harness_custody_timeout_ms: u32 = 10_000;
 const harness_custody_helper_reap_timeout_ms: u32 = 1_000;
 const legacy_harness_group_absence_timeout_ms: u32 = 1_000;
 const max_harness_custody_native_operation_ms: u32 =
-    3 * harness_custody_helper_timeout_ms +
+    harness_custody_migration_helper_timeout_ms +
     harness_custody_helper_reap_timeout_ms;
-const harness_custody_native_deadline_ms: u32 = 50_000;
-const harness_custody_gateway_timeout_ms: u32 = 55_000;
+const harness_custody_native_deadline_ms: u32 = 270_000;
+const harness_custody_gateway_timeout_ms: u32 = 300_000;
 const max_harness_install_envelope_bytes: usize = 256;
 const harness_legacy_bridge_cdhash =
     "9f39a6414ae834959ec63b39237a0ee426fd978a";
@@ -1390,6 +1391,34 @@ fn encodeHarnessCustodyNativeResultRequest(
                 },
             ) catch return error.OutOfMemory;
         },
+        .validate_prepared_acl => |digest| {
+            if (request.action != .validate_prepared_acl or
+                !validPrefixedLowerHex(
+                    &digest,
+                    "",
+                    harness_reconciliation_digest_bytes,
+                )) return error.InvalidJson;
+            payload.writer.writeAll(",\"ok\":true,\"envelopeSha256\":") catch
+                return error.OutOfMemory;
+            std.json.Stringify.value(&digest, .{}, &payload.writer) catch
+                return error.OutOfMemory;
+            payload.writer.writeAll(",\"validated\":true}") catch
+                return error.OutOfMemory;
+        },
+        .migrate_prepared_acl => |digest| {
+            if (request.action != .migrate_prepared_acl or
+                !validPrefixedLowerHex(
+                    &digest,
+                    "",
+                    harness_reconciliation_digest_bytes,
+                )) return error.InvalidJson;
+            payload.writer.writeAll(",\"ok\":true,\"envelopeSha256\":") catch
+                return error.OutOfMemory;
+            std.json.Stringify.value(&digest, .{}, &payload.writer) catch
+                return error.OutOfMemory;
+            payload.writer.writeAll(",\"strictAcl\":true}") catch
+                return error.OutOfMemory;
+        },
         .set_if_absent => |set| {
             const value = set.value.valueSlice() orelse
                 return error.InvalidJson;
@@ -1804,12 +1833,16 @@ const AccountProfileNativeRequest = struct {
 
 pub const HarnessCustodyAction = enum {
     read,
+    validate_prepared_acl,
+    migrate_prepared_acl,
     set_if_absent,
     delete_both,
 
     fn text(self: HarnessCustodyAction) []const u8 {
         return switch (self) {
             .read => "read",
+            .validate_prepared_acl => "validatePreparedAcl",
+            .migrate_prepared_acl => "migratePreparedAcl",
             .set_if_absent => "setIfAbsent",
             .delete_both => "deleteBoth",
         };
@@ -1820,6 +1853,8 @@ const HarnessCustodyFailureStage = enum {
     admission,
     marker_read,
     envelope_read,
+    envelope_validate_prepared_acl,
+    envelope_migrate_prepared_acl,
     legacy_read,
     marker_prepare,
     envelope_set_if_absent,
@@ -1836,6 +1871,10 @@ const HarnessCustodyFailureStage = enum {
             .admission => "admission",
             .marker_read => "marker_read",
             .envelope_read => "envelope_read",
+            .envelope_validate_prepared_acl =>
+                "envelope_validate_prepared_acl",
+            .envelope_migrate_prepared_acl =>
+                "envelope_migrate_prepared_acl",
             .legacy_read => "legacy_read",
             .marker_prepare => "marker_prepare",
             .envelope_set_if_absent => "envelope_set_if_absent",
@@ -1867,6 +1906,9 @@ const HarnessCustodyNativeRequest = struct {
     deadline_admitted: bool = false,
     value: [max_harness_install_envelope_bytes]u8 = undefined,
     value_len: usize = 0,
+    expected_envelope_sha256: [harness_reconciliation_digest_bytes]u8 =
+        undefined,
+    expected_envelope_sha256_len: usize = 0,
     removal_deletion_capability: [removal_deletion_capability_hex_bytes]u8 = undefined,
     removal_operation_id: [96]u8 = undefined,
     removal_operation_id_len: usize = 0,
@@ -1880,6 +1922,13 @@ const HarnessCustodyNativeRequest = struct {
 
     fn valueSlice(self: *const @This()) ?[]const u8 {
         return if (self.value_len == 0) null else self.value[0..self.value_len];
+    }
+
+    fn expectedEnvelopeSHA256(self: *const @This()) ?[]const u8 {
+        return if (self.expected_envelope_sha256_len == 0)
+            null
+        else
+            self.expected_envelope_sha256[0..self.expected_envelope_sha256_len];
     }
 
     fn removalDeletionCapability(self: *const @This()) ?[]const u8 {
@@ -1969,6 +2018,8 @@ const HarnessReconciliationMarkerRead = union(enum) {
 
 const HarnessCustodyHelperAction = enum {
     envelope_read,
+    envelope_validate_prepared_acl,
+    envelope_migrate_prepared_acl,
     envelope_set_if_absent,
     envelope_delete,
     marker_read,
@@ -1983,6 +2034,8 @@ const HarnessCustodyOperationResult = union(enum) {
         migrated_from_legacy: bool,
         legacy_preserved: bool,
     },
+    validate_prepared_acl: [harness_reconciliation_digest_bytes]u8,
+    migrate_prepared_acl: [harness_reconciliation_digest_bytes]u8,
     set_if_absent: struct {
         value: HarnessCustodyValue,
         created: bool,
@@ -2382,6 +2435,10 @@ fn parseHarnessCustodyNativeRequest(
     const action: HarnessCustodyAction =
         if (std.mem.eql(u8, action_text, "read"))
             .read
+        else if (std.mem.eql(u8, action_text, "validatePreparedAcl"))
+            .validate_prepared_acl
+        else if (std.mem.eql(u8, action_text, "migratePreparedAcl"))
+            .migrate_prepared_acl
         else if (std.mem.eql(u8, action_text, "setIfAbsent"))
             .set_if_absent
         else if (std.mem.eql(u8, action_text, "deleteBoth"))
@@ -2396,6 +2453,8 @@ fn parseHarnessCustodyNativeRequest(
     };
     const expected_request_fields: usize = switch (action) {
         .read => 4,
+        .validate_prepared_acl => 5,
+        .migrate_prepared_acl => 5,
         .set_if_absent => 5,
         .delete_both => 7,
     };
@@ -2416,6 +2475,7 @@ fn parseHarnessCustodyNativeRequest(
     };
     defer {
         secureWipe(&result.value);
+        secureWipe(&result.expected_envelope_sha256);
         secureWipe(&result.removal_deletion_capability);
         secureWipe(&result.removal_operation_id);
         secureWipe(&result.removal_preview_id);
@@ -2425,12 +2485,36 @@ fn parseHarnessCustodyNativeRequest(
     switch (action) {
         .read => {
             if (request.get("value") != null or
+                request.get("expectedEnvelopeSha256") != null or
                 request.get("removalCapability") != null or
                 request.get("operationId") != null or
                 request.get("previewId") != null)
             {
                 return error.InvalidHarnessCustodyNativeRequest;
             }
+        },
+        .validate_prepared_acl, .migrate_prepared_acl => {
+            const expected = switch (request.get(
+                "expectedEnvelopeSha256",
+            ) orelse return error.InvalidHarnessCustodyNativeRequest) {
+                .string => |candidate| candidate,
+                else => return error.InvalidHarnessCustodyNativeRequest,
+            };
+            if (!validPrefixedLowerHex(
+                expected,
+                "",
+                harness_reconciliation_digest_bytes,
+            ) or request.get("value") != null or
+                request.get("removalCapability") != null or
+                request.get("operationId") != null or
+                request.get("previewId") != null)
+            {
+                return error.InvalidHarnessCustodyNativeRequest;
+            }
+            result.expected_envelope_sha256_len = try boundedCopy(
+                &result.expected_envelope_sha256,
+                expected,
+            );
         },
         .set_if_absent => {
             const value = switch (request.get("value") orelse
@@ -2439,6 +2523,7 @@ fn parseHarnessCustodyNativeRequest(
                 else => return error.InvalidHarnessCustodyNativeRequest,
             };
             if (!canonicalHarnessInstallEnvelope(value) or
+                request.get("expectedEnvelopeSha256") != null or
                 request.get("removalCapability") != null or
                 request.get("operationId") != null or
                 request.get("previewId") != null)
@@ -2448,7 +2533,8 @@ fn parseHarnessCustodyNativeRequest(
             result.value_len = try boundedCopy(&result.value, value);
         },
         .delete_both => {
-            if (request.get("value") != null) {
+            if (request.get("value") != null or
+                request.get("expectedEnvelopeSha256") != null) {
                 return error.InvalidHarnessCustodyNativeRequest;
             }
             const capability = switch (request.get("removalCapability") orelse
@@ -3417,6 +3503,10 @@ pub const Options = struct {
 
 pub const HarnessCustodyHelperResult = union(enum) {
     envelope_read: HarnessCustodyValue,
+    envelope_validate_prepared_acl:
+        [harness_reconciliation_digest_bytes]u8,
+    envelope_migrate_prepared_acl:
+        [harness_reconciliation_digest_bytes]u8,
     envelope_set_if_absent: struct {
         value: HarnessCustodyValue,
         created: bool,
@@ -4219,6 +4309,56 @@ fn parseHarnessCustodyHelperResponse(
             output.* = .{ .envelope_read = result };
             return true;
         },
+        .envelope_validate_prepared_acl => {
+            if (object.count() != 4) return false;
+            const digest = switch (object.get(
+                "envelopeSha256",
+            ) orelse return false) {
+                .string => |candidate| candidate,
+                else => return false,
+            };
+            const validated = switch (object.get(
+                "validated",
+            ) orelse return false) {
+                .bool => |candidate| candidate,
+                else => return false,
+            };
+            if (!validated or !validPrefixedLowerHex(
+                digest,
+                "",
+                harness_reconciliation_digest_bytes,
+            )) return false;
+            var exact: [harness_reconciliation_digest_bytes]u8 = undefined;
+            @memcpy(&exact, digest);
+            output.* = .{ .envelope_validate_prepared_acl = exact };
+            secureWipe(&exact);
+            return true;
+        },
+        .envelope_migrate_prepared_acl => {
+            if (object.count() != 4) return false;
+            const digest = switch (object.get(
+                "envelopeSha256",
+            ) orelse return false) {
+                .string => |candidate| candidate,
+                else => return false,
+            };
+            const strict_acl = switch (object.get(
+                "strictAcl",
+            ) orelse return false) {
+                .bool => |candidate| candidate,
+                else => return false,
+            };
+            if (!strict_acl or !validPrefixedLowerHex(
+                digest,
+                "",
+                harness_reconciliation_digest_bytes,
+            )) return false;
+            var exact: [harness_reconciliation_digest_bytes]u8 = undefined;
+            @memcpy(&exact, digest);
+            output.* = .{ .envelope_migrate_prepared_acl = exact };
+            secureWipe(&exact);
+            return true;
+        },
         .envelope_set_if_absent => {
             if (object.count() != 5) return false;
             const value = switch (object.get("value") orelse return false) {
@@ -4319,12 +4459,22 @@ fn productionHarnessCustodyOperation(
     if (comptime !std.mem.eql(u8, build_options.platform, "macos"))
         return false;
     const value_required = switch (action) {
-        .envelope_set_if_absent, .marker_prepare, .marker_commit => true,
+        .envelope_migrate_prepared_acl,
+        .envelope_validate_prepared_acl,
+        .envelope_set_if_absent,
+        .marker_prepare,
+        .marker_commit,
+        => true,
         else => false,
     };
+    const maximum_timeout = if (action == .envelope_migrate_prepared_acl or
+        action == .envelope_validate_prepared_acl)
+        harness_custody_migration_helper_timeout_ms
+    else
+        harness_custody_helper_timeout_ms;
     if (value_required != (value != null) or
         timeout_milliseconds == 0 or
-        timeout_milliseconds > harness_custody_helper_timeout_ms) return false;
+        timeout_milliseconds > maximum_timeout) return false;
     var request: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
     defer {
         if (request.writer.buffer.len > 0) secureWipe(request.writer.buffer);
@@ -4333,6 +4483,8 @@ fn productionHarnessCustodyOperation(
     request.writer.writeAll("{\"action\":") catch return false;
     std.json.Stringify.value(switch (action) {
         .envelope_read => "read",
+        .envelope_validate_prepared_acl => "validatePreparedAcl",
+        .envelope_migrate_prepared_acl => "migratePreparedAcl",
         .envelope_set_if_absent => "setIfAbsent",
         .envelope_delete => "delete",
         .marker_read => "markerRead",
@@ -4341,7 +4493,15 @@ fn productionHarnessCustodyOperation(
         .marker_delete => "markerDelete",
     }, .{}, &request.writer) catch return false;
     if (value) |payload| {
-        if (action == .envelope_set_if_absent) {
+        if (action == .envelope_migrate_prepared_acl or
+            action == .envelope_validate_prepared_acl)
+        {
+            if (!validPrefixedLowerHex(
+                payload,
+                "",
+                harness_reconciliation_digest_bytes,
+            )) return false;
+        } else if (action == .envelope_set_if_absent) {
             if (!canonicalHarnessInstallEnvelope(payload)) return false;
         } else {
             var marker: HarnessReconciliationMarker = undefined;
@@ -4352,7 +4512,11 @@ fn productionHarnessCustodyOperation(
                 return false;
             }
         }
-        request.writer.writeAll(",\"value\":") catch return false;
+        request.writer.writeAll(if (action == .envelope_migrate_prepared_acl or
+            action == .envelope_validate_prepared_acl)
+            ",\"expectedEnvelopeSha256\":"
+        else
+            ",\"value\":") catch return false;
         std.json.Stringify.value(payload, .{}, &request.writer) catch
             return false;
     }
@@ -4577,6 +4741,8 @@ fn wipeHarnessCustodyHelperResult(
 ) void {
     switch (result.*) {
         .envelope_read => |*value| wipeHarnessCustodyValue(value),
+        .envelope_validate_prepared_acl => |*digest| secureWipe(digest),
+        .envelope_migrate_prepared_acl => |*digest| secureWipe(digest),
         .envelope_set_if_absent => |*set| {
             wipeHarnessCustodyValue(&set.value);
             set.created = false;
@@ -4595,6 +4761,8 @@ fn wipeHarnessCustodyOperationResult(
 ) void {
     switch (result.*) {
         .read => |*read| wipeHarnessCustodyValue(&read.value),
+        .validate_prepared_acl => |*digest| secureWipe(digest),
+        .migrate_prepared_acl => |*digest| secureWipe(digest),
         .set_if_absent => |*set| wipeHarnessCustodyValue(&set.value),
         .delete_both, .failed, .legacy_failed => {},
     }
@@ -4653,6 +4821,70 @@ fn readHarnessEnvelope(
     defer wipeHarnessCustodyHelperResult(&helper_result);
     return switch (helper_result) {
         .envelope_read => |value| value,
+        else => null,
+    };
+}
+
+fn migratePreparedHarnessEnvelopeACL(
+    helper: HarnessCustodyHelperRunner,
+    helper_path: []const u8,
+    deadline: *const HarnessCustodyDeadline,
+    expected_envelope_sha256: []const u8,
+) ?[harness_reconciliation_digest_bytes]u8 {
+    if (!validPrefixedLowerHex(
+        expected_envelope_sha256,
+        "",
+        harness_reconciliation_digest_bytes,
+    )) return null;
+    var helper_result: HarnessCustodyHelperResult = undefined;
+    if (!helper.run_fn(
+        helper.context,
+        helper_path,
+        .envelope_migrate_prepared_acl,
+        expected_envelope_sha256,
+        deadline.remaining(harness_custody_migration_helper_timeout_ms) orelse
+            return null,
+        &helper_result,
+    )) return null;
+    defer wipeHarnessCustodyHelperResult(&helper_result);
+    return switch (helper_result) {
+        .envelope_migrate_prepared_acl => |digest| if (std.mem.eql(
+            u8,
+            &digest,
+            expected_envelope_sha256,
+        )) digest else null,
+        else => null,
+    };
+}
+
+fn validatePreparedHarnessEnvelopeACL(
+    helper: HarnessCustodyHelperRunner,
+    helper_path: []const u8,
+    deadline: *const HarnessCustodyDeadline,
+    expected_envelope_sha256: []const u8,
+) ?[harness_reconciliation_digest_bytes]u8 {
+    if (!validPrefixedLowerHex(
+        expected_envelope_sha256,
+        "",
+        harness_reconciliation_digest_bytes,
+    )) return null;
+    var helper_result: HarnessCustodyHelperResult = undefined;
+    if (!helper.run_fn(
+        helper.context,
+        helper_path,
+        .envelope_validate_prepared_acl,
+        expected_envelope_sha256,
+        deadline.remaining(harness_custody_migration_helper_timeout_ms) orelse
+            return null,
+        &helper_result,
+    )) return null;
+    defer wipeHarnessCustodyHelperResult(&helper_result);
+    return switch (helper_result) {
+        .envelope_validate_prepared_acl => |digest| if (std.mem.eql(
+            u8,
+            &digest,
+            expected_envelope_sha256,
+        )) digest else null,
         else => null,
     };
 }
@@ -4800,6 +5032,28 @@ fn executeDirectHarnessCustodyOperation(
                 .migrated_from_legacy = false,
                 .legacy_preserved = false,
             } };
+        },
+        .validate_prepared_acl => {
+            const expected = request.expectedEnvelopeSHA256() orelse
+                return .{ .failed = .reconciliation };
+            const digest = validatePreparedHarnessEnvelopeACL(
+                helper,
+                helper_path,
+                &deadline,
+                expected,
+            ) orelse return .{ .failed = .envelope_validate_prepared_acl };
+            return .{ .validate_prepared_acl = digest };
+        },
+        .migrate_prepared_acl => {
+            const expected = request.expectedEnvelopeSHA256() orelse
+                return .{ .failed = .reconciliation };
+            const digest = migratePreparedHarnessEnvelopeACL(
+                helper,
+                helper_path,
+                &deadline,
+                expected,
+            ) orelse return .{ .failed = .envelope_migrate_prepared_acl };
+            return .{ .migrate_prepared_acl = digest };
         },
         .set_if_absent => {
             const requested = request.valueSlice() orelse
@@ -5156,6 +5410,28 @@ fn executeHarnessCustodyOperation(
                     },
                 },
             }
+        },
+        .validate_prepared_acl => {
+            const expected = request.expectedEnvelopeSHA256() orelse
+                return .{ .failed = .reconciliation };
+            const digest = validatePreparedHarnessEnvelopeACL(
+                helper,
+                helper_path,
+                &deadline,
+                expected,
+            ) orelse return .{ .failed = .envelope_validate_prepared_acl };
+            return .{ .validate_prepared_acl = digest };
+        },
+        .migrate_prepared_acl => {
+            const expected = request.expectedEnvelopeSHA256() orelse
+                return .{ .failed = .reconciliation };
+            const digest = migratePreparedHarnessEnvelopeACL(
+                helper,
+                helper_path,
+                &deadline,
+                expected,
+            ) orelse return .{ .failed = .envelope_migrate_prepared_acl };
+            return .{ .migrate_prepared_acl = digest };
         },
         .set_if_absent => {
             const requested = request.valueSlice() orelse
@@ -7571,6 +7847,7 @@ pub const RuntimeHost = struct {
         };
         defer {
             secureWipe(&request.value);
+            secureWipe(&request.expected_envelope_sha256);
             secureWipe(&request.removal_deletion_capability);
             secureWipe(&request.removal_operation_id);
             secureWipe(&request.removal_preview_id);
@@ -7889,6 +8166,7 @@ pub const RuntimeHost = struct {
             if (self.state != .running) {
                 if (self.harness_custody_request) |*request| {
                     secureWipe(&request.value);
+                    secureWipe(&request.expected_envelope_sha256);
                     secureWipe(&request.removal_deletion_capability);
                     secureWipe(&request.removal_operation_id);
                     secureWipe(&request.removal_preview_id);
@@ -7905,6 +8183,7 @@ pub const RuntimeHost = struct {
             };
             if (self.harness_custody_request) |*stored| {
                 secureWipe(&stored.value);
+                secureWipe(&stored.expected_envelope_sha256);
                 secureWipe(&stored.removal_deletion_capability);
                 secureWipe(&stored.removal_operation_id);
                 secureWipe(&stored.removal_preview_id);
@@ -7912,6 +8191,7 @@ pub const RuntimeHost = struct {
             self.harness_custody_request = null;
             self.mutex.unlock(self.io);
             defer secureWipe(&request.value);
+            defer secureWipe(&request.expected_envelope_sha256);
             defer secureWipe(&request.removal_deletion_capability);
             defer secureWipe(&request.removal_operation_id);
             defer secureWipe(&request.removal_preview_id);
@@ -9602,6 +9882,8 @@ const testing_harness_envelope_zero =
     "{\"version\":1,\"algorithm\":\"hkdf-sha256\",\"key\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}";
 const testing_harness_envelope_one =
     "{\"version\":1,\"algorithm\":\"hkdf-sha256\",\"key\":\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\"}";
+const testing_harness_envelope_sha256 =
+    "1f41345a14c9ecadb2302ad66a34784e64bb04da83199cc286ee40c577864328";
 const testing_keychain_custodian_path =
     "/Applications/HRA.app/Contents/Resources/runtime/bin/oprte-keychain-custodian";
 const testing_legacy_harness_gateway_path =
@@ -9638,6 +9920,161 @@ test "Harness custody helper rejects present values without the strict ACL postu
     ));
 }
 
+test "Harness prepared ACL helper responses are exact and digest only" {
+    var validation: HarnessCustodyHelperResult = undefined;
+    try std.testing.expect(parseHarnessCustodyHelperResponse(
+        .envelope_validate_prepared_acl,
+        "{\"envelopeSha256\":\"" ++ testing_harness_envelope_sha256 ++
+            "\",\"ok\":true,\"validated\":true,\"version\":1}",
+        &validation,
+    ));
+    defer wipeHarnessCustodyHelperResult(&validation);
+    try std.testing.expect(switch (validation) {
+        .envelope_validate_prepared_acl => |digest| std.mem.eql(
+            u8,
+            &digest,
+            testing_harness_envelope_sha256,
+        ),
+        else => false,
+    });
+
+    var migration: HarnessCustodyHelperResult = undefined;
+    try std.testing.expect(parseHarnessCustodyHelperResponse(
+        .envelope_migrate_prepared_acl,
+        "{\"envelopeSha256\":\"" ++ testing_harness_envelope_sha256 ++
+            "\",\"ok\":true,\"strictAcl\":true,\"version\":1}",
+        &migration,
+    ));
+    defer wipeHarnessCustodyHelperResult(&migration);
+    try std.testing.expect(switch (migration) {
+        .envelope_migrate_prepared_acl => |digest| std.mem.eql(
+            u8,
+            &digest,
+            testing_harness_envelope_sha256,
+        ),
+        else => false,
+    });
+
+    var invalid: HarnessCustodyHelperResult = undefined;
+    try std.testing.expect(!parseHarnessCustodyHelperResponse(
+        .envelope_validate_prepared_acl,
+        "{\"envelopeSha256\":\"" ++ testing_harness_envelope_sha256 ++
+            "\",\"ok\":true,\"validated\":false,\"version\":1}",
+        &invalid,
+    ));
+    try std.testing.expect(!parseHarnessCustodyHelperResponse(
+        .envelope_migrate_prepared_acl,
+        "{\"envelopeSha256\":\"" ++ testing_harness_envelope_sha256 ++
+            "\",\"extra\":true,\"ok\":true,\"strictAcl\":true," ++
+            "\"version\":1}",
+        &invalid,
+    ));
+    try std.testing.expect(!parseHarnessCustodyHelperResponse(
+        .envelope_validate_prepared_acl,
+        "{\"envelopeSha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" ++
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"ok\":true," ++
+            "\"validated\":true,\"version\":1}",
+        &invalid,
+    ));
+}
+
+test "Harness prepared ACL Native requests and results are exact and digest only" {
+    const prefix =
+        "{\"kind\":\"harnessCustodyNativeRequest\",\"version\":1," ++
+        "\"request\":{\"id\":\"native-harness-0123456789abcdef01234567\"," ++
+        "\"binding\":\"binding_0123456789abcdef0123456789abcdef" ++
+        "0123456789abcdef\",\"action\":\"";
+    const suffix = "\",\"deadlineUnixMilliseconds\":1800000000000," ++
+        "\"expectedEnvelopeSha256\":\"" ++
+        testing_harness_envelope_sha256 ++ "\"}}";
+
+    var validation = try parseHarnessCustodyNativeRequest(
+        prefix ++ "validatePreparedAcl" ++ suffix,
+    );
+    defer secureWipe(&validation.expected_envelope_sha256);
+    try std.testing.expectEqual(
+        HarnessCustodyAction.validate_prepared_acl,
+        validation.action,
+    );
+    try std.testing.expectEqualStrings(
+        testing_harness_envelope_sha256,
+        validation.expectedEnvelopeSHA256().?,
+    );
+    var validation_digest: [harness_reconciliation_digest_bytes]u8 = undefined;
+    @memcpy(&validation_digest, testing_harness_envelope_sha256);
+    var validation_result: HarnessCustodyOperationResult =
+        .{ .validate_prepared_acl = validation_digest };
+    defer wipeHarnessCustodyOperationResult(&validation_result);
+    const validation_encoded = try encodeHarnessCustodyNativeResultRequest(
+        std.testing.allocator,
+        &validation,
+        validation_result,
+    );
+    defer std.testing.allocator.free(validation_encoded);
+    defer secureWipe(validation_encoded);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        validation_encoded,
+        "\"action\":\"validatePreparedAcl\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        validation_encoded,
+        "\"validated\":true",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        validation_encoded,
+        "\"value\"",
+    ) == null);
+
+    var migration = try parseHarnessCustodyNativeRequest(
+        prefix ++ "migratePreparedAcl" ++ suffix,
+    );
+    defer secureWipe(&migration.expected_envelope_sha256);
+    try std.testing.expectEqual(
+        HarnessCustodyAction.migrate_prepared_acl,
+        migration.action,
+    );
+    var migration_digest: [harness_reconciliation_digest_bytes]u8 = undefined;
+    @memcpy(&migration_digest, testing_harness_envelope_sha256);
+    var migration_result: HarnessCustodyOperationResult =
+        .{ .migrate_prepared_acl = migration_digest };
+    defer wipeHarnessCustodyOperationResult(&migration_result);
+    const migration_encoded = try encodeHarnessCustodyNativeResultRequest(
+        std.testing.allocator,
+        &migration,
+        migration_result,
+    );
+    defer std.testing.allocator.free(migration_encoded);
+    defer secureWipe(migration_encoded);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        migration_encoded,
+        "\"action\":\"migratePreparedAcl\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        migration_encoded,
+        "\"strictAcl\":true",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        migration_encoded,
+        "\"value\"",
+    ) == null);
+
+    try std.testing.expectError(
+        error.InvalidHarnessCustodyNativeRequest,
+        parseHarnessCustodyNativeRequest(
+            prefix ++ "validatePreparedAcl" ++
+                "\",\"deadlineUnixMilliseconds\":1800000000000," ++
+                "\"expectedEnvelopeSha256\":\"AAAAAAAAAAAAAAAAAAAAAAAA" ++
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+        ),
+    );
+}
+
 const HarnessCustodyOperationProbe = struct {
     v2: HarnessCustodyValue = .{ .state = .absent },
     legacy: HarnessCustodyValue = .{ .state = .absent },
@@ -9655,7 +10092,13 @@ const HarnessCustodyOperationProbe = struct {
     marker_prepare_fails_once: bool = false,
     marker_commit_fails_once: bool = false,
     marker_delete_fails_once: bool = false,
+    validation_digest_mismatch: bool = false,
+    migration_digest_mismatch: bool = false,
     helper_read_count: usize = 0,
+    helper_validation_count: usize = 0,
+    helper_migration_count: usize = 0,
+    helper_validation_timeout_ms: u32 = 0,
+    helper_migration_timeout_ms: u32 = 0,
     helper_set_count: usize = 0,
     helper_delete_count: usize = 0,
     marker_read_count: usize = 0,
@@ -9721,6 +10164,42 @@ const HarnessCustodyOperationProbe = struct {
                 self.helper_read_count += 1;
                 if (self.envelope_read_fails) return false;
                 output.* = .{ .envelope_read = self.v2 };
+            },
+            .envelope_validate_prepared_acl => {
+                self.helper_validation_count += 1;
+                self.helper_validation_timeout_ms = timeout_milliseconds;
+                const expected = value orelse return false;
+                if (!validPrefixedLowerHex(
+                    expected,
+                    "",
+                    harness_reconciliation_digest_bytes,
+                )) return false;
+                var digest: [harness_reconciliation_digest_bytes]u8 =
+                    undefined;
+                @memcpy(&digest, expected);
+                if (self.validation_digest_mismatch) {
+                    digest[0] = if (digest[0] == '0') '1' else '0';
+                }
+                output.* = .{ .envelope_validate_prepared_acl = digest };
+                secureWipe(&digest);
+            },
+            .envelope_migrate_prepared_acl => {
+                self.helper_migration_count += 1;
+                self.helper_migration_timeout_ms = timeout_milliseconds;
+                const expected = value orelse return false;
+                if (!validPrefixedLowerHex(
+                    expected,
+                    "",
+                    harness_reconciliation_digest_bytes,
+                )) return false;
+                var digest: [harness_reconciliation_digest_bytes]u8 =
+                    undefined;
+                @memcpy(&digest, expected);
+                if (self.migration_digest_mismatch) {
+                    digest[0] = if (digest[0] == '0') '1' else '0';
+                }
+                output.* = .{ .envelope_migrate_prepared_acl = digest };
+                secureWipe(&digest);
             },
             .envelope_set_if_absent => {
                 self.helper_set_count += 1;
@@ -9903,6 +10382,16 @@ fn setTestingHarnessCustodyValue(
     request.value_len = boundedCopy(&request.value, value) catch unreachable;
 }
 
+fn setTestingHarnessCustodyExpectedDigest(
+    request: *HarnessCustodyNativeRequest,
+    digest: []const u8,
+) void {
+    request.expected_envelope_sha256_len = boundedCopy(
+        &request.expected_envelope_sha256,
+        digest,
+    ) catch unreachable;
+}
+
 fn testingHarnessCustodyDeadline(
     request: *const HarnessCustodyNativeRequest,
 ) HarnessCustodyDeadline {
@@ -9956,6 +10445,115 @@ fn setTestingRemovalAuthorization(
     @memcpy(
         request.removal_preview_id[0..preview_id.len],
         preview_id,
+    );
+}
+
+test "Harness prepared ACL actions execute separately and reject digest substitution" {
+    var probe: HarnessCustodyOperationProbe = .{};
+    var validation_request = testingHarnessCustodyRequest(
+        .validate_prepared_acl,
+    );
+    setTestingHarnessCustodyExpectedDigest(
+        &validation_request,
+        testing_harness_envelope_sha256,
+    );
+    defer secureWipe(&validation_request.expected_envelope_sha256);
+    var validation = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &validation_request,
+        testingHarnessCustodyDeadline(&validation_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&validation);
+    try std.testing.expect(switch (validation) {
+        .validate_prepared_acl => |digest| std.mem.eql(
+            u8,
+            &digest,
+            testing_harness_envelope_sha256,
+        ),
+        else => false,
+    });
+    try std.testing.expectEqual(@as(usize, 1), probe.helper_validation_count);
+    try std.testing.expectEqual(
+        harness_custody_migration_helper_timeout_ms,
+        probe.helper_validation_timeout_ms,
+    );
+    try std.testing.expectEqual(@as(usize, 0), probe.helper_migration_count);
+
+    var migration_request = testingHarnessCustodyRequest(
+        .migrate_prepared_acl,
+    );
+    setTestingHarnessCustodyExpectedDigest(
+        &migration_request,
+        testing_harness_envelope_sha256,
+    );
+    defer secureWipe(&migration_request.expected_envelope_sha256);
+    var migration = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &migration_request,
+        testingHarnessCustodyDeadline(&migration_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&migration);
+    try std.testing.expect(switch (migration) {
+        .migrate_prepared_acl => |digest| std.mem.eql(
+            u8,
+            &digest,
+            testing_harness_envelope_sha256,
+        ),
+        else => false,
+    });
+    try std.testing.expectEqual(@as(usize, 1), probe.helper_validation_count);
+    try std.testing.expectEqual(@as(usize, 1), probe.helper_migration_count);
+    try std.testing.expectEqual(
+        harness_custody_migration_helper_timeout_ms,
+        probe.helper_migration_timeout_ms,
+    );
+
+    var validation_mismatch_probe: HarnessCustodyOperationProbe = .{
+        .validation_digest_mismatch = true,
+    };
+    var validation_mismatch = executeDirectHarnessCustodyOperation(
+        validation_mismatch_probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &validation_request,
+        testingHarnessCustodyDeadline(&validation_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&validation_mismatch);
+    try expectHarnessCustodyFailureStage(
+        &validation_mismatch,
+        .envelope_validate_prepared_acl,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        validation_mismatch_probe.helper_validation_count,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        validation_mismatch_probe.helper_migration_count,
+    );
+
+    var migration_mismatch_probe: HarnessCustodyOperationProbe = .{
+        .migration_digest_mismatch = true,
+    };
+    var migration_mismatch = executeDirectHarnessCustodyOperation(
+        migration_mismatch_probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &migration_request,
+        testingHarnessCustodyDeadline(&migration_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&migration_mismatch);
+    try expectHarnessCustodyFailureStage(
+        &migration_mismatch,
+        .envelope_migrate_prepared_acl,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        migration_mismatch_probe.helper_validation_count,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        migration_mismatch_probe.helper_migration_count,
     );
 }
 
@@ -10181,6 +10779,8 @@ test "Harness custody failure reporting is fixed, exhaustive, and pathless" {
         .admission,
         .marker_read,
         .envelope_read,
+        .envelope_validate_prepared_acl,
+        .envelope_migrate_prepared_acl,
         .marker_prepare,
         .envelope_set_if_absent,
         .marker_commit,
@@ -10190,10 +10790,10 @@ test "Harness custody failure reporting is fixed, exhaustive, and pathless" {
         .reporting,
     };
     try std.testing.expectEqual(
-        @as(usize, 13),
+        @as(usize, 15),
         std.meta.tags(HarnessCustodyFailureStage).len,
     );
-    try std.testing.expectEqual(@as(usize, 10), nonlegacy_stages.len);
+    try std.testing.expectEqual(@as(usize, 12), nonlegacy_stages.len);
     for (nonlegacy_stages, 0..) |stage, stage_index| {
         try std.testing.expect(!stage.isLegacy());
         for (nonlegacy_stages[0..stage_index]) |earlier| {

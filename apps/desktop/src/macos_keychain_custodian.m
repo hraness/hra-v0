@@ -1010,6 +1010,318 @@ static OSStatus HRAAuthorizedSecItemDelete(CFDictionaryRef query) {
       HRAAuthorizedParentRemainsLive() ? status : errSecAuthFailed;
 }
 
+static NSString *_Nullable HRASHA256Hex(NSString *value);
+static HRAKeychainReadState HRAReadInstallEnvelope(
+    NSString *_Nullable *_Nonnull outValue);
+
+static OSStatus HRAAuthorizedSecKeychainItemModifyContent(
+    SecKeychainItemRef item,
+    UInt32 length,
+    const void *bytes) {
+  if (item == NULL || bytes == NULL || length == 0 ||
+      !HRAAuthorizedParentRemainsLive() ||
+      !HRAAuthorizedLoginKeychainRemainsStable()) return errSecAuthFailed;
+  OSStatus status = SecKeychainItemModifyContent(
+      item, NULL, length, bytes);
+  return HRAAuthorizedLoginKeychainRemainsStable() &&
+      HRAAuthorizedParentRemainsLive() ? status : errSecAuthFailed;
+}
+
+static bool HRAExactSHA256HexString(id value) {
+  if (![value isKindOfClass:[NSString class]] ||
+      [(NSString *)value length] != CC_SHA256_DIGEST_LENGTH * 2) return false;
+  for (NSUInteger index = 0; index < [(NSString *)value length]; index += 1) {
+    unichar character = [(NSString *)value characterAtIndex:index];
+    if (!((character >= '0' && character <= '9') ||
+          (character >= 'a' && character <= 'f'))) return false;
+  }
+  return true;
+}
+
+static SecKeychainItemRef _Nullable
+HRACopyPreparedInstallEnvelopeMigrationItem(
+    NSData *_Nullable *_Nonnull outPersistentRef) {
+  *outPersistentRef = nil;
+  NSMutableDictionary *query = [HRAKeychainQuery() mutableCopy];
+  if (query == nil) return NULL;
+  query[(__bridge id)kSecReturnRef] = @YES;
+  query[(__bridge id)kSecReturnPersistentRef] = @YES;
+  query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+  CFTypeRef raw = NULL;
+  OSStatus status = HRAAuthorizedSecItemCopyMatching(
+      (__bridge CFDictionaryRef)query, &raw);
+  if (status != errSecSuccess || raw == NULL ||
+      CFGetTypeID(raw) != CFDictionaryGetTypeID()) {
+    if (raw != NULL) CFRelease(raw);
+    return NULL;
+  }
+  NSDictionary *result = CFBridgingRelease(raw);
+  SecKeychainItemRef item = (__bridge SecKeychainItemRef)
+      result[(__bridge id)kSecValueRef];
+  NSData *persistentRef = result[(__bridge id)kSecValuePersistentRef];
+  if (item == NULL ||
+      CFGetTypeID(item) != SecKeychainItemGetTypeID() ||
+      ![persistentRef isKindOfClass:[NSData class]] ||
+      persistentRef.length == 0 || persistentRef.length > 1024 ||
+      (!hra_macos_install_envelope_item_access_is_prepared_migration_source(
+           item) &&
+       !hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+           item))) {
+    return NULL;
+  }
+  *outPersistentRef = [persistentRef copy];
+  return (SecKeychainItemRef)CFRetain(item);
+}
+
+static HRAKeychainReadState HRAReadInstallEnvelopeForMigration(
+    bool allowInteraction,
+    NSString *prompt,
+    NSString *_Nullable *_Nonnull outValue,
+    SecKeychainItemRef _Nullable *_Nonnull outItem,
+    NSDictionary *_Nullable *_Nonnull outMetadata,
+    NSData *_Nullable *_Nonnull outPersistentRef) {
+  *outValue = nil;
+  *outItem = NULL;
+  *outMetadata = nil;
+  *outPersistentRef = nil;
+  NSMutableDictionary *query = [HRAKeychainQuery() mutableCopy];
+  if (query == nil) return HRAKeychainReadFailure;
+  if (allowInteraction) {
+    [query removeObjectForKey:(__bridge id)kSecUseAuthenticationContext];
+    query[(__bridge id)kSecUseAuthenticationUI] =
+        (__bridge id)kSecUseAuthenticationUIAllow;
+    query[(__bridge id)kSecUseOperationPrompt] = prompt;
+  }
+  query[(__bridge id)kSecReturnData] = @YES;
+  query[(__bridge id)kSecReturnRef] = @YES;
+  query[(__bridge id)kSecReturnAttributes] = @YES;
+  query[(__bridge id)kSecReturnPersistentRef] = @YES;
+  query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+  CFTypeRef raw = NULL;
+  OSStatus status = HRAAuthorizedSecItemCopyMatching(
+      (__bridge CFDictionaryRef)query, &raw);
+  if (status == errSecItemNotFound) return HRAKeychainReadAbsent;
+  if (status != errSecSuccess || raw == NULL ||
+      CFGetTypeID(raw) != CFDictionaryGetTypeID()) {
+    if (raw != NULL) CFRelease(raw);
+    return HRAKeychainReadFailure;
+  }
+  NSDictionary *result = CFBridgingRelease(raw);
+  NSData *data = result[(__bridge id)kSecValueData];
+  SecKeychainItemRef item = (__bridge SecKeychainItemRef)
+      result[(__bridge id)kSecValueRef];
+  NSData *persistentRef = result[(__bridge id)kSecValuePersistentRef];
+  if (![data isKindOfClass:[NSData class]] || item == NULL ||
+      CFGetTypeID(item) != SecKeychainItemGetTypeID() ||
+      ![persistentRef isKindOfClass:[NSData class]] ||
+      persistentRef.length == 0 || persistentRef.length > 1024) {
+    return HRAKeychainReadFailure;
+  }
+  NSString *text = [[NSString alloc] initWithData:data
+                                         encoding:NSUTF8StringEncoding];
+  NSString *canonical = HRACanonicalInstallEnvelope(text);
+  NSMutableDictionary *metadata = [result mutableCopy];
+  [metadata removeObjectForKey:(__bridge id)kSecValueData];
+  [metadata removeObjectForKey:(__bridge id)kSecValueRef];
+  [metadata removeObjectForKey:(__bridge id)kSecValuePersistentRef];
+  [metadata removeObjectForKey:(__bridge id)kSecAttrModificationDate];
+  if (canonical == nil ||
+      metadata[(__bridge id)kSecClass] !=
+          (__bridge id)kSecClassGenericPassword ||
+      ![metadata[(__bridge id)kSecAttrService]
+          isEqual:HRAHarnessKeychainService] ||
+      ![metadata[(__bridge id)kSecAttrAccount]
+          isEqual:HRAHarnessKeychainAccount]) {
+    return HRAKeychainReadFailure;
+  }
+  *outValue = canonical;
+  *outItem = (SecKeychainItemRef)CFRetain(item);
+  *outMetadata = [metadata copy];
+  *outPersistentRef = [persistentRef copy];
+  return HRAKeychainReadPresent;
+}
+
+static bool HRAInstallEnvelopeMigrationDigestMatches(
+    NSString *value,
+    NSString *expectedDigest) {
+  NSString *digest = HRASHA256Hex(value);
+  return digest != nil && [digest isEqualToString:expectedDigest];
+}
+
+static bool HRAFinishPreparedInstallEnvelopeMigration(
+    NSString *expectedDigest) {
+  NSString *verified = nil;
+  if (HRAReadInstallEnvelope(&verified) != HRAKeychainReadPresent ||
+      verified == nil ||
+      !HRAInstallEnvelopeMigrationDigestMatches(verified, expectedDigest)) {
+    return false;
+  }
+  return true;
+}
+
+static bool HRANormalizePreparedInstallEnvelopeTransition(
+    SecKeychainItemRef item,
+    NSString *canonicalValue,
+    NSString *expectedDigest,
+    NSDictionary *expectedMetadata,
+    NSData *expectedPersistentRef) {
+  if (item == NULL || canonicalValue == nil ||
+      expectedMetadata == nil || expectedPersistentRef == nil ||
+      !HRAInstallEnvelopeMigrationDigestMatches(
+          canonicalValue, expectedDigest) ||
+      !hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+          item)) return false;
+  NSData *sameBytes = [canonicalValue dataUsingEncoding:NSUTF8StringEncoding];
+  if (!(sameBytes.length > 0 && sameBytes.length <= UINT32_MAX)) return false;
+  Boolean interactionWasAllowed = true;
+  if (SecKeychainGetUserInteractionAllowed(&interactionWasAllowed) !=
+          errSecSuccess ||
+      SecKeychainSetUserInteractionAllowed(false) != errSecSuccess) {
+    return false;
+  }
+  bool modified = HRAAuthorizedSecKeychainItemModifyContent(
+      item,
+      (UInt32)sameBytes.length,
+      sameBytes.bytes) == errSecSuccess;
+  NSString *verifiedValue = nil;
+  SecKeychainItemRef verifiedItem = NULL;
+  NSDictionary *verifiedMetadata = nil;
+  NSData *verifiedPersistentRef = nil;
+  HRAKeychainReadState verifiedState = modified
+      ? HRAReadInstallEnvelopeForMigration(
+          false,
+          @"",
+          &verifiedValue,
+          &verifiedItem,
+          &verifiedMetadata,
+          &verifiedPersistentRef)
+      : HRAKeychainReadFailure;
+  bool exact = modified && verifiedState == HRAKeychainReadPresent &&
+      verifiedValue != nil && verifiedItem != NULL &&
+      [verifiedPersistentRef isEqualToData:expectedPersistentRef] &&
+      [verifiedMetadata isEqualToDictionary:expectedMetadata] &&
+      hra_macos_install_envelope_item_access_is_strict(verifiedItem) &&
+      HRAInstallEnvelopeMigrationDigestMatches(
+          verifiedValue, expectedDigest) &&
+      HRAFinishPreparedInstallEnvelopeMigration(expectedDigest);
+  if (verifiedItem != NULL) CFRelease(verifiedItem);
+  OSStatus restoreStatus =
+      SecKeychainSetUserInteractionAllowed(interactionWasAllowed);
+  return exact && restoreStatus == errSecSuccess;
+}
+
+static bool HRAValidatePreparedInstallEnvelopeAccess(
+    NSString *expectedDigest) {
+  if (!HRAExactSHA256HexString(expectedDigest) ||
+      !HRAAuthorizedParentRemainsLive()) return false;
+  NSData *preflightPersistentRef = nil;
+  SecKeychainItemRef preflight =
+      HRACopyPreparedInstallEnvelopeMigrationItem(&preflightPersistentRef);
+  if (preflight == NULL) return false;
+  bool transition =
+      hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+          preflight);
+  NSString *value = nil;
+  SecKeychainItemRef item = NULL;
+  NSDictionary *metadata = nil;
+  NSData *persistentRef = nil;
+  HRAKeychainReadState state = HRAReadInstallEnvelopeForMigration(
+      !transition,
+      @"HRA must verify the prepared recovery key for its security update.",
+      &value,
+      &item,
+      &metadata,
+      &persistentRef);
+  bool exact = state == HRAKeychainReadPresent && value != nil &&
+      item != NULL &&
+      [persistentRef isEqualToData:preflightPersistentRef] &&
+      HRAInstallEnvelopeMigrationDigestMatches(value, expectedDigest) &&
+      (hra_macos_install_envelope_item_access_is_prepared_migration_source(
+           item) ||
+       hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+           item));
+  CFRelease(preflight);
+  if (item != NULL) CFRelease(item);
+  return exact;
+}
+
+static bool HRAMigratePreparedInstallEnvelopeAccess(
+    NSString *expectedDigest) {
+  if (!HRAExactSHA256HexString(expectedDigest) ||
+      !HRAAuthorizedParentRemainsLive()) return false;
+  NSData *preflightPersistentRef = nil;
+  SecKeychainItemRef preflight =
+      HRACopyPreparedInstallEnvelopeMigrationItem(&preflightPersistentRef);
+  if (preflight == NULL) return false;
+  bool transition =
+      hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+          preflight);
+  NSString *value = nil;
+  SecKeychainItemRef item = NULL;
+  NSDictionary *metadata = nil;
+  NSData *persistentRef = nil;
+  HRAKeychainReadState state = HRAReadInstallEnvelopeForMigration(
+      !transition,
+      @"HRA must finish the prepared recovery key security update. Choose Always Allow.",
+      &value,
+      &item,
+      &metadata,
+      &persistentRef);
+  bool exact = state == HRAKeychainReadPresent && value != nil &&
+      item != NULL &&
+      [persistentRef isEqualToData:preflightPersistentRef] &&
+      HRAInstallEnvelopeMigrationDigestMatches(value, expectedDigest) &&
+      (hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+           item) ||
+       hra_macos_install_envelope_item_access_is_strict(item));
+  CFRelease(preflight);
+  if (!exact) {
+    if (item != NULL) CFRelease(item);
+    return false;
+  }
+  if (hra_macos_install_envelope_item_access_is_strict(item)) {
+    CFRelease(item);
+    return HRAFinishPreparedInstallEnvelopeMigration(expectedDigest);
+  }
+
+  // The authorization prompt can update the system-managed PartitionID ACL
+  // before returning. Re-query without UI so normalization never relies on a
+  // possibly stale item reference and proves that the authorization persists
+  // in a fresh Keychain operation.
+  CFRelease(item);
+  NSString *freshValue = nil;
+  SecKeychainItemRef freshItem = NULL;
+  NSDictionary *freshMetadata = nil;
+  NSData *freshPersistentRef = nil;
+  HRAKeychainReadState freshState = HRAReadInstallEnvelopeForMigration(
+      false,
+      @"",
+      &freshValue,
+      &freshItem,
+      &freshMetadata,
+      &freshPersistentRef);
+  bool freshExact = freshState == HRAKeychainReadPresent &&
+      freshValue != nil && freshItem != NULL &&
+      [freshPersistentRef isEqualToData:persistentRef] &&
+      [freshMetadata isEqualToDictionary:metadata] &&
+      HRAInstallEnvelopeMigrationDigestMatches(
+          freshValue, expectedDigest) &&
+      hra_macos_install_envelope_item_access_is_prepared_migration_transition(
+          freshItem);
+  if (!freshExact) {
+    if (freshItem != NULL) CFRelease(freshItem);
+    return false;
+  }
+  bool migrated = HRANormalizePreparedInstallEnvelopeTransition(
+      freshItem,
+      freshValue,
+      expectedDigest,
+      freshMetadata,
+      freshPersistentRef);
+  CFRelease(freshItem);
+  return migrated;
+}
+
 static HRAKeychainReadState HRAReadInstallEnvelope(
     NSString *_Nullable *_Nonnull outValue) {
   *outValue = nil;
@@ -1583,6 +1895,36 @@ int hra_keychain_custodian_main(void) {
           @"state": @"present",
           @"strictAcl": @YES,
           @"value": value,
+          @"version": @1,
+        }) ? 0 : 1;
+        HRAClearAuthorizedParent();
+        return status;
+      }
+    } else if ([action isEqual:@"validatePreparedAcl"] &&
+               request.count == 3 &&
+               HRAExactSHA256HexString(
+                   request[@"expectedEnvelopeSha256"])) {
+      NSString *expectedDigest = request[@"expectedEnvelopeSha256"];
+      if (HRAValidatePreparedInstallEnvelopeAccess(expectedDigest)) {
+        int status = HRAWriteJSONResponse(@{
+          @"envelopeSha256": expectedDigest,
+          @"ok": @YES,
+          @"validated": @YES,
+          @"version": @1,
+        }) ? 0 : 1;
+        HRAClearAuthorizedParent();
+        return status;
+      }
+    } else if ([action isEqual:@"migratePreparedAcl"] &&
+               request.count == 3 &&
+               HRAExactSHA256HexString(
+                   request[@"expectedEnvelopeSha256"])) {
+      NSString *expectedDigest = request[@"expectedEnvelopeSha256"];
+      if (HRAMigratePreparedInstallEnvelopeAccess(expectedDigest)) {
+        int status = HRAWriteJSONResponse(@{
+          @"envelopeSha256": expectedDigest,
+          @"ok": @YES,
+          @"strictAcl": @YES,
           @"version": @1,
         }) ? 0 : 1;
         HRAClearAuthorizedParent();

@@ -266,7 +266,7 @@ export function createDownloadMarkdown(): string {
     "",
     published
       ? `This archived v${HRA_RELEASE.version} prerelease bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`
-      : `HRA v${HRA_RELEASE.version} is the checked forward-recovery candidate for the archived product. Its direct download remains disabled while publication evidence is completed. New users should start with ${CURRENT_HRA_SITE}.`,
+      : `HRA v${HRA_RELEASE.version} is the checked native compatibility hotfix candidate for the archived product. The verified v0.1.15 release remains in the compatibility ledger, and the candidate's direct download remains disabled while publication evidence is completed. New users should start with ${CURRENT_HRA_SITE}.`,
     "",
     `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · ${published ? "Published prerelease" : "Candidate"} · Self-managed CMS · pinned ad-hoc nested code · not notarized.`,
     "",

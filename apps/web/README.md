@@ -79,6 +79,16 @@ HRA v0 stays available at `https://hra-weld.vercel.app` while current HRA uses
 identifiers, release assets, and runtime protocol identities in place. Do not
 copy any of them into current HRA.
 
+HRA v0.1.16 build 17 is a native compatibility hotfix candidate. Its null
+download contract exposes no artifact URL. Candidate C16 must be Q15
+`443448b79e9016e00d52501f047fce3a408de092`'s single-parent direct child.
+After local production packaging and exact installed-state acceptance, the
+annotated `v0.1.16` tag must point directly to C16 and publication P16 must be
+C16's exact `release-download.json`-only child. Until those immutable remote
+records exist and Q16 promotes generation 2, the checked history,
+`/.well-known/hra.json`, and provider allowlists remain the generation-1
+v0.1.15/Q15 authorities below.
+
 The immutable v0.1.15 build 16 publication has three fixed Git identities:
 
 - Candidate C15 is `0c7764da0dea0a71bbccca817539a02d8e4284d0`.
@@ -87,9 +97,11 @@ The immutable v0.1.15 build 16 publication has three fixed Git identities:
   points directly to C15.
 
 The seven-asset GitHub prerelease and P15's release evidence are immutable in
-`hraness/hra-v0`. `release-download.json` records the published DMG, checksum,
-manifest, and four corresponding-source archives. The web app exposes only
-those exact assets. Keep `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at
+`hraness/hra-v0`. Generation 1 of `release-history.json` records the published
+v0.1.15 DMG, checksum, manifest, and four corresponding-source archives, and
+`/releases` exposes that frozen entry. The current `release-download.json` is
+the v0.1.16 candidate contract with null evidence, so `/download` exposes no
+v0.1.16 artifact. Keep `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at
 P15 and `HRA_V0_SURFACE_COMMIT_ALLOWLIST` fixed at the reviewed Q15 commit in
 Vercel Production and Preview. The provider gate strips both records before
 the Next.js child build after using them to prove publication and archive
@@ -106,7 +118,7 @@ The public `/releases` page is generated from the checked root
 tags, eight immutable releases, 56 assets, and v0.1.11 tag-only state against
 GitHub after the repository rename. It is credential-free outside GitHub
 Actions; Required CI uses only its automatic read-only installation token for
-the three fixed HRA v0 API reads. The public
+the four fixed HRA v0 API reads. The public
 `/.well-known/hra.json` marker binds archive generation 1 to the checked
 numeric GitHub repository ID and final v0.1.15 publication identity for domain
 cutover and rollback checks.

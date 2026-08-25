@@ -23,14 +23,18 @@ import {
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P15_PUBLICATION_COMMIT,
   HRA_V0_Q14_SURFACE_COMMIT,
+  HRA_V0_Q15_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
   inspectReleaseCandidateLineage,
+  inspectReleaseHotfixCandidateLineage,
   inspectReleasePublicationIntegrationBridge,
   inspectReleasePublicationIntegrationSurface,
+  inspectReleasePublicationSurface,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
   resolveReleaseCandidateCommit,
+  resolveReleaseHotfixCandidateCommit,
 } from "../release-provenance";
 import type { ReleaseRepositoryEvidence } from "../release-provenance";
 
@@ -317,6 +321,147 @@ describe("hermetic release provenance", () => {
     expect(await resolveReleaseCandidateCommit(descendantRepository, {
       expectedSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
     })).toBe(candidateCommit);
+  });
+
+  test("resolves and binds the unique linear C16 child of Q15", async () => {
+    const repositoryRoot = await createRepository();
+    const q15Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(join(repositoryRoot, "hotfix.txt"), "macOS ACL hotfix\n");
+    await runSetupGit(repositoryRoot, ["add", "hotfix.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C16"]);
+    const candidateCommit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+
+    let repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    expect(await resolveReleaseHotfixCandidateCommit(repository, {
+      expectedQ15Commit: q15Commit,
+    })).toBe(candidateCommit);
+    expect(await inspectReleaseHotfixCandidateLineage(repository, {
+      candidateCommit,
+      expectedQ15Commit: q15Commit,
+    })).toEqual({
+      candidateCommit,
+      q15Commit,
+      status: "exact_q15_c16_candidate_chain",
+    });
+
+    await writeFile(join(repositoryRoot, "publication.txt"), "descendant\n");
+    await runSetupGit(repositoryRoot, ["add", "publication.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "later descendant"]);
+    repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+    expect(await resolveReleaseHotfixCandidateCommit(repository, {
+      expectedQ15Commit: q15Commit,
+    })).toBe(candidateCommit);
+  });
+
+  test("binds Q16 as P16's sole direct child with the exact published contract", async () => {
+    const topology = await createLinearPublicationTopology();
+    expect(await inspectReleasePublicationSurface(topology.repository, {
+      candidateCommit: topology.candidateCommit,
+      publicationCommit: topology.publicationCommit,
+    })).toMatchObject({
+      publication: {
+        candidateCommit: topology.candidateCommit,
+        publicationCommit: topology.publicationCommit,
+        status: "exact_candidate_publication_transition",
+      },
+      status: "verified_linear_publication_surface",
+      surfaceCommit: topology.surfaceCommit,
+    });
+  });
+
+  test("rejects a non-direct Q16 and any Q16 release-contract rewrite", async () => {
+    const nonDirect = await createLinearPublicationTopology({
+      surfaceIntermediate: true,
+    });
+    await expectRejection(
+      inspectReleasePublicationSurface(nonDirect.repository, {
+        candidateCommit: nonDirect.candidateCommit,
+        publicationCommit: nonDirect.publicationCommit,
+      }),
+      "must have P16 as its only direct parent",
+    );
+
+    const rewritten = await createLinearPublicationTopology({
+      rewriteSurfaceContract: true,
+    });
+    await expectRejection(
+      inspectReleasePublicationSurface(rewritten.repository, {
+        candidateCommit: rewritten.candidateCommit,
+        publicationCommit: rewritten.publicationCommit,
+      }),
+      "must preserve the P16 release contract exactly",
+    );
+  });
+
+  test("rejects wrong-parent, merge-child, and multiple-child C16 topologies", async () => {
+    const wrongParentRoot = await createRepository();
+    const q15Commit = (await runSetupGit(
+      wrongParentRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await commitFixture(wrongParentRoot, "intermediate.txt", "intermediate");
+    const wrongParentCandidate = await commitFixture(
+      wrongParentRoot,
+      "candidate.txt",
+      "candidate C16",
+    );
+    const wrongParentRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: wrongParentRoot,
+    });
+    await expectRejection(
+      inspectReleaseHotfixCandidateLineage(wrongParentRepository, {
+        candidateCommit: wrongParentCandidate,
+        expectedQ15Commit: q15Commit,
+      }),
+      "must have exact Q15 as its only direct parent",
+    );
+
+    const forkedRoot = await createRepository();
+    const forkQ15 = (await runSetupGit(
+      forkedRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await runSetupGit(forkedRoot, ["switch", "-c", "other-c16"]);
+    await commitFixture(forkedRoot, "other.txt", "other C16 child");
+    await runSetupGit(forkedRoot, ["switch", "main"]);
+    await commitFixture(forkedRoot, "candidate.txt", "candidate C16 child");
+    await runSetupGit(forkedRoot, [
+      "merge",
+      "--no-ff",
+      "other-c16",
+      "-m",
+      "merge two C16 children",
+    ]);
+    const forkedRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: forkedRoot,
+    });
+    await expectRejection(
+      resolveReleaseHotfixCandidateCommit(forkedRepository, {
+        expectedQ15Commit: forkQ15,
+      }),
+      "must have exact Q15 as its only direct parent",
+    );
+    await expectRejection(
+      inspectReleaseHotfixCandidateLineage(forkedRepository, {
+        candidateCommit: forkedRepository.commit,
+        expectedQ15Commit: forkQ15,
+      }),
+      "must have exact Q15 as its only direct parent",
+    );
   });
 
   test("rejects resolving final C15 when signed release probes have two children on the path to HEAD", async () => {
@@ -1459,7 +1604,7 @@ describe("hermetic release provenance", () => {
     );
   });
 
-  test("pins the fixed C15/P15/U/M publication integration objects", () => {
+  test("pins the fixed C15/P15/U/M/Q15 publication integration objects", () => {
     expect(HRA_V0_C15_CANDIDATE_COMMIT).toBe(
       "0c7764da0dea0a71bbccca817539a02d8e4284d0",
     );
@@ -1471,6 +1616,9 @@ describe("hermetic release provenance", () => {
     );
     expect(HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT).toBe(
       "af3296e59e2173e1e7737dee7a3194592de1105e",
+    );
+    expect(HRA_V0_Q15_SURFACE_COMMIT).toBe(
+      "443448b79e9016e00d52501f047fce3a408de092",
     );
   });
 
@@ -1776,6 +1924,72 @@ describe("hermetic release provenance", () => {
     );
   });
 });
+
+type LinearPublicationTopology = Readonly<{
+  candidateCommit: string;
+  publicationCommit: string;
+  repository: ReleaseRepositoryEvidence;
+  surfaceCommit: string;
+}>;
+
+async function createLinearPublicationTopology(
+  options: Readonly<{
+    rewriteSurfaceContract?: boolean;
+    surfaceIntermediate?: boolean;
+  }> = {},
+): Promise<LinearPublicationTopology> {
+  const candidateContract = '{\n  "status": "candidate"\n}\n';
+  const publicationContract = '{\n  "status": "published"\n}\n';
+  const repositoryRoot = await createRepository();
+  await writeFile(
+    join(repositoryRoot, "release-download.json"),
+    candidateContract,
+  );
+  await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C16"]);
+  const candidateCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+  await writeFile(
+    join(repositoryRoot, "release-download.json"),
+    publicationContract,
+  );
+  await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  await runSetupGit(repositoryRoot, ["commit", "-m", "publication P16"]);
+  const publicationCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+  if (options.surfaceIntermediate === true) {
+    await commitFixture(
+      repositoryRoot,
+      "surface-intermediate.txt",
+      "surface intermediate",
+    );
+  }
+  await writeFile(join(repositoryRoot, "surface.txt"), "surface Q16\n");
+  await runSetupGit(repositoryRoot, ["add", "surface.txt"]);
+  if (options.rewriteSurfaceContract === true) {
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      candidateContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  }
+  await runSetupGit(repositoryRoot, ["commit", "-m", "surface Q16"]);
+  const surfaceCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+  const repository = await inspectReleaseSourceRepository({
+    environment: {},
+    repositoryRoot,
+  });
+  return Object.freeze({
+    candidateCommit,
+    publicationCommit,
+    repository,
+    surfaceCommit,
+  });
+}
 
 type PublicationIntegrationTopology = Readonly<{
   candidateCommit: string;
