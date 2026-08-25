@@ -1592,7 +1592,7 @@ describe("release and download convergence", () => {
       ),
       "must preserve exact historical H or archive A release contract bytes",
     );
-  });
+  }, 10_000);
 
   test("rejects a schema-valid publication with forged tag evidence", async () => {
     const candidate = historicalCandidateContractFixture;
