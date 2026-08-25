@@ -1980,6 +1980,8 @@
     "apps/web/app/theme-menu-contract.test.tsx",
     "apps/web/app/workos-configuration.test.ts",
     "apps/web/app/workos-configuration.ts",
+    "apps/web/convex-local.test.ts",
+    "apps/web/convex-local.ts",
     "apps/web/convex.json",
     "apps/web/convex/AGENTS.md",
     "apps/web/convex/_generated/api.d.ts",

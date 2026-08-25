@@ -59,8 +59,11 @@ import {
 } from "@hraness/agent-tasks-protocol";
 import { fileURLToPath } from "node:url";
 
-const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const CONVEX_BINARY = fileURLToPath(new URL("../node_modules/.bin/convex", import.meta.url));
+import {
+  prepareLocalConvexLaunch,
+  type LocalConvexCommand,
+} from "../convex-local";
+
 const ENV_FILE = fileURLToPath(new URL("../.env.local", import.meta.url));
 const LOCAL_FIXTURE_ISSUER = "https://taskctl.local.invalid";
 const LOCAL_FIXTURE_SUBJECT = "taskctl-local-black-box";
@@ -641,9 +644,18 @@ async function spawnConvex(
   args: readonly string[],
   options: { readonly captureJson?: boolean } = {},
 ): Promise<unknown> {
-  const child = Bun.spawn([CONVEX_BINARY, ...args], {
-    cwd: WEB_ROOT,
-    env: { ...process.env, CI: "1", NO_COLOR: "1" },
+  const [rawCommand, ...arguments_] = args;
+  if (rawCommand !== "env" && rawCommand !== "run") {
+    throw new Error("Local acceptance requested an unsupported Convex command.");
+  }
+  const plan = await prepareLocalConvexLaunch({
+    arguments: arguments_,
+    command: rawCommand satisfies LocalConvexCommand,
+    environment: { ...process.env, CI: "1", NO_COLOR: "1" },
+  });
+  const child = Bun.spawn([...plan.command], {
+    cwd: plan.cwd,
+    env: plan.environment,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
