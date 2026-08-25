@@ -124,7 +124,7 @@ export function createHraLlmsTxt(): string {
     "",
     `> ${hraSearchSite.description}`,
     "",
-    `This is the maintained archive for HRA v0. New users should start with [current HRA](${CURRENT_HRA_SITE}) and its [current source](${CURRENT_HRA_REPOSITORY}). Use this site for HRA v0 macOS release status, the frozen v0.1.7–v0.1.14 compatibility ledger, historical source, and v0 documentation.`,
+    `This is the maintained archive for HRA v0. New users should start with [current HRA](${CURRENT_HRA_SITE}) and its [current source](${CURRENT_HRA_REPOSITORY}). Use this site for HRA v0 macOS release status, the frozen v0.1.7–v0.1.15 compatibility ledger, historical source, and v0 documentation.`,
     "",
     "Choose something simpler when you want the first-party Codex experience for a few independent sessions, your team needs one desktop for many model providers, the main problem is remote access from a phone, or a worktree launcher and diff viewer already solve the job.",
     "",
@@ -153,7 +153,7 @@ export const HRA_LLMS_TXT = createHraLlmsTxt();
 export function createLandingMarkdown(): string {
   const releaseSummary = HRA_RELEASE.availability === "published"
     ? `The current archived download is the published v${HRA_RELEASE.version} prerelease.`
-    : `HRA v${HRA_RELEASE.version} is still a candidate. The verified v0.1.14 prerelease remains the final entry in the compatibility ledger until a separately reviewed history update.`;
+    : `HRA v${HRA_RELEASE.version} is still a candidate in this source and has no direct download.`;
   return [
     "# HRA v0 is preserved here.",
     "",
@@ -215,7 +215,7 @@ export function createLandingMarkdown(): string {
     "",
     HRA_RELEASE.availability === "published"
       ? `The archived v${HRA_RELEASE.version} Apple Silicon macOS prerelease. The outer app, native host, and custody-authorizing helpers use a self-managed HRA certificate. Other HRA-owned nested executables retain pinned ad-hoc signatures, including the runtime/JIT gateway. The package is not Developer ID signed or notarized, so macOS will identify it as coming from an unknown developer. The download page explains that limitation before installation.`
-      : `The verified v0.1.14 prerelease remains in the compatibility ledger. HRA v${HRA_RELEASE.version} is still a candidate, so its direct download is disabled until its exact release evidence is published.`,
+      : `HRA v${HRA_RELEASE.version} is still a candidate in this source, so its direct download is disabled until its exact release evidence is published.`,
     "",
     "## Public pages",
     "",
@@ -266,7 +266,7 @@ export function createDownloadMarkdown(): string {
     "",
     published
       ? `This archived v${HRA_RELEASE.version} prerelease bundles HRA v0, Codex, and Git for Apple Silicon Macs running macOS ${HRA_RELEASE.minimumMacOS} or newer. New users should start with ${CURRENT_HRA_SITE}.`
-      : `HRA v${HRA_RELEASE.version} is the checked forward-recovery candidate for the archived product. The verified v0.1.14 release remains in the history ledger while publication evidence is completed. New users should start with ${CURRENT_HRA_SITE}.`,
+      : `HRA v${HRA_RELEASE.version} is the checked forward-recovery candidate for the archived product. Its direct download remains disabled while publication evidence is completed. New users should start with ${CURRENT_HRA_SITE}.`,
     "",
     `Version ${HRA_RELEASE.version} (${HRA_RELEASE.build}) · Apple Silicon · macOS ${HRA_RELEASE.minimumMacOS}+ · ${published ? "Published prerelease" : "Candidate"} · Self-managed CMS · pinned ad-hoc nested code · not notarized.`,
     "",
@@ -325,7 +325,7 @@ export function createReleaseHistoryMarkdown(): string {
   return [
     "# HRA v0 release history",
     "",
-    "This checked compatibility ledger records every HRA v0 tag from v0.1.7 through v0.1.14, every GitHub release that exists, and all attached assets. v0.1.14 is the final archived prerelease.",
+    "This generation-1 compatibility ledger records every HRA v0 tag from v0.1.7 through v0.1.15, every GitHub release that exists, and all 56 attached assets. v0.1.15 is the final archived prerelease.",
     "",
     ...entries,
     "## Public pages",
@@ -383,7 +383,7 @@ export function createPrivacyMarkdown(): string {
     "",
     `Read the archived [security policy](${HRA_SECURITY_POLICY_URL}) and [security architecture](https://github.com/hraness/hra-v0/blob/main/SECURITY_ARCHITECTURE.md). Report a vulnerability through [GitHub private vulnerability reporting](${HRA_SECURITY_CONTACT_URL}). The standard contact file is available at ${absoluteUrl(HRA_SECURITY_TXT_PATH)}.`,
     "",
-    `HRA v0 is archived. Its checked compatibility ledger remains anchored at v0.1.14 until a separately reviewed history update. Privacy information for the current HRA belongs at ${CURRENT_HRA_SITE}.`,
+    `HRA v0 is archived. Its generation-1 compatibility ledger ends at the immutable v0.1.15 prerelease. Privacy information for the current HRA belongs at ${CURRENT_HRA_SITE}.`,
     "",
     "## Public pages",
     "",

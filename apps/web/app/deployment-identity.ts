@@ -4,23 +4,25 @@ const finalHistoryEntry = HRA_RELEASE_HISTORY.tags.at(-1);
 if (
   finalHistoryEntry === undefined
   || finalHistoryEntry.release === null
-  || finalHistoryEntry.tag !== "v0.1.14"
-  || finalHistoryEntry.version !== "0.1.14"
-  || finalHistoryEntry.build !== 15
-  || finalHistoryEntry.commit !== "7b39c459827b2acf45aa2d911c94fdb5d4f37860"
-  || finalHistoryEntry.tagObject !== "37ed37afb39cacfd6a51044cf7f3c1b873571aa3"
-  || finalHistoryEntry.release.id !== 374_980_441
+  || HRA_RELEASE_HISTORY.generation !== 1
+  || HRA_RELEASE_HISTORY.publicationCommit !== "d96173c3556799cb203a4d659f29856180838029"
+  || finalHistoryEntry.tag !== "v0.1.15"
+  || finalHistoryEntry.version !== "0.1.15"
+  || finalHistoryEntry.build !== 16
+  || finalHistoryEntry.commit !== "0c7764da0dea0a71bbccca817539a02d8e4284d0"
+  || finalHistoryEntry.tagObject !== "e5bcf5c919e8a7ffcdccc337b8940b60a70f0489"
+  || finalHistoryEntry.release.id !== 376_100_700
 ) {
-  throw new Error("The generation-0 deployment identity differs from frozen v0.1.14 history.");
+  throw new Error("The generation-1 deployment identity differs from frozen v0.1.15 history.");
 }
 const finalDmg = finalHistoryEntry.release.assets.find(({ name }) =>
-  name === "HRA-0.1.14-15-macos-arm64.dmg"
+  name === "HRA-0.1.15-16-macos-arm64.dmg"
 );
 if (
   finalDmg === undefined
-  || finalDmg.sha256 !== "7ff49500de3d1fc768c17454ef7642c51f6662dfa5bf0e2ba183a85bb67fcd03"
+  || finalDmg.sha256 !== "120b600d7cc11df260836198601cba91db33efc7b600dd2b601bde686c9ea028"
 ) {
-  throw new Error("The generation-0 deployment identity differs from frozen v0.1.14 DMG evidence.");
+  throw new Error("The generation-1 deployment identity differs from frozen v0.1.15 DMG evidence.");
 }
 
 export const HRA_DEPLOYMENT_IDENTITY_PATH = "/.well-known/hra.json" as const;

@@ -1,8 +1,8 @@
 # HRA v0 for macOS
 
 This directory preserves the archived HRA v0 macOS application. Its
-generation-0 release ledger ends at v0.1.14, and the checked contract stages
-the final v0.1.15 compatibility and recovery correction. The current HRA is at
+generation-1 release ledger ends at the final v0.1.15 compatibility and
+recovery correction. The current HRA is at
 [hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
@@ -174,7 +174,7 @@ The retired annotated `v0.1.11` tag object `e4c171e33e414d74a36791fc8577cbfbcef8
 
 HRA v0.1.12 build 13 and v0.1.13 build 14 remain published prior installed-app authority. The v0.1.12 tag object `626be494d24733d12e53d09932cb5cc6218bc2fe` points to candidate `9ab991d08d1507fd73c9e7ef5fb4a37baee9c014`; publication commit `bfb60415c3eea7bc1021db8e8cc92f3e95800a46` records its release. The v0.1.13 tag object `44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3` points to candidate `9ba06a441c9b12b448cfe34784432592dbeccb19`; publication commit `7825cb231890aa971f965412c31dfa2cb7796561` records its release. Their source handoff operators remain retired.
 
-HRA v0.1.14 build 15 is the current published predecessor while the v0.1.15 contract is a candidate, and remains the frozen forward-recovery origin after v0.1.15 publication. Its direct annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3` points to candidate commit `7b39c459827b2acf45aa2d911c94fdb5d4f37860`, and publication commit `6221f79b745f154882080936b961ff431569f33e` records the immutable release evidence. Preserve those exact objects, assets, and the original handoff backup. A v0.1.14 installation that completed its handoff but cannot start must use the bounded v0.1.14-to-v0.1.15 forward recovery below. Do not launch OPRTE or use an older handoff operator.
+HRA v0.1.14 build 15 remains the frozen forward-recovery origin for the published v0.1.15 correction. Its direct annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3` points to candidate commit `7b39c459827b2acf45aa2d911c94fdb5d4f37860`, and publication commit `6221f79b745f154882080936b961ff431569f33e` records the immutable release evidence. Preserve those exact objects, assets, and the original handoff backup. A v0.1.14 installation that completed its handoff but cannot start must use the bounded v0.1.14-to-v0.1.15 forward recovery below. Do not launch OPRTE or use an older handoff operator.
 
 The ordinary handoff backup directory must not exist. The schema-v3 operation creates it with user-only permissions and writes separate immutable authorization evidence and a forward-only progress journal. Status is observational and reports an exact durable next-history leaf without promoting it:
 
@@ -285,28 +285,30 @@ zig-out/release/macos/arm64/
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
 The root `release-download.json` is the strict HRA v0.1.15 build 16 download
-and publication contract for `https://github.com/hraness/hra-v0`. While its
-availability is `candidate`, every source object, runtime-tree digest, artifact
-byte count, and SHA-256 field is `null`, and the website exposes no candidate
-download. After publication commit P15 changes it to `published`, the website
-exposes only the exact verified v0.1.15 assets. HRA v0.1.14 remains the frozen
-forward-recovery origin.
+and publication contract for `https://github.com/hraness/hra-v0`. Publication
+commit P15 records its `published` evidence, and the website exposes only the
+exact verified v0.1.15 assets. HRA v0.1.14 remains the frozen forward-recovery
+origin.
 
-The separate root `release-history.json` remains the generation-0 compatibility
-ledger through C15 and P15. It fixes the v0.1.7–v0.1.14 annotated tags, seven
-immutable GitHub releases, 49 assets, and v0.1.11 tag-only state. Candidate
-verification requires that exact remote set and proves that v0.1.15 has no tag
-or release collision. Published verification requires the exact one-release
-extension: nine tags, eight releases, and 56 assets, with the v0.1.15 tag,
-release, and assets bound to the published contract.
+The separate root `release-history.json` is the generation-1 compatibility
+ledger. It fixes the v0.1.7–v0.1.15 annotated tags, eight immutable GitHub
+releases, 56 assets, and v0.1.11 tag-only state. Remote verification requires
+that exact set and binds the v0.1.15 tag, release, and assets to the published
+download contract.
 
-Publication uses two commits so no commit must contain its own object ID. Clean
-candidate C15 is the sole direct child of the reviewed signed-release-probe
-repair and retains the null contract; the package, annotated `v0.1.15` tag,
-manifest, app, DMG, and checksum all name C15. P15 must be C15's sole child and
-may change only `release-download.json` to the complete evidence. The verifier
-rejects another changed path or parent, candidate drift, a tag that does not
-peel to C15, or artifacts that do not embed C15 and its runtime-tree digest.
+Publication uses two commits so no commit must contain its own object ID.
+Candidate C15 `0c7764da0dea0a71bbccca817539a02d8e4284d0`
+retains the null contract; the package, annotated `v0.1.15` tag, manifest, app,
+DMG, and checksum all name C15. Publication P15
+`d96173c3556799cb203a4d659f29856180838029` is C15's exact contract-only child.
+An already accepted repository change U
+`559c272f1bd7a2f1195f1af3c493b4f73a8fb3d2` also descends directly from C15.
+Integration bridge M15 `af3296e59e2173e1e7737dee7a3194592de1105e`
+has ordered parents `[P15, U]`, preserves P15's download contract byte for
+byte, and is followed by the single Q15 archive-surface commit. The verifier
+rejects parent-order drift, candidate drift, a tag that
+does not peel to C15, or artifacts that do not embed C15 and its runtime-tree
+digest.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -371,11 +373,11 @@ per-tag GitHub records, the exact annotated tag, all seven asset IDs, names,
 sizes, and digests, the checksum and manifest, and the four corresponding-source
 records without redownloading the multi-gigabyte DMG.
 
-A later reviewed archive-surface commit Q15 promotes the immutable v0.1.15
-release metadata into generation 1 of `release-history.json`, proves every
-P15-to-Q15 node preserved the exact P15 download contract, and becomes the
-Vercel surface allowlist. Installation recovery runs only from that clean
-promoted source proof.
+The reviewed archive-surface commit Q15 promotes the immutable v0.1.15 release
+metadata into generation 1 of `release-history.json`, proves the ordered
+P15/U/M15 bridge preserved the exact P15 download contract, and becomes the
+Vercel surface allowlist. Installation recovery runs from a clean detached P15
+operator checkout, while Q15 remains the deployed archive surface.
 
 The production package uses the locally self-managed HRA release-signing
 authority v2 for the outer app, native host, and custody-authorizing helpers.

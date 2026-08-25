@@ -28,19 +28,45 @@ const tagSchema = z.object({
   commit: objectIdSchema,
   objectKind: z.literal("annotated"),
   release: releaseSchema.nullable(),
-  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14)$/u),
+  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
   tagObject: objectIdSchema,
-  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14)$/u),
+  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
 }).strict();
-const releaseHistorySchema = z.object({
-  generation: z.literal(0),
-  publicationCommit: z.literal("6221f79b745f154882080936b961ff431569f33e"),
+const generationZeroVersions = [
+  "0.1.7",
+  "0.1.8",
+  "0.1.9",
+  "0.1.10",
+  "0.1.11",
+  "0.1.12",
+  "0.1.13",
+  "0.1.14",
+] as const;
+const generationOneVersions = [...generationZeroVersions, "0.1.15"] as const;
+const releaseHistoryBaseSchema = {
   repository: z.literal(repository),
   repositoryId: z.literal(1_334_876_494),
   schemaVersion: z.literal(1),
+};
+const generationZeroReleaseHistorySchema = z.object({
+  generation: z.literal(0),
+  publicationCommit: z.literal("6221f79b745f154882080936b961ff431569f33e"),
+  ...releaseHistoryBaseSchema,
   tags: z.array(tagSchema).length(8),
-}).strict().superRefine((history, context) => {
-  const expected = ["0.1.7", "0.1.8", "0.1.9", "0.1.10", "0.1.11", "0.1.12", "0.1.13", "0.1.14"] as const;
+}).strict();
+const generationOneReleaseHistorySchema = z.object({
+  generation: z.literal(1),
+  publicationCommit: z.literal("d96173c3556799cb203a4d659f29856180838029"),
+  ...releaseHistoryBaseSchema,
+  tags: z.array(tagSchema).length(9),
+}).strict();
+const releaseHistorySchema = z.discriminatedUnion("generation", [
+  generationZeroReleaseHistorySchema,
+  generationOneReleaseHistorySchema,
+]).superRefine((history, context) => {
+  const expected = history.generation === 0
+    ? generationZeroVersions
+    : generationOneVersions;
   for (const [index, version] of expected.entries()) {
     const entry = history.tags[index];
     if (
@@ -52,7 +78,7 @@ const releaseHistorySchema = z.object({
     ) {
       context.addIssue({
         code: "custom",
-        message: "Release history must contain the exact ordered v0.1.7–v0.1.14 sequence.",
+        message: `Release history must contain the exact ordered v0.1.7–v0.1.${history.generation === 0 ? "14" : "15"} sequence.`,
       });
       break;
     }
@@ -174,6 +200,11 @@ export async function verifyRemoteReleaseHistoryState(
   const currentEntry = currentEntryValue === undefined
     ? undefined
     : currentRemoteReleaseHistoryEntrySchema.parse(currentEntryValue);
+  if (contract.generation === 1 && currentEntry !== undefined) {
+    throw new Error(
+      "Generation 1 release history already contains v0.1.15; a current-release overlay is forbidden.",
+    );
+  }
   if (currentEntry !== undefined && contract.tags.some(
     ({ tag, tagObject }) =>
       tag === currentEntry.tag || tagObject === currentEntry.tagObject,
@@ -189,16 +220,17 @@ export async function verifyRemoteReleaseHistoryState(
   }
   const remoteReleases = requireArray(releaseResponse.value, "GitHub release history", 100);
   const expectedPublished = contract.tags.filter((entry) => entry.release !== null);
+  const overlaysCurrentRelease = contract.generation === 0 && currentEntry !== undefined;
   if (
     remoteReleases.length
-      !== expectedPublished.length + (currentEntry === undefined ? 0 : 1)
+      !== expectedPublished.length + (overlaysCurrentRelease ? 1 : 0)
   ) {
     throw new Error("GitHub has a different exact HRA v0 release set.");
   }
   const releasesByTag = uniqueRecordsByString(remoteReleases, "tag_name", "GitHub release");
   const expectedReleaseTags = [
     ...expectedPublished.map(({ tag }) => tag),
-    ...(currentEntry === undefined ? [] : [currentEntry.tag]),
+    ...(overlaysCurrentRelease && currentEntry !== undefined ? [currentEntry.tag] : []),
   ];
   if (!isDeepStrictEqual(
     [...releasesByTag.keys()].toSorted(),
@@ -211,7 +243,7 @@ export async function verifyRemoteReleaseHistoryState(
     if (expectedRelease === null) throw new Error("Published release evidence is missing.");
     verifyReleaseMetadata(entry, expectedRelease, releasesByTag.get(entry.tag));
   }
-  if (currentEntry !== undefined) {
+  if (overlaysCurrentRelease && currentEntry !== undefined) {
     verifyCurrentReleaseMetadata(
       currentEntry,
       releasesByTag.get(currentEntry.tag),
@@ -222,7 +254,9 @@ export async function verifyRemoteReleaseHistoryState(
   const refsByName = uniqueRecordsByString(remoteRefs, "ref", "GitHub tag ref");
   const expectedRefs = [
     ...contract.tags.map(({ tag }) => `refs/tags/${tag}`),
-    ...(currentEntry === undefined ? [] : [`refs/tags/${currentEntry.tag}`]),
+    ...(overlaysCurrentRelease && currentEntry !== undefined
+      ? [`refs/tags/${currentEntry.tag}`]
+      : []),
   ].toSorted();
   if (!isDeepStrictEqual([...refsByName.keys()].toSorted(), expectedRefs)) {
     throw new Error("GitHub has a different exact HRA v0 tag-ref set.");
@@ -233,13 +267,13 @@ export async function verifyRemoteReleaseHistoryState(
       tag: entry.tag,
       tagObject: entry.tagObject,
     })),
-    ...(currentEntry === undefined
-      ? []
-      : [{
+    ...(overlaysCurrentRelease && currentEntry !== undefined
+      ? [{
           commit: currentEntry.commit,
           tag: currentEntry.tag,
           tagObject: currentEntry.tagObject,
-        }]),
+        }]
+      : []),
   ];
   verifyGitHubTagRefs(expectedTags, refsByName);
   if (tagVerifier === undefined) {
@@ -248,7 +282,7 @@ export async function verifyRemoteReleaseHistoryState(
     await tagVerifier(expectedTags);
   }
 
-  return currentEntry === undefined
+  return contract.generation === 0 && !overlaysCurrentRelease
     ? Object.freeze({
         assetCount: 49,
         releaseCount: 7,

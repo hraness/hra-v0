@@ -17,7 +17,7 @@
 - `control-plane-maintenance.ts` – app-stopped health checks plus encrypted backup, inspection, verification, and restore.
 - `installation-handoff-v3.ts`, `installation-handoff-v3-driver.ts`, and `installation-handoff-cli.ts` – the ordinary schema-v3 OPRTE-to-HRA transaction, read-only status, explicit resume and cleanup, exact preboundary rollback, and sole ordinary command facade.
 - `installation-handoff.ts`, `frozen-v0114-installation-handoff-receipt.ts`, `installation-forward-recovery.ts`, `installation-path-authority.ts`, and `installation-process-authority.ts` – shared handoff foundations, the isolated frozen schema-v2 recovery reader, bounded v0.1.14 forward recovery, exact filesystem authority, and ordered native-root shutdown.
-- `release-download-contract.ts`, `release-history-contract.ts`, `release-provenance.ts`, and the root release manifests – strict v0.1.15 candidate/publication evidence, the exact generation-0 v0.1.7–v0.1.14 compatibility ledger, reviewed archive-coordinate compatibility, and hermetic canonical Git provenance for downloadable releases.
+- `release-download-contract.ts`, `release-history-contract.ts`, `release-provenance.ts`, and the root release manifests – strict v0.1.15 candidate/publication evidence, the exact generation-1 v0.1.7–v0.1.15 compatibility ledger, the ordered P15/U integration bridge, reviewed archive-coordinate compatibility, and hermetic canonical Git provenance for downloadable releases.
 - `reactive-baseline.ts` – the owned gateway, projection, SQLite, Direct bridge, React, containment, and cleanup baseline.
 - `THIRD_PARTY_NOTICES.md` and adjacent license texts – exact notices and provenance for pinned Bun, Codex, ripgrep, Git, Git LFS, Git Credential Manager, JavaScript, and asset runtimes.
 
@@ -32,6 +32,7 @@
 - Reserve one staged candidate before hot apply and freeze the stable gateway path through generation recovery. Only the current gateway may seal admission and report itself idle; acknowledge the candidate after the exact replacement generation is ready.
 - Keep repository checks platform-neutral. Execute pinned Apple Silicon binaries only through explicit macOS commands.
 - Keep remote release verification credential-free outside GitHub Actions. Required CI may accept only its automatic `ghs_` installation token, pass it through the dedicated release-read variable, and attach it only to fixed `api.github.com/repos/hraness/hra-v0/` requests. Never accept a personal token, repository secret, ambient authorization header, or redirected credential target.
+- Preserve the v0.1.15 provenance topology exactly. P15 is C15's contract-only child, U is C15's independent accepted child, M15 has ordered parents `[P15, U]` and preserves the published contract bytes, and Q15 is M15's direct archive-surface child. Never infer this bridge from ambient shallow Git state.
 - Keep one serialized JSONL writer per account child and correlate every request by account profile, durable process generation, and JSON-RPC ID.
 - Pass each child only its validated account `CODEX_HOME` and allowlisted environment.
 - Page immutable snapshots that exceed Native's response limit. Replace oversized recoverable events with `snapshot.invalidated`; never discard terminal or human-in-the-loop events to make them fit.

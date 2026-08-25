@@ -13,19 +13,26 @@ import { dirname, join } from "node:path";
 import {
   HRA_V0_C15_BASE_COMMIT,
   HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
+  HRA_V0_C15_CANDIDATE_COMMIT,
   HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
   HRA_V0_C15_HOST_TRUST_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
   HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
+  HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
+  HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
+  HRA_V0_P15_PUBLICATION_COMMIT,
   HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
   inspectReleaseCandidateLineage,
+  inspectReleasePublicationIntegrationBridge,
+  inspectReleasePublicationIntegrationSurface,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
   resolveReleaseCandidateCommit,
 } from "../release-provenance";
+import type { ReleaseRepositoryEvidence } from "../release-provenance";
 
 const temporaryRoots: string[] = [];
 const setupEnvironment = Object.freeze({
@@ -1452,6 +1459,134 @@ describe("hermetic release provenance", () => {
     );
   });
 
+  test("pins the fixed C15/P15/U/M publication integration objects", () => {
+    expect(HRA_V0_C15_CANDIDATE_COMMIT).toBe(
+      "0c7764da0dea0a71bbccca817539a02d8e4284d0",
+    );
+    expect(HRA_V0_P15_PUBLICATION_COMMIT).toBe(
+      "d96173c3556799cb203a4d659f29856180838029",
+    );
+    expect(HRA_V0_P15_CONCURRENT_MAIN_COMMIT).toBe(
+      "559c272f1bd7a2f1195f1af3c493b4f73a8fb3d2",
+    );
+    expect(HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT).toBe(
+      "af3296e59e2173e1e7737dee7a3194592de1105e",
+    );
+  });
+
+  test("accepts the ordered C/P and C/U to M bridge followed by one direct Q surface", async () => {
+    const topology = await createPublicationIntegrationTopology();
+
+    const bridge = await inspectReleasePublicationIntegrationBridge(
+      topology.repository,
+      {
+        candidateCommit: topology.candidateCommit,
+        concurrentMainCommit: topology.concurrentMainCommit,
+        integrationBridgeCommit: topology.integrationBridgeCommit,
+        publicationCommit: topology.publicationCommit,
+      },
+    );
+    expect(bridge).toMatchObject({
+      concurrentMainCommit: topology.concurrentMainCommit,
+      integrationBridgeCommit: topology.integrationBridgeCommit,
+      publication: {
+        candidateCommit: topology.candidateCommit,
+        candidateContract: topology.candidateContract,
+        publicationCommit: topology.publicationCommit,
+        publicationContract: topology.publicationContract,
+        status: "exact_candidate_publication_transition",
+      },
+      status: "exact_candidate_publication_concurrent_main_integration_bridge",
+    });
+
+    const surface = await inspectReleasePublicationIntegrationSurface(
+      topology.repository,
+      {
+        candidateCommit: topology.candidateCommit,
+        concurrentMainCommit: topology.concurrentMainCommit,
+        integrationBridgeCommit: topology.integrationBridgeCommit,
+        publicationCommit: topology.publicationCommit,
+      },
+    );
+    expect(surface).toMatchObject({
+      bridge,
+      status: "verified_publication_integration_bridge_surface",
+      surfaceCommit: topology.surfaceCommit,
+    });
+  });
+
+  test("rejects U unless it is a sole child of C with C's exact release contract", async () => {
+    const wrongParent = await createPublicationIntegrationTopology({
+      concurrentIntermediate: true,
+    });
+    await expectRejection(
+      inspectReleasePublicationIntegrationBridge(
+        wrongParent.repository,
+        integrationOptions(wrongParent),
+      ),
+      "concurrent main commit must have the tagged candidate as its only direct parent",
+    );
+
+    const rewrittenContract = await createPublicationIntegrationTopology({
+      concurrentContract: "publication",
+    });
+    await expectRejection(
+      inspectReleasePublicationIntegrationBridge(
+        rewrittenContract.repository,
+        integrationOptions(rewrittenContract),
+      ),
+      "concurrent main commit must preserve the candidate release contract exactly",
+    );
+  });
+
+  test("rejects M unless its ordered parents are [P, U] and its contract is P", async () => {
+    const reversedParents = await createPublicationIntegrationTopology({
+      reverseBridgeParents: true,
+    });
+    await expectRejection(
+      inspectReleasePublicationIntegrationBridge(
+        reversedParents.repository,
+        integrationOptions(reversedParents),
+      ),
+      "ordered direct parents [publication, concurrent main]",
+    );
+
+    const rewrittenContract = await createPublicationIntegrationTopology({
+      bridgeContract: "candidate",
+    });
+    await expectRejection(
+      inspectReleasePublicationIntegrationBridge(
+        rewrittenContract.repository,
+        integrationOptions(rewrittenContract),
+      ),
+      "integration bridge must preserve the publication release contract exactly",
+    );
+  });
+
+  test("rejects Q unless it is a sole child of M with P's exact release contract", async () => {
+    const wrongParent = await createPublicationIntegrationTopology({
+      surfaceIntermediate: true,
+    });
+    await expectRejection(
+      inspectReleasePublicationIntegrationSurface(
+        wrongParent.repository,
+        integrationOptions(wrongParent),
+      ),
+      "integration surface must have the integration bridge as its only direct parent",
+    );
+
+    const rewrittenContract = await createPublicationIntegrationTopology({
+      surfaceContract: "candidate",
+    });
+    await expectRejection(
+      inspectReleasePublicationIntegrationSurface(
+        rewrittenContract.repository,
+        integrationOptions(rewrittenContract),
+      ),
+      "integration surface must preserve the publication release contract exactly",
+    );
+  });
+
   test("accepts one single-parent migration followed by a normal H/A to A merge", async () => {
     const repositoryRoot = await createRepository();
     await writeFile(
@@ -1641,6 +1776,162 @@ describe("hermetic release provenance", () => {
     );
   });
 });
+
+type PublicationIntegrationTopology = Readonly<{
+  candidateCommit: string;
+  candidateContract: string;
+  concurrentMainCommit: string;
+  integrationBridgeCommit: string;
+  publicationCommit: string;
+  publicationContract: string;
+  repository: ReleaseRepositoryEvidence;
+  repositoryRoot: string;
+  surfaceCommit: string;
+}>;
+
+async function createPublicationIntegrationTopology(
+  options: Readonly<{
+    bridgeContract?: "candidate";
+    concurrentContract?: "publication";
+    concurrentIntermediate?: boolean;
+    reverseBridgeParents?: boolean;
+    surfaceContract?: "candidate";
+    surfaceIntermediate?: boolean;
+  }> = {},
+): Promise<PublicationIntegrationTopology> {
+  const candidateContract = '{\n  "status": "candidate"\n}\n';
+  const publicationContract = '{\n  "status": "published"\n}\n';
+  const repositoryRoot = await createRepository();
+  await writeFile(
+    join(repositoryRoot, "release-download.json"),
+    candidateContract,
+  );
+  await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C"]);
+  const candidateCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+  await runSetupGit(repositoryRoot, [
+    "tag",
+    "-a",
+    "v9.8.7",
+    "-m",
+    "candidate",
+  ]);
+
+  await runSetupGit(repositoryRoot, ["switch", "-c", "publication"]);
+  await writeFile(
+    join(repositoryRoot, "release-download.json"),
+    publicationContract,
+  );
+  await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+  const publicationCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+
+  await runSetupGit(repositoryRoot, ["switch", "main"]);
+  if (options.concurrentIntermediate === true) {
+    await commitFixture(
+      repositoryRoot,
+      "concurrent-intermediate.txt",
+      "concurrent intermediate",
+    );
+  }
+  await writeFile(join(repositoryRoot, "concurrent.txt"), "concurrent main\n");
+  await runSetupGit(repositoryRoot, ["add", "concurrent.txt"]);
+  if (options.concurrentContract === "publication") {
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      publicationContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  }
+  await runSetupGit(repositoryRoot, ["commit", "-m", "concurrent main U"]);
+  const concurrentMainCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+
+  if (options.reverseBridgeParents !== true) {
+    await runSetupGit(repositoryRoot, ["switch", "publication"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "--no-commit",
+      "main",
+    ]);
+  } else {
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "--no-commit",
+      "publication",
+    ]);
+  }
+  if (options.bridgeContract === "candidate") {
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      candidateContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  }
+  await runSetupGit(repositoryRoot, ["commit", "-m", "integration bridge M"]);
+  const integrationBridgeCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+
+  if (options.surfaceIntermediate === true) {
+    await commitFixture(
+      repositoryRoot,
+      "surface-intermediate.txt",
+      "surface intermediate",
+    );
+  }
+  await writeFile(join(repositoryRoot, "surface.txt"), "archive surface Q\n");
+  await runSetupGit(repositoryRoot, ["add", "surface.txt"]);
+  if (options.surfaceContract === "candidate") {
+    await writeFile(
+      join(repositoryRoot, "release-download.json"),
+      candidateContract,
+    );
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+  }
+  await runSetupGit(repositoryRoot, ["commit", "-m", "archive surface Q"]);
+  const surfaceCommit = (
+    await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+  ).trim();
+  const repository = await inspectReleaseSourceRepository({
+    environment: {},
+    repositoryRoot,
+  });
+  return Object.freeze({
+    candidateCommit,
+    candidateContract,
+    concurrentMainCommit,
+    integrationBridgeCommit,
+    publicationCommit,
+    publicationContract,
+    repository,
+    repositoryRoot,
+    surfaceCommit,
+  });
+}
+
+function integrationOptions(
+  topology: PublicationIntegrationTopology,
+): Readonly<{
+  candidateCommit: string;
+  concurrentMainCommit: string;
+  integrationBridgeCommit: string;
+  publicationCommit: string;
+}> {
+  return Object.freeze({
+    candidateCommit: topology.candidateCommit,
+    concurrentMainCommit: topology.concurrentMainCommit,
+    integrationBridgeCommit: topology.integrationBridgeCommit,
+    publicationCommit: topology.publicationCommit,
+  });
+}
 
 async function createRepository(): Promise<string> {
   const root = await createTemporaryDirectory("hra-release-repository-");

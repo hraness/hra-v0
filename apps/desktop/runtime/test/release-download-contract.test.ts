@@ -33,7 +33,10 @@ import {
   inspectReleaseSourceRepository,
 } from "../release-provenance";
 import { productionReleaseSigning } from "../release-signing-authority";
-import { readReleaseHistoryContract } from "../release-history-contract";
+import {
+  parseReleaseHistoryContract,
+  readReleaseHistoryContract,
+} from "../release-history-contract";
 
 const temporaryRoots: string[] = [];
 const setupEnvironment = Object.freeze({
@@ -315,6 +318,8 @@ describe("release and download convergence", () => {
     expect(await verifyRemoteReleaseState(
       maintainedCandidate,
       history.fetcher,
+      undefined,
+      history.contract,
     )).toMatchObject({
       availability: "candidate",
       history: {
@@ -394,6 +399,8 @@ describe("release and download convergence", () => {
     expect(await verifyRemoteReleaseState(
       fixture.contract,
       fixture.fetcher,
+      undefined,
+      fixture.historyContract,
     )).toMatchObject({
       availability: "published",
       history: {
@@ -895,7 +902,7 @@ describe("release and download convergence", () => {
         [releasePublicationCommitAllowlistEnvironmentVariable]:
           publicationCommit,
       }),
-      "trusted release publication commit",
+      "surface commit allowlist",
     );
     await writeFile(join(repositoryRoot, "source.txt"), "post-P15 Q15\n");
     await runSetupGit(repositoryRoot, ["add", "source.txt"]);
@@ -915,6 +922,94 @@ describe("release and download convergence", () => {
         expectedSurfaceCommit: surfaceCommit,
       }),
       "only direct parent",
+    );
+  });
+
+  test("binds a Q15 provider build to the singleton surface and fixed ordered integration bridge", async () => {
+    const contract = asPublishedFixture(await readReleaseDownloadContract());
+    const publicationCommit =
+      "d96173c3556799cb203a4d659f29856180838029";
+    const concurrentMainCommit =
+      "559c272f1bd7a2f1195f1af3c493b4f73a8fb3d2";
+    const integrationBridgeCommit =
+      "af3296e59e2173e1e7737dee7a3194592de1105e";
+    const surfaceCommit = "a".repeat(40);
+    const publication = Object.freeze({
+      candidateCommit: contract.release.source.commit,
+      candidateContract: `${JSON.stringify(candidateContractFixture, null, 2)}\n`,
+      changedPath: "release-download.json" as const,
+      publicationCommit,
+      publicationContract: `${JSON.stringify(contract, null, 2)}\n`,
+      status: "exact_candidate_publication_transition" as const,
+    });
+    const bridge = Object.freeze({
+      concurrentMainCommit,
+      integrationBridgeCommit,
+      publication,
+      status:
+        "exact_candidate_publication_concurrent_main_integration_bridge" as const,
+    });
+    const surface = Object.freeze({
+      bridge,
+      status: "verified_publication_integration_bridge_surface" as const,
+      surfaceCommit,
+    });
+    let inspected: Readonly<Record<string, string>> | undefined;
+    expect(await verifyVercelReleaseSourceState(contract, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: surfaceCommit,
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "hraness",
+      VERCEL_GIT_REPO_SLUG: "hra-v0",
+      VERCEL_TARGET_ENV: "production",
+      [releasePublicationCommitAllowlistEnvironmentVariable]: publicationCommit,
+      [releaseSurfaceCommitAllowlistEnvironmentVariable]: surfaceCommit,
+    }, undefined, undefined, (options) => {
+      inspected = options;
+      return Promise.resolve({
+        bridge,
+        publication,
+        surface,
+        tag: {
+          commit: contract.release.source.commit,
+          object: contract.release.source.tagObject,
+          objectType: "tag",
+          tag: contract.release.tag,
+        },
+      });
+    })).toMatchObject({
+      availability: "published",
+      integrationBridgeCommit,
+      publicationCommit,
+      status: "verified_vercel_publication_integration_surface_binding",
+      surfaceCommit,
+    });
+    expect(inspected).toEqual({
+      candidateCommit: contract.release.source.commit,
+      concurrentMainCommit,
+      integrationBridgeCommit,
+      publicationCommit,
+      surfaceCommit,
+      tag: contract.release.tag,
+    });
+
+    await expectRejection(
+      verifyVercelReleaseSourceState(contract, {
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: surfaceCommit,
+        VERCEL_GIT_PROVIDER: "github",
+        VERCEL_GIT_REPO_OWNER: "hraness",
+        VERCEL_GIT_REPO_SLUG: "hra-v0",
+        VERCEL_TARGET_ENV: "production",
+        [releasePublicationCommitAllowlistEnvironmentVariable]: publicationCommit,
+        [releaseSurfaceCommitAllowlistEnvironmentVariable]:
+          `${surfaceCommit},${"b".repeat(40)}`,
+      }),
+      "singleton allowlisted",
     );
   });
 
@@ -1537,6 +1632,7 @@ function createRemoteReleaseFixture(
     metadata,
     metadataUrl,
     requests,
+    historyContract: history.contract,
   };
 }
 
@@ -1547,7 +1643,13 @@ function createRemoteHistoryFixture(
   }>,
   requests: string[] = [],
 ) {
-  const contract = readReleaseHistoryContract();
+  const currentContract = readReleaseHistoryContract();
+  const contract = parseReleaseHistoryContract({
+    ...currentContract,
+    generation: 0,
+    publicationCommit: "6221f79b745f154882080936b961ff431569f33e",
+    tags: currentContract.tags.slice(0, 8),
+  });
   const apiRepository = "https://api.github.com/repos/hraness/hra-v0";
   const releases: Record<string, unknown>[] = contract.tags.flatMap((entry) =>
     entry.release === null
@@ -1629,7 +1731,7 @@ function createRemoteHistoryFixture(
     }
     return Promise.reject(new Error(`Unexpected history request: ${url}`));
   };
-  return { fetcher, requests };
+  return { contract, fetcher, requests };
 }
 
 function jsonResponse(value: unknown): Response {

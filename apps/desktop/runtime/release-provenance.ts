@@ -50,6 +50,22 @@ export const HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT =
 export const HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT =
   "8b84baf7ebc80cc5e2b63365900454a7446f7479" as const;
 
+/** Final C15 candidate tagged and released as HRA v0.1.15. */
+export const HRA_V0_C15_CANDIDATE_COMMIT =
+  "0c7764da0dea0a71bbccca817539a02d8e4284d0" as const;
+
+/** Exact evidence-only P15 child of the tagged C15 candidate. */
+export const HRA_V0_P15_PUBLICATION_COMMIT =
+  "d96173c3556799cb203a4d659f29856180838029" as const;
+
+/** Concurrent main child of C15 that did not alter the candidate contract. */
+export const HRA_V0_P15_CONCURRENT_MAIN_COMMIT =
+  "559c272f1bd7a2f1195f1af3c493b4f73a8fb3d2" as const;
+
+/** Ordered P15/U integration merge that reconnects the immutable publication to main. */
+export const HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT =
+  "af3296e59e2173e1e7737dee7a3194592de1105e" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
@@ -106,6 +122,37 @@ export interface ReleaseCandidateLineageEvidence {
 
 export interface CanonicalReleasePublicationEvidence {
   readonly publication: ReleasePublicationEvidence;
+  readonly tag: ReleaseTagEvidence;
+}
+
+/**
+ * The normal mainline merge that reconnects the standalone P15 publication
+ * after main advanced concurrently from C15. It is integration evidence, not
+ * a second publication transition.
+ */
+export interface ReleasePublicationIntegrationBridgeEvidence {
+  readonly concurrentMainCommit: string;
+  readonly integrationBridgeCommit: string;
+  readonly publication: ReleasePublicationEvidence;
+  readonly status: "exact_candidate_publication_concurrent_main_integration_bridge";
+}
+
+/** A Q surface directly descended from the exact P15 integration bridge. */
+export interface ReleasePublicationIntegrationSurfaceEvidence {
+  readonly bridge: ReleasePublicationIntegrationBridgeEvidence;
+  readonly status: "verified_publication_integration_bridge_surface";
+  readonly surfaceCommit: string;
+}
+
+/**
+ * Canonical remote evidence for the fixed C15/P15/U/M/Q topology. The
+ * top-level publication field keeps release-contract callers aligned with the
+ * pre-bridge canonical publication proof.
+ */
+export interface CanonicalReleasePublicationIntegrationSurfaceEvidence {
+  readonly bridge: ReleasePublicationIntegrationBridgeEvidence;
+  readonly publication: ReleasePublicationEvidence;
+  readonly surface: ReleasePublicationIntegrationSurfaceEvidence;
   readonly tag: ReleaseTagEvidence;
 }
 
@@ -624,6 +671,219 @@ export async function inspectReleasePublicationAtCommit(
 }
 
 /**
+ * Verify the fixed C-to-P evidence commit and the later normal integration
+ * merge. U is an independently authored main child of C and must retain C's
+ * release contract; M must merge P before U and retain P's exact contract.
+ * M is deliberately not accepted as a publication commit.
+ */
+export async function inspectReleasePublicationIntegrationBridge(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{
+    candidateCommit: string;
+    concurrentMainCommit: string;
+    integrationBridgeCommit: string;
+    publicationCommit: string;
+  }>,
+): Promise<ReleasePublicationIntegrationBridgeEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const concurrentMainCommit = requireObjectId(
+    options.concurrentMainCommit,
+    "Concurrent main commit",
+  );
+  const integrationBridgeCommit = requireObjectId(
+    options.integrationBridgeCommit,
+    "Publication integration bridge commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectReleasePublicationIntegrationBridgeWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+    concurrentMainCommit,
+    integrationBridgeCommit,
+  );
+}
+
+/**
+ * Verify a Q archive surface after the P15 integration bridge. The surface
+ * is intentionally restricted to one direct M parent and cannot rewrite the
+ * P15 release contract while it adds the archive surface.
+ */
+export async function inspectReleasePublicationIntegrationSurface(
+  repository: ReleaseRepositoryEvidence,
+  options: Readonly<{
+    candidateCommit: string;
+    concurrentMainCommit: string;
+    integrationBridgeCommit: string;
+    publicationCommit: string;
+    surfaceCommit?: string;
+  }>,
+): Promise<ReleasePublicationIntegrationSurfaceEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const concurrentMainCommit = requireObjectId(
+    options.concurrentMainCommit,
+    "Concurrent main commit",
+  );
+  const integrationBridgeCommit = requireObjectId(
+    options.integrationBridgeCommit,
+    "Publication integration bridge commit",
+  );
+  const surfaceCommit = requireObjectId(
+    options.surfaceCommit ?? repository.commit,
+    "Publication integration surface commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await inspectReleasePublicationIntegrationSurfaceWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+    concurrentMainCommit,
+    integrationBridgeCommit,
+    surfaceCommit,
+  );
+}
+
+async function inspectReleasePublicationIntegrationBridgeWithRunner(
+  runner: ReleaseGitRunner,
+  candidateCommit: string,
+  publicationCommit: string,
+  concurrentMainCommit: string,
+  integrationBridgeCommit: string,
+): Promise<ReleasePublicationIntegrationBridgeEvidence> {
+  const publication = await inspectReleasePublicationWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+  );
+  const [concurrentMainAncestry, integrationBridgeAncestry] = await Promise.all([
+    runner.run([
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      concurrentMainCommit,
+    ]),
+    runner.run([
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      integrationBridgeCommit,
+    ]),
+  ]);
+  const concurrentMainParents = concurrentMainAncestry.trim().split(/\s+/u);
+  if (
+    concurrentMainParents.length !== 2
+    || concurrentMainParents[0] !== concurrentMainCommit
+    || concurrentMainParents[1] !== candidateCommit
+  ) {
+    throw new Error(
+      "The concurrent main commit must have the tagged candidate as its only direct parent.",
+    );
+  }
+  const integrationBridgeParents = integrationBridgeAncestry
+    .trim()
+    .split(/\s+/u);
+  if (
+    integrationBridgeParents.length !== 3
+    || integrationBridgeParents[0] !== integrationBridgeCommit
+    || integrationBridgeParents[1] !== publicationCommit
+    || integrationBridgeParents[2] !== concurrentMainCommit
+  ) {
+    throw new Error(
+      "The publication integration bridge must have ordered direct parents [publication, concurrent main].",
+    );
+  }
+  const [concurrentMainContract, integrationBridgeContract] = await Promise.all([
+    readBoundedReleaseContractAtCommit(runner, concurrentMainCommit),
+    readBoundedReleaseContractAtCommit(runner, integrationBridgeCommit),
+  ]);
+  if (concurrentMainContract !== publication.candidateContract) {
+    throw new Error(
+      "The concurrent main commit must preserve the candidate release contract exactly.",
+    );
+  }
+  if (integrationBridgeContract !== publication.publicationContract) {
+    throw new Error(
+      "The publication integration bridge must preserve the publication release contract exactly.",
+    );
+  }
+  return Object.freeze({
+    concurrentMainCommit,
+    integrationBridgeCommit,
+    publication,
+    status: "exact_candidate_publication_concurrent_main_integration_bridge",
+  });
+}
+
+async function inspectReleasePublicationIntegrationSurfaceWithRunner(
+  runner: ReleaseGitRunner,
+  candidateCommit: string,
+  publicationCommit: string,
+  concurrentMainCommit: string,
+  integrationBridgeCommit: string,
+  surfaceCommit: string,
+): Promise<ReleasePublicationIntegrationSurfaceEvidence> {
+  const bridge = await inspectReleasePublicationIntegrationBridgeWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+    concurrentMainCommit,
+    integrationBridgeCommit,
+  );
+  const surfaceAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    surfaceCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    surfaceAncestry.length !== 2
+    || surfaceAncestry[0] !== surfaceCommit
+    || surfaceAncestry[1] !== integrationBridgeCommit
+  ) {
+    throw new Error(
+      "The publication integration surface must have the integration bridge as its only direct parent.",
+    );
+  }
+  const surfaceContract = await readBoundedReleaseContractAtCommit(
+    runner,
+    surfaceCommit,
+  );
+  if (surfaceContract !== bridge.publication.publicationContract) {
+    throw new Error(
+      "The publication integration surface must preserve the publication release contract exactly.",
+    );
+  }
+  return Object.freeze({
+    bridge,
+    status: "verified_publication_integration_bridge_surface",
+    surfaceCommit,
+  });
+}
+
+/**
  * Bind a maintained archive surface to the immutable publication while
  * allowing exactly one reviewed repository-coordinate migration. Every other
  * byte of release-download.json remains fixed at P.
@@ -1060,6 +1320,115 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       HRA_V0_Q14_SURFACE_COMMIT,
     );
     return evidence;
+  } finally {
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Fetch and verify the exact fixed C15/P15/U/M/Q publication topology from the
+ * canonical HRA v0 repository. The provider checkout is not consulted: Q and
+ * the annotated tag are fetched into a new bare object store, then every
+ * parent edge and every release-contract byte boundary is inspected there.
+ */
+export async function inspectCanonicalReleasePublicationIntegrationSurface(
+  options: Readonly<{
+    candidateCommit: string;
+    concurrentMainCommit: string;
+    integrationBridgeCommit: string;
+    publicationCommit: string;
+    surfaceCommit: string;
+    tag: string;
+  }>,
+): Promise<CanonicalReleasePublicationIntegrationSurfaceEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const concurrentMainCommit = requireObjectId(
+    options.concurrentMainCommit,
+    "Concurrent main commit",
+  );
+  const integrationBridgeCommit = requireObjectId(
+    options.integrationBridgeCommit,
+    "Publication integration bridge commit",
+  );
+  const surfaceCommit = requireObjectId(
+    options.surfaceCommit,
+    "Publication integration surface commit",
+  );
+  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
+    throw new Error("Release tag is invalid.");
+  }
+  const temporaryRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "hra-release-integration-fetch-")),
+  );
+  const gitDirectory = join(temporaryRoot, "publication.git");
+  try {
+    await runHermeticGit(
+      ["init", "--bare", "--initial-branch=main", gitDirectory],
+      temporaryRoot,
+    );
+    const runner = releaseGitObjectRunner(gitDirectory);
+    await runner.run(["remote", "add", "canonical", canonicalGitRepository]);
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=12",
+      "--filter=blob:limit=32768",
+      "canonical",
+      surfaceCommit,
+    ]);
+    const tagRef = `refs/tags/${options.tag}`;
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=9",
+      "--filter=blob:limit=32768",
+      "canonical",
+      `${tagRef}:${tagRef}`,
+    ]);
+    const [surface, tag] = await Promise.all([
+      inspectReleasePublicationIntegrationSurfaceWithRunner(
+        runner,
+        candidateCommit,
+        publicationCommit,
+        concurrentMainCommit,
+        integrationBridgeCommit,
+        surfaceCommit,
+      ),
+      inspectReleaseTagWithRunner(runner, options.tag),
+    ]);
+    if (tag === null) {
+      throw new Error(
+        "The canonical release repository has no annotated release tag.",
+      );
+    }
+    await inspectReleaseCandidateLineageWithRunner(
+      runner,
+      candidateCommit,
+      HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
+      HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
+      HRA_V0_C15_HOST_TRUST_COMMIT,
+      HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
+      HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+      HRA_V0_C15_BASE_COMMIT,
+      HRA_V0_Q14_SURFACE_COMMIT,
+    );
+    return Object.freeze({
+      bridge: surface.bridge,
+      publication: surface.bridge.publication,
+      surface,
+      tag,
+    });
   } finally {
     await rm(temporaryRoot, { force: true, recursive: true });
   }

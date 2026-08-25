@@ -6,6 +6,7 @@ import {
   verifyCanonicalRemoteReleaseTagsWithLister,
   verifyRemoteReleaseHistoryState,
   type CurrentRemoteReleaseHistoryEntry,
+  type ReleaseHistoryContract,
   type ReleaseHistoryFetcher,
 } from "../release-history-contract";
 
@@ -13,17 +14,17 @@ const repository = "https://github.com/hraness/hra-v0" as const;
 const apiRepository = "https://api.github.com/repos/hraness/hra-v0" as const;
 
 describe("HRA v0 remote release history", () => {
-  test("verifies all eight annotated tags and all 49 immutable release assets", async () => {
+  test("verifies all nine annotated tags and all 56 immutable release assets from generation 1", async () => {
     const fixture = createRemoteHistoryFixture();
     expect(await verifyRemoteReleaseHistoryState(fixture.contract, fixture.fetcher)).toEqual({
-      assetCount: 49,
-      releaseCount: 7,
+      assetCount: 56,
+      releaseCount: 8,
       repository,
-      status: "verified_exact_candidate_remote_release_history",
-      tagCount: 8,
+      status: "verified_exact_published_remote_release_history",
+      tagCount: 9,
       tagOnly: ["v0.1.11"],
     });
-    expect(fixture.requests).toHaveLength(10);
+    expect(fixture.requests).toHaveLength(11);
     expect(fixture.requests).toContain(`${apiRepository}/releases?per_page=100`);
     expect(fixture.requests).toContain(`${apiRepository}/git/matching-refs/tags/v0.1`);
     for (const entry of fixture.contract.tags) {
@@ -54,7 +55,7 @@ describe("HRA v0 remote release history", () => {
     expect(await verifyRemoteReleaseHistoryState(
       fixture.contract,
       serializedFetcher,
-    )).toMatchObject({ status: "verified_exact_candidate_remote_release_history" });
+    )).toMatchObject({ status: "verified_exact_published_remote_release_history" });
   });
 
   test("proves every annotated tag and peeled commit from one canonical Git listing", async () => {
@@ -87,9 +88,22 @@ describe("HRA v0 remote release history", () => {
     );
   });
 
-  test("overlays v0.1.15 in memory and proves the exact combined 9/8/56 set", async () => {
+  test("allows a generation-0 v0.1.15 recovery overlay and forbids it for generation 1", async () => {
     const current = currentReleaseEntry();
-    const fixture = createRemoteHistoryFixture(current);
+    const frozen = createRemoteHistoryFixture(generationZeroContract());
+    expect(await verifyRemoteReleaseHistoryState(
+      frozen.contract,
+      frozen.fetcher,
+    )).toEqual({
+      assetCount: 49,
+      releaseCount: 7,
+      repository,
+      status: "verified_exact_candidate_remote_release_history",
+      tagCount: 8,
+      tagOnly: ["v0.1.11"],
+    });
+
+    const fixture = createRemoteHistoryFixture(generationZeroContract(), current);
     expect(await verifyRemoteReleaseHistoryState(
       fixture.contract,
       fixture.fetcher,
@@ -104,7 +118,18 @@ describe("HRA v0 remote release history", () => {
     });
     expect(fixture.requests).toHaveLength(11);
 
-    const drift = createRemoteHistoryFixture(current);
+    const generationOne = createRemoteHistoryFixture();
+    await expectRejects(
+      verifyRemoteReleaseHistoryState(
+        generationOne.contract,
+        generationOne.fetcher,
+        current,
+      ),
+      "current-release overlay is forbidden",
+    );
+    expect(generationOne.requests).toHaveLength(0);
+
+    const drift = createRemoteHistoryFixture(generationZeroContract(), current);
     const currentRelease = drift.releases.find(
       (release) => release["tag_name"] === current.tag,
     );
@@ -160,8 +185,10 @@ describe("HRA v0 remote release history", () => {
     );
   });
 
-  test("parses only the exact ordered tag-only and release sequence", () => {
+  test("parses only the exact ordered generation-0 and generation-1 sequences", () => {
     const contract = readReleaseHistoryContract();
+    expect(contract.generation).toBe(1);
+    expect(contract.publicationCommit).toBe("d96173c3556799cb203a4d659f29856180838029");
     expect(contract.tags.map(({ tag }) => tag)).toEqual([
       "v0.1.7",
       "v0.1.8",
@@ -171,6 +198,7 @@ describe("HRA v0 remote release history", () => {
       "v0.1.12",
       "v0.1.13",
       "v0.1.14",
+      "v0.1.15",
     ]);
     expect(contract.tags.map(({ commit, release, tagObject }) => ({
       commit,
@@ -185,20 +213,30 @@ describe("HRA v0 remote release history", () => {
       { commit: "9ab991d08d1507fd73c9e7ef5fb4a37baee9c014", releaseId: 374867227, tagObject: "626be494d24733d12e53d09932cb5cc6218bc2fe" },
       { commit: "9ba06a441c9b12b448cfe34784432592dbeccb19", releaseId: 374920071, tagObject: "44f00fd5c5e00bc8dcded0c9b176a8e37ada90f3" },
       { commit: "7b39c459827b2acf45aa2d911c94fdb5d4f37860", releaseId: 374980441, tagObject: "37ed37afb39cacfd6a51044cf7f3c1b873571aa3" },
+      { commit: "0c7764da0dea0a71bbccca817539a02d8e4284d0", releaseId: 376100700, tagObject: "e5bcf5c919e8a7ffcdccc337b8940b60a70f0489" },
     ]);
     expect(contract.tags[4]?.release).toBeNull();
     const reordered = structuredClone(contract);
     [reordered.tags[0], reordered.tags[1]] = [reordered.tags[1]!, reordered.tags[0]!];
     expect(() => parseReleaseHistoryContract(reordered)).toThrow(
-      "exact ordered v0.1.7–v0.1.14 sequence",
+      "exact ordered v0.1.7–v0.1.15 sequence",
     );
+
+    const generationZero = generationZeroContract();
+    expect(generationZero.tags).toHaveLength(8);
+    expect(generationZero.tags.at(-1)?.tag).toBe("v0.1.14");
+    expect(generationZero.publicationCommit).toBe("6221f79b745f154882080936b961ff431569f33e");
+    expect(() => parseReleaseHistoryContract({
+      ...structuredClone(generationZero),
+      tags: [...generationZero.tags, contract.tags.at(-1)],
+    })).toThrow();
   });
 });
 
 function createRemoteHistoryFixture(
+  contract: ReleaseHistoryContract = readReleaseHistoryContract(),
   current?: CurrentRemoteReleaseHistoryEntry,
 ) {
-  const contract = readReleaseHistoryContract();
   const releases: Record<string, unknown>[] = contract.tags.flatMap((entry) => {
     if (entry.release === null) return [];
     return [{
@@ -291,6 +329,19 @@ function createRemoteHistoryFixture(
     return Promise.reject(new Error(`Unexpected history request: ${url}`));
   };
   return { contract, fetcher, releases, requests, tagObjects };
+}
+
+function generationZeroContract(): ReleaseHistoryContract {
+  const current = readReleaseHistoryContract();
+  if (current.generation !== 1) {
+    throw new Error("Expected the checked generation-1 release ledger.");
+  }
+  return parseReleaseHistoryContract({
+    ...structuredClone(current),
+    generation: 0,
+    publicationCommit: "6221f79b745f154882080936b961ff431569f33e",
+    tags: current.tags.slice(0, -1),
+  });
 }
 
 function currentReleaseEntry(): CurrentRemoteReleaseHistoryEntry {

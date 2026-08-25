@@ -23,7 +23,7 @@ describe("HRA public markdown representations", () => {
     expect(HRA_LLMS_TXT.startsWith("# HRA v0 archive\n")).toBeTrue();
     expect(HRA_LLMS_TXT).toContain(`> ${hraSearchSite.description}`);
     expect(HRA_LLMS_TXT).toContain("maintained archive for HRA v0");
-    expect(HRA_LLMS_TXT).toContain("frozen v0.1.7–v0.1.14 compatibility ledger");
+    expect(HRA_LLMS_TXT).toContain("frozen v0.1.7–v0.1.15 compatibility ledger");
     expect(HRA_LLMS_TXT).toContain("How an agent should use this archive:");
     expect(HRA_LLMS_TXT).toContain("Accept: text/markdown");
     expect(HRA_LLMS_TXT).not.toContain("OAuth client");
@@ -81,6 +81,10 @@ describe("HRA public markdown representations", () => {
     const markdown = createReleaseHistoryMarkdown();
     expect(markdown).toContain("# HRA v0 release history");
     expect(markdown).toContain("v0.1.11 was a tagged candidate only");
+    expect(markdown).toContain("generation-1 compatibility ledger");
+    expect(markdown).toContain("v0.1.15 is the final archived prerelease");
+    expect(markdown).toContain("e5bcf5c919e8a7ffcdccc337b8940b60a70f0489");
+    expect(markdown).toContain("120b600d7cc11df260836198601cba91db33efc7b600dd2b601bde686c9ea028");
     expect(markdown).toContain("37ed37afb39cacfd6a51044cf7f3c1b873571aa3");
     expect(publicDocumentMarkdown("/releases")).toBe(markdown);
   });

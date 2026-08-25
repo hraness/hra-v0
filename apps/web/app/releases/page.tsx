@@ -26,8 +26,14 @@ export const metadata = createPublicSiteMetadata({
   title: "HRA v0 release history",
 }, { canonicalPath: "/releases" }) satisfies Metadata;
 
+const finalHistoryEntry = HRA_RELEASE_HISTORY.tags.at(-1);
+if (finalHistoryEntry === undefined) {
+  throw new Error("The HRA v0 release history must contain a final entry.");
+}
+const finalHistoryTag = finalHistoryEntry.tag;
+
 function ReleaseEntry({ entry }: { readonly entry: HraReleaseHistoryTag }) {
-  const finalRelease = entry.tag === "v0.1.14";
+  const finalRelease = entry.tag === finalHistoryTag;
   return (
     <article className={finalRelease ? "release-history-entry release-history-entry--final" : "release-history-entry"}>
       <header>
@@ -112,13 +118,13 @@ export default function ReleasesPage() {
 
       <main className="alternatives-shell" id="main-content">
         <section className="alternatives-hero release-history-hero" aria-labelledby="release-history-title">
-          <p className="landing-eyebrow">Compatibility ledger · v0.1.7–v0.1.14</p>
+          <p className="landing-eyebrow">Compatibility ledger · v0.1.7–v0.1.15</p>
           <h1 id="release-history-title">HRA v0 release history</h1>
           <p className="alternatives-lede">
-            This ledger records every preserved tag from v0.1.7 through v0.1.14, every GitHub release that exists, and every attached asset. The checked archive manifest supplies the object IDs, byte counts, checksums, and links below.
+            This ledger records every preserved tag from v0.1.7 through v0.1.15, every GitHub release that exists, and every attached asset. The checked archive manifest supplies the object IDs, byte counts, checksums, and links below.
           </p>
           <p className="alternatives-reviewed">
-            Seven immutable prereleases · eight annotated tags · v0.1.11 tag only
+            Eight immutable prereleases · nine annotated tags · v0.1.11 tag only
           </p>
         </section>
 
@@ -133,7 +139,7 @@ export default function ReleasesPage() {
             <p className="landing-eyebrow">Verification boundary</p>
             <h2 id="release-history-method-title">The archive checks the remote objects.</h2>
             <p>
-              The credential-free remote release gate reads the renamed repository, verifies the exact tag objects and peeled commits, requires v0.1.11 to remain release-free, and compares every immutable release and asset with the checked ledger. The final v0.1.14 gate also checks its checksum and release manifest contents.
+              The credential-free remote release gate reads the renamed repository, verifies the exact tag objects and peeled commits, requires v0.1.11 to remain release-free, and compares all 56 immutable release assets with the checked ledger. The final v0.1.15 gate also checks its checksum and release manifest contents.
             </p>
           </div>
         </section>

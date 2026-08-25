@@ -22,19 +22,45 @@ const tagSchema = z.object({
   commit: objectIdSchema,
   objectKind: z.literal("annotated"),
   release: publishedReleaseSchema.nullable(),
-  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14)$/u),
+  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
   tagObject: objectIdSchema,
-  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14)$/u),
+  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
 }).strict();
-const releaseHistorySchema = z.object({
-  generation: z.literal(0),
-  publicationCommit: z.literal("6221f79b745f154882080936b961ff431569f33e"),
+const generationZeroVersions = [
+  "0.1.7",
+  "0.1.8",
+  "0.1.9",
+  "0.1.10",
+  "0.1.11",
+  "0.1.12",
+  "0.1.13",
+  "0.1.14",
+] as const;
+const generationOneVersions = [...generationZeroVersions, "0.1.15"] as const;
+const releaseHistoryBaseSchema = {
   repository: z.literal("https://github.com/hraness/hra-v0"),
   repositoryId: z.literal(1_334_876_494),
   schemaVersion: z.literal(1),
+};
+const generationZeroReleaseHistorySchema = z.object({
+  generation: z.literal(0),
+  publicationCommit: z.literal("6221f79b745f154882080936b961ff431569f33e"),
+  ...releaseHistoryBaseSchema,
   tags: z.array(tagSchema).length(8),
-}).strict().superRefine((history, context) => {
-  const expectedVersions = ["0.1.7", "0.1.8", "0.1.9", "0.1.10", "0.1.11", "0.1.12", "0.1.13", "0.1.14"] as const;
+}).strict();
+const generationOneReleaseHistorySchema = z.object({
+  generation: z.literal(1),
+  publicationCommit: z.literal("d96173c3556799cb203a4d659f29856180838029"),
+  ...releaseHistoryBaseSchema,
+  tags: z.array(tagSchema).length(9),
+}).strict();
+const releaseHistorySchema = z.discriminatedUnion("generation", [
+  generationZeroReleaseHistorySchema,
+  generationOneReleaseHistorySchema,
+]).superRefine((history, context) => {
+  const expectedVersions = history.generation === 0
+    ? generationZeroVersions
+    : generationOneVersions;
   for (const [index, version] of expectedVersions.entries()) {
     const entry = history.tags[index];
     if (
@@ -46,7 +72,7 @@ const releaseHistorySchema = z.object({
     ) {
       context.addIssue({
         code: "custom",
-        message: "Release history must contain the exact ordered v0.1.7–v0.1.14 tag and release sequence.",
+        message: `Release history must contain the exact ordered v0.1.7–v0.1.${history.generation === 0 ? "14" : "15"} tag and release sequence.`,
       });
       break;
     }
@@ -77,7 +103,11 @@ export type HraReleaseHistory = z.infer<typeof releaseHistorySchema>;
 export type HraReleaseHistoryTag = HraReleaseHistory["tags"][number];
 export type HraReleaseHistoryAsset = NonNullable<HraReleaseHistoryTag["release"]>["assets"][number];
 
-export const HRA_RELEASE_HISTORY = releaseHistorySchema.parse(releaseHistory);
+export function parseHraReleaseHistory(value: unknown): HraReleaseHistory {
+  return releaseHistorySchema.parse(value);
+}
+
+export const HRA_RELEASE_HISTORY = parseHraReleaseHistory(releaseHistory);
 
 export function hraReleaseTagUrl(entry: HraReleaseHistoryTag): string {
   return `${HRA_RELEASE_HISTORY.repository}/releases/tag/${entry.tag}`;
