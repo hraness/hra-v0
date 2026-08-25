@@ -56,7 +56,7 @@ function objectiveCFunctionSource(source: string, signature: string): string {
 }
 
 describe("macOS package contract", () => {
-  test("canonicalizes the staged DMG path before strict verification", async () => {
+  test("canonicalizes every temporary DMG path before strict verification", async () => {
     const [creatorSource, verifierSource] = await Promise.all([
       readFile(new URL("../create-dmg.ts", import.meta.url), "utf8"),
       readFile(new URL("../verify-macos-package.ts", import.meta.url), "utf8"),
@@ -67,6 +67,13 @@ describe("macOS package contract", () => {
       "  );",
     );
     expect(verifierSource).toContain("await realpath(dmgPath) !== dmgPath");
+    for (const prefix of ["hra-dmg-snapshot-", "hra-dmg-verify-"]) {
+      expect(verifierSource).toContain(
+        "const temporaryRoot = await realpath(\n" +
+        `    await mkdtemp(join(tmpdir(), \"${prefix}\")),\n` +
+        "  );",
+      );
+    }
   });
 
   test("keeps packaged custody probes within the native response bound", async () => {
