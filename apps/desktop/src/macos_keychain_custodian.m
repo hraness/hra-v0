@@ -94,6 +94,9 @@ static const char *HRALegacyHarnessDeleteScript =
     "await Bun.write(Bun.stdout,JSON.stringify({version:1,deleted}));";
 static const size_t HRACustodianMaximumRequestBytes = 512;
 static const size_t HRACustodianMaximumResponseBytes = 512;
+static const uint32_t HRACustodianMaximumTimeoutMilliseconds = 240000;
+static const uint32_t HRALegacyHarnessCustodyMaximumTimeoutMilliseconds =
+    60000;
 static const uint32_t HRACustodianReapTimeoutMilliseconds = 1000;
 static const uint32_t HRALegacyGroupQuiescenceTimeoutMilliseconds = 1000;
 // Once Native stops treating a PID/PGID as signalable, cancellation must never
@@ -3301,7 +3304,7 @@ bool hra_macos_run_attested_keychain_custodian(
         response == NULL || response_capacity == 0 ||
         response_capacity > HRACustodianMaximumResponseBytes ||
         out_response_length == NULL || timeout_milliseconds == 0 ||
-        timeout_milliseconds > 60000 ||
+        timeout_milliseconds > HRACustodianMaximumTimeoutMilliseconds ||
         !hra_macos_child_process_policy_is_exact() ||
         !hra_macos_custody_probe_parent_remains_live_or_retire()) {
       return false;
@@ -3660,7 +3663,8 @@ bool hra_macos_run_attested_legacy_harness_custody(
         response_capacity > HRACustodianMaximumResponseBytes ||
         out_response_length == NULL || out_failure_substage == NULL ||
         timeout_milliseconds == 0 ||
-        timeout_milliseconds > 60000 ||
+        timeout_milliseconds >
+            HRALegacyHarnessCustodyMaximumTimeoutMilliseconds ||
         !hra_macos_child_process_policy_is_exact()) {
       HRARecordLegacyHarnessCustodyFailure(
           out_failure_substage,

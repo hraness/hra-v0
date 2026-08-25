@@ -70,6 +70,10 @@ export const HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT =
 export const HRA_V0_Q15_SURFACE_COMMIT =
   "443448b79e9016e00d52501f047fce3a408de092" as const;
 
+/** Reviewed C16 Keychain ACL compatibility commit immediately before C17. */
+export const HRA_V0_C16_COMPATIBILITY_COMMIT =
+  "4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
@@ -125,9 +129,10 @@ export interface ReleaseCandidateLineageEvidence {
 }
 
 export interface ReleaseHotfixCandidateLineageEvidence {
+  readonly c16Commit: string;
   readonly candidateCommit: string;
   readonly q15Commit: string;
-  readonly status: "exact_q15_c16_candidate_chain";
+  readonly status: "exact_q15_c16_c17_candidate_chain";
 }
 
 /** A Q16 surface that is the sole direct child of exact publication P16. */
@@ -142,7 +147,7 @@ export interface CanonicalReleasePublicationEvidence {
   readonly tag: ReleaseTagEvidence;
 }
 
-/** Canonical remote evidence for the linear Q15/C16/P16/Q16 topology. */
+/** Canonical remote evidence for the linear Q15/C16/C17/P16/Q16 topology. */
 export interface CanonicalReleasePublicationSurfaceEvidence
   extends CanonicalReleasePublicationEvidence {
   readonly surface: ReleasePublicationSurfaceEvidence;
@@ -384,67 +389,80 @@ export async function resolveReleaseCandidateCommit(
 }
 
 /**
- * Find the unique C16 hotfix candidate on the linear path from Q15 to HEAD.
- * HEAD may be the candidate or a later CI descendant, but the candidate itself
- * must remain Q15's sole-parent child.
+ * Find the unique C17 candidate on the linear path from exact C16 to HEAD.
+ * HEAD may be the candidate or a later CI descendant. C16 must remain Q15's
+ * sole-parent child, and the candidate must remain C16's sole-parent child.
  */
 export async function resolveReleaseHotfixCandidateCommit(
   repository: ReleaseRepositoryEvidence,
-  options: Readonly<{ expectedQ15Commit?: string }> = {},
+  options: Readonly<{
+    expectedC16Commit?: string;
+    expectedQ15Commit?: string;
+  }> = {},
 ): Promise<string> {
   const expectedQ15Commit = requireObjectId(
     options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
     "HRA v0.1.15 Q15 surface commit",
   );
+  const expectedC16Commit = requireObjectId(
+    options.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
+    "HRA v0.1.16 C16 compatibility commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
   );
+  await inspectReleaseC16LineageWithRunner(
+    runner,
+    expectedC16Commit,
+    expectedQ15Commit,
+  );
   let mergeBase: string;
   try {
     mergeBase = requireObjectId(
-      await runner.run(["merge-base", expectedQ15Commit, repository.commit]),
-      "HRA v0.1.16 Q15 merge base",
+      await runner.run(["merge-base", expectedC16Commit, repository.commit]),
+      "HRA v0.1.16 C16 merge base",
     );
   } catch {
     throw new Error(
-      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedQ15Commit) {
+  if (mergeBase !== expectedC16Commit) {
     throw new Error(
-      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedQ15Commit}..${repository.commit}`,
+    `${expectedC16Commit}..${repository.commit}`,
   ])).trim();
-  const q15Children: string[] = [];
+  const c16Children: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedQ15Commit) {
-      q15Children.push(
-        requireObjectId(commit, "HRA v0.1.16 candidate commit"),
+    if (parents.length === 1 && parents[0] === expectedC16Commit) {
+      c16Children.push(
+        requireObjectId(commit, "HRA v0.1.16 C17 candidate commit"),
       );
     }
   }
-  if (q15Children.length !== 1) {
+  if (c16Children.length !== 1) {
     throw new Error(
-      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
     );
   }
-  return q15Children[0] ?? "";
+  return c16Children[0] ?? "";
 }
 
 export async function inspectReleaseHotfixCandidateLineage(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
     candidateCommit?: string;
+    expectedC16Commit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<ReleaseHotfixCandidateLineageEvidence> {
@@ -456,6 +474,10 @@ export async function inspectReleaseHotfixCandidateLineage(
     options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
     "HRA v0.1.15 Q15 surface commit",
   );
+  const expectedC16Commit = requireObjectId(
+    options.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
+    "HRA v0.1.16 C16 compatibility commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
@@ -463,13 +485,38 @@ export async function inspectReleaseHotfixCandidateLineage(
   return await inspectReleaseHotfixCandidateLineageWithRunner(
     runner,
     candidateCommit,
+    expectedC16Commit,
     expectedQ15Commit,
   );
+}
+
+async function inspectReleaseC16LineageWithRunner(
+  runner: ReleaseGitRunner,
+  expectedC16Commit: string,
+  expectedQ15Commit: string,
+): Promise<void> {
+  const ancestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedC16Commit,
+  ])).trim().split(/\s+/u);
+  if (
+    ancestry.length !== 2
+    || ancestry[0] !== expectedC16Commit
+    || ancestry[1] !== expectedQ15Commit
+  ) {
+    throw new Error(
+      "The HRA v0.1.16 C16 compatibility commit must have exact Q15 as its only direct parent.",
+    );
+  }
 }
 
 async function inspectReleaseHotfixCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
+  expectedC16Commit: string,
   expectedQ15Commit: string,
 ): Promise<ReleaseHotfixCandidateLineageEvidence> {
   const ancestry = (await runner.run([
@@ -482,16 +529,22 @@ async function inspectReleaseHotfixCandidateLineageWithRunner(
   if (
     ancestry.length !== 2
     || ancestry[0] !== candidateCommit
-    || ancestry[1] !== expectedQ15Commit
+    || ancestry[1] !== expectedC16Commit
   ) {
     throw new Error(
-      "The HRA v0.1.16 candidate must have exact Q15 as its only direct parent.",
+      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
     );
   }
+  await inspectReleaseC16LineageWithRunner(
+    runner,
+    expectedC16Commit,
+    expectedQ15Commit,
+  );
   return Object.freeze({
+    c16Commit: expectedC16Commit,
     candidateCommit,
     q15Commit: expectedQ15Commit,
-    status: "exact_q15_c16_candidate_chain",
+    status: "exact_q15_c16_c17_candidate_chain",
   });
 }
 
@@ -1540,12 +1593,13 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
 }
 
 /**
- * Fetch and verify the exact linear Q15/C16/P16/Q16 publication topology from
- * the canonical HRA v0 repository without trusting a provider checkout.
+ * Fetch and verify the exact linear Q15/C16/C17/P16/Q16 publication topology
+ * from the canonical HRA v0 repository without trusting a provider checkout.
  */
 export async function inspectCanonicalReleasePublicationSurface(
   options: Readonly<{
     candidateCommit: string;
+    expectedC16Commit?: string;
     expectedQ15Commit?: string;
     publicationCommit: string;
     surfaceCommit: string;
@@ -1568,6 +1622,10 @@ export async function inspectCanonicalReleasePublicationSurface(
     options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
     "HRA v0.1.15 Q15 surface commit",
   );
+  const expectedC16Commit = requireObjectId(
+    options.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
+    "HRA v0.1.16 C16 compatibility commit",
+  );
   if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
     throw new Error("Release tag is invalid.");
   }
@@ -1587,7 +1645,7 @@ export async function inspectCanonicalReleasePublicationSurface(
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=4",
+      "--depth=5",
       "--filter=blob:limit=32768",
       "canonical",
       surfaceCommit,
@@ -1598,7 +1656,7 @@ export async function inspectCanonicalReleasePublicationSurface(
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=2",
+      "--depth=3",
       "--filter=blob:limit=32768",
       "canonical",
       `${tagRef}:${tagRef}`,
@@ -1620,6 +1678,7 @@ export async function inspectCanonicalReleasePublicationSurface(
     await inspectReleaseHotfixCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      expectedC16Commit,
       expectedQ15Commit,
     );
     return Object.freeze({
