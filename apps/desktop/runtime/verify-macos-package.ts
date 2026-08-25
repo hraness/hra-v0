@@ -663,6 +663,12 @@ type DmgSnapshot = Readonly<{
   sha256: string;
 }>;
 
+export async function createCanonicalTemporaryDirectory(
+  prefix: string,
+): Promise<string> {
+  return realpath(await mkdtemp(join(tmpdir(), prefix)));
+}
+
 function sameRegularFileAuthority(
   expected: BigIntStats,
   actual: BigIntStats,
@@ -686,7 +692,9 @@ async function snapshotDmg(dmgPath: string): Promise<DmgSnapshot> {
     || resolve(dmgPath) !== dmgPath
     || await realpath(dmgPath) !== dmgPath
   ) throw new Error("Release DMG path must be absolute and canonical.");
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "hra-dmg-snapshot-"));
+  const temporaryRoot = await createCanonicalTemporaryDirectory(
+    "hra-dmg-snapshot-",
+  );
   const snapshotPath = join(temporaryRoot, "release.dmg");
   let source: Awaited<ReturnType<typeof open>> | undefined;
   let destination: Awaited<ReturnType<typeof open>> | undefined;
@@ -1903,7 +1911,9 @@ async function verifyMacOSDmgSnapshot(
     launchSmoke?: boolean;
   }> = {},
 ): Promise<MacOSAppEvidence> {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "hra-dmg-verify-"));
+  const temporaryRoot = await createCanonicalTemporaryDirectory(
+    "hra-dmg-verify-",
+  );
   const mountPoint = join(temporaryRoot, "mount");
   await Bun.write(join(temporaryRoot, ".keep"), "");
   await run(["/bin/mkdir", mountPoint]);

@@ -1732,7 +1732,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "f456112ab4b841a95c769e8a95221677f4489d84de557142745ef8f74e7dfe0d",
+      "matchingLinesSha256": "bc262814fc0a8de110fbf40c346d0f00029bc0341f3111806753ef300f8bddec",
       "occurrences": {
         "kitchen": 2,
         "operateStylized": 0,
@@ -1952,7 +1952,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "6f9da36f8f297179da244f01d4814f96f0249c435cf5c284ed047af4f1c6f17f",
+      "matchingLinesSha256": "cc534d45ba9b198bac3d7a8f4abc090fd30c7a14ab8a033ae46cc1e79833c034",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -2112,7 +2112,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "da80de77af4502e7936047f1bcab4dbb522d45c14c5b97785fba199c482dba2a",
+      "matchingLinesSha256": "06d755b9e427874389ca04f9149837828c80bcc60f9ebacafcd6084ed195d8a7",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,

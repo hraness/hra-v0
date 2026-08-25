@@ -4,10 +4,12 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { consumeUtf8Lines, correspondingSourceSpecs } from "../corresponding-sources";
@@ -28,6 +30,7 @@ import {
 } from "../release-signing-authority";
 import runtimeVersions from "../runtime-versions.json";
 import {
+  createCanonicalTemporaryDirectory,
   custodyProbeSupervisorDependencies,
   parseCustodyProbeSupervisorAuthorityEvidence,
   parseCustodyProbeSupervisorDependencies,
@@ -56,7 +59,7 @@ function objectiveCFunctionSource(source: string, signature: string): string {
 }
 
 describe("macOS package contract", () => {
-  test("canonicalizes the staged DMG path before strict verification", async () => {
+  test("uses canonical temporary roots for every strict DMG path", async () => {
     const [creatorSource, verifierSource] = await Promise.all([
       readFile(new URL("../create-dmg.ts", import.meta.url), "utf8"),
       readFile(new URL("../verify-macos-package.ts", import.meta.url), "utf8"),
@@ -67,6 +70,25 @@ describe("macOS package contract", () => {
       "  );",
     );
     expect(verifierSource).toContain("await realpath(dmgPath) !== dmgPath");
+    for (const prefix of ["hra-dmg-snapshot-", "hra-dmg-verify-"]) {
+      expect(verifierSource).toContain(
+        `await createCanonicalTemporaryDirectory(\n    "${prefix}",\n  );`,
+      );
+    }
+  });
+
+  test("creates canonical temporary roots across the macOS private tmp alias", async () => {
+    const root = await createCanonicalTemporaryDirectory(
+      "hra-dmg-canonicalization-test-",
+    );
+    try {
+      expect(root).toBe(await realpath(root));
+      if (process.platform === "darwin" && tmpdir().startsWith("/var/")) {
+        expect(root.startsWith("/private/var/")).toBe(true);
+      }
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 
   test("keeps packaged custody probes within the native response bound", async () => {

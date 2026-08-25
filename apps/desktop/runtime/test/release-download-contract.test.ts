@@ -573,7 +573,7 @@ describe("release and download convergence", () => {
     }
   });
 
-  test("keeps candidate source valid on a descendant of the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-final-C15 chain", async () => {
+  test("keeps candidate source valid on a descendant of the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-signed-release-probe-repair-to-final-C15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-candidate-descendant-")),
     );
@@ -640,6 +640,19 @@ describe("release and download convergence", () => {
     const bundleCodeAuthorityCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
+    await writeFile(
+      join(repositoryRoot, "signed-release-probe-repair.txt"),
+      "signed release-probe repair\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "signed-release-probe-repair.txt"]);
+    await runSetupGit(repositoryRoot, [
+      "commit",
+      "-m",
+      "signed-release-probe repair",
+    ]);
+    const signedReleaseProbeRepairCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
     await writeFile(join(repositoryRoot, "candidate.txt"), "final C15\n");
     await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
@@ -649,6 +662,7 @@ describe("release and download convergence", () => {
       candidateCustodyRepairCommit: custodyRepairCommit,
       candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
+      candidateSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
       repositoryRoot,
@@ -665,6 +679,7 @@ describe("release and download convergence", () => {
       candidateCustodyRepairCommit: custodyRepairCommit,
       candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
+      candidateSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
       repositoryRoot,
@@ -674,7 +689,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-final-C15-to-P15 chain", async () => {
+  test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-signed-release-probe-repair-to-final-C15-to-P15 chain", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v015-publication-")),
     );
@@ -741,6 +756,19 @@ describe("release and download convergence", () => {
     const bundleCodeAuthorityCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
+    await writeFile(
+      join(repositoryRoot, "signed-release-probe-repair.txt"),
+      "signed release-probe repair\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "signed-release-probe-repair.txt"]);
+    await runSetupGit(repositoryRoot, [
+      "commit",
+      "-m",
+      "signed-release-probe repair",
+    ]);
+    const signedReleaseProbeRepairCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
     await writeFile(join(repositoryRoot, "candidate.txt"), "final C15\n");
     await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
     await runSetupGit(repositoryRoot, ["commit", "-m", "final C15"]);
@@ -753,6 +781,7 @@ describe("release and download convergence", () => {
       candidateCustodyRepairCommit: custodyRepairCommit,
       candidateHostTrustCommit: hostTrustCommit,
       candidateQ14Commit: q14Commit,
+      candidateSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
       candidateSurfaceCommit: surfaceCommit,
       environment: {},
       repositoryRoot,
@@ -824,6 +853,7 @@ describe("release and download convergence", () => {
         expectedCustodyRepairCommit: custodyRepairCommit,
         expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
+        expectedSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
         expectedSurfaceCommit: surfaceCommit,
       },
     );
@@ -881,6 +911,7 @@ describe("release and download convergence", () => {
         expectedCustodyRepairCommit: custodyRepairCommit,
         expectedHostTrustCommit: hostTrustCommit,
         expectedQ14Commit: q14Commit,
+        expectedSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
         expectedSurfaceCommit: surfaceCommit,
       }),
       "only direct parent",

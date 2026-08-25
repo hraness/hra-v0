@@ -35,6 +35,7 @@ import {
   HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
   HRA_V0_C15_HOST_TRUST_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+  HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_Q14_SURFACE_COMMIT,
   inspectArchiveReleaseSurface,
@@ -278,6 +279,7 @@ type ReleaseSourceStateOptions = Readonly<{
   candidateCustodyRepairCommit?: string;
   candidateHostTrustCommit?: string;
   candidateQ14Commit?: string;
+  candidateSignedReleaseProbeRepairCommit?: string;
   candidateSurfaceCommit?: string;
   environment?: Readonly<Record<string, string | undefined>>;
   publicationCommit?: string;
@@ -704,10 +706,13 @@ export async function verifyReleaseSourceState(
       options.candidateCustodyRepairCommit ?? HRA_V0_C15_CUSTODY_REPAIR_COMMIT;
     const expectedHostTrustCommit =
       options.candidateHostTrustCommit ?? HRA_V0_C15_HOST_TRUST_COMMIT;
+    const expectedSignedReleaseProbeRepairCommit =
+      options.candidateSignedReleaseProbeRepairCommit ??
+      HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT;
     const expectedSurfaceCommit =
       options.candidateSurfaceCommit ?? HRA_V0_C15_REVIEWED_SURFACE_COMMIT;
     const candidateCommit = await resolveReleaseCandidateCommit(repository, {
-      expectedBundleCodeAuthorityCommit,
+      expectedSignedReleaseProbeRepairCommit,
     });
     await inspectReleaseCandidateLineage(repository, {
       candidateCommit,
@@ -718,6 +723,7 @@ export async function verifyReleaseSourceState(
       expectedHostTrustCommit,
       expectedQ14Commit:
         options.candidateQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
+      expectedSignedReleaseProbeRepairCommit,
       expectedSurfaceCommit,
     });
     return Object.freeze({
@@ -750,6 +756,9 @@ export async function verifyReleaseSourceState(
             options.candidateHostTrustCommit ?? HRA_V0_C15_HOST_TRUST_COMMIT,
           expectedQ14Commit:
             options.candidateQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
+          expectedSignedReleaseProbeRepairCommit:
+            options.candidateSignedReleaseProbeRepairCommit ??
+            HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
           expectedSurfaceCommit:
             options.candidateSurfaceCommit ??
             HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
@@ -835,6 +844,7 @@ export async function verifyPublishedReleaseSourceEvidence(
     expectedCustodyRepairCommit?: string;
     expectedHostTrustCommit?: string;
     expectedQ14Commit?: string;
+    expectedSignedReleaseProbeRepairCommit?: string;
     expectedSurfaceCommit?: string;
   }> = {},
 ): Promise<PublishedReleaseSourceEvidence> {
@@ -858,6 +868,9 @@ export async function verifyPublishedReleaseSourceEvidence(
         expectations.expectedHostTrustCommit ?? HRA_V0_C15_HOST_TRUST_COMMIT,
       expectedQ14Commit:
         expectations.expectedQ14Commit ?? HRA_V0_Q14_SURFACE_COMMIT,
+      expectedSignedReleaseProbeRepairCommit:
+        expectations.expectedSignedReleaseProbeRepairCommit ??
+        HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
       expectedSurfaceCommit:
         expectations.expectedSurfaceCommit ??
         HRA_V0_C15_REVIEWED_SURFACE_COMMIT,

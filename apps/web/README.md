@@ -180,8 +180,9 @@ Use this order for the v0.1.15 recovery publication:
 3. Read back the existing Accounts HRA entry, HRA-only identity-link keyring,
    and receipt-key selector with the checked audits. Treat any drift as a stop;
    do not repair it by generating or appending a replacement during release.
-4. From exact candidate commit C15 in `hraness/hra-v0`, complete the full package, then follow
-   the desktop release runbook to create and push the
+4. From exact candidate commit C15 in `hraness/hra-v0`, the sole direct child
+   of the reviewed signed-release-probe repair, complete the full package, then
+   follow the desktop release runbook to create and push the
    direct annotated `v0.1.15` tag and
    publish the exact seven-asset immutable GitHub prerelease. Fill the
    working-tree publication contract from C15's emitted evidence and require
