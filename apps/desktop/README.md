@@ -2,8 +2,8 @@
 
 This directory preserves the archived HRA v0 macOS application. Its
 generation-1 release ledger currently ends at the immutable v0.1.15 recovery
-release. HRA v0.1.16 build 17 is the checked native compatibility hotfix
-candidate. The current HRA is at
+release. HRA v0.1.16 build 17 is the checked native compatibility correction
+candidate C17. The current HRA is at
 [hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
@@ -292,7 +292,7 @@ zig-out/release/macos/arm64/
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
 The root `release-download.json` is the strict HRA v0.1.16 build 17 download
-and publication contract for `https://github.com/hraness/hra-v0`. C16 keeps
+and publication contract for `https://github.com/hraness/hra-v0`. C17 keeps
 artifact hashes and source identities null, so the website exposes no v0.1.16
 download. The immutable v0.1.15 release remains the current frozen ledger
 entry and the v0.1.14 origin remains available for its bounded forward
@@ -316,18 +316,26 @@ has ordered parents `[P15, U]`, preserves P15's download contract byte for
 byte, and is followed by the single Q15 archive-surface commit. The verifier
 rejects parent-order drift, candidate drift, a tag that
 does not peel to C15, or artifacts that do not embed C15 and its runtime-tree
-digest. Q15 is `443448b79e9016e00d52501f047fce3a408de092`. C16 is Q15's
-single-parent direct child. P16 must be C16's exact contract-only child, and
-the later Q16 archive promotion must remain on that linear history.
+digest. Q15 is `443448b79e9016e00d52501f047fce3a408de092`. Compatibility
+commit C16 is `4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb`, Q15's
+single-parent direct child. The final C17 candidate must be C16's
+single-parent direct child. P16 must be C17's exact contract-only child, and
+Q16 must be P16's single direct archive-surface child without changing the
+published contract.
+
+C17 exists because C16's runtime requests a 240-second interactive ACL
+validation and migration budget while its Objective-C admission boundary still
+caps the operation at 60 seconds. C17 aligns that boundary before any v0.1.16
+publication.
 
 The active `main` rulesets require a pull request, the strict `Required` status
 check on an up-to-date head, resolved review threads, and linear history; only
 squash and rebase merges are allowed. `Required` verifies both the pull-request
-head and the resulting `main` push. Keep the hotfix based on exact Q15 and
+head and the resulting `main` push. Keep the correction based on exact C16 and
 integrate it as one direct child. If a squash or rebase changes the object ID,
-the resulting `main` commit is C16: build, package, verify, and tag only a clean
-checkout of that final commit. A concurrent `main` commit after Q15 requires a
-reviewed provenance-contract change rather than merging around the Q15 edge.
+the resulting `main` commit is C17: build, package, verify, and tag only a clean
+checkout of that final commit. A concurrent `main` commit after C16 requires a
+reviewed provenance-contract change rather than merging around the C16 edge.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -343,7 +351,7 @@ C14 and P14 record the repository's historical name,
 contract byte remains fixed. C15 descends from the maintained archive surface,
 so its new candidate and publication contracts use `hraness/hra-v0` directly.
 
-Run candidate checks from a clean standalone C16 checkout:
+Run candidate checks from a clean standalone C17 checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
@@ -355,14 +363,13 @@ The gate requires the canonical top level with a real `.git` directory, a clean
 tree, and no submodules, alternates, grafts, replacement refs, shallow history,
 included local Git configuration, or inherited `GIT_*` steering.
 
-The candidate command verifies clean C16 as Q15's direct child, collision-free
-tag state, the DMG, checksum, manifest, runtime tree, and exact production
-signing authority. It emits the exact evidence for P16. Historical tags,
-releases, and assets remain
-immutable inputs and are never rewritten.
+The candidate command verifies the exact Q15-to-C16-to-C17 chain,
+collision-free tag state, the DMG, checksum, manifest, runtime tree, and exact
+production signing authority. It emits the exact evidence for P16. Historical
+tags, releases, and assets remain immutable inputs and are never rewritten.
 
 After the full package and candidate verifier pass, create the new direct
-annotated tag and immutable prerelease from the clean standalone C16 checkout.
+annotated tag and immutable prerelease from the clean standalone C17 checkout.
 Do not use `--clobber`, a glob, or an existing release:
 
 ```sh

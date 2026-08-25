@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > This repository preserves HRA v0. Its generation-1 release ledger currently
 > ends at the immutable v0.1.15 recovery release. HRA v0.1.16 build 17 is a
-> checked native compatibility hotfix candidate and has no download until its
+> checked native compatibility correction candidate and has no download until its
 > release evidence is published. The current HRA is
 > at [hra.sh](https://hra.sh) with
 > source at [github.com/hraness/hra](https://github.com/hraness/hra).
@@ -104,8 +104,11 @@ C15 is `0c7764da0dea0a71bbccca817539a02d8e4284d0`; annotated tag object
 `e5bcf5c919e8a7ffcdccc337b8940b60a70f0489` points directly to it, and
 publication P15 is `d96173c3556799cb203a4d659f29856180838029`.
 Reviewed archive surface Q15 is
-`443448b79e9016e00d52501f047fce3a408de092`; C16 must be its single-parent
-direct child.
+`443448b79e9016e00d52501f047fce3a408de092`. Compatibility commit C16 is
+`4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb`, Q15's single-parent direct
+child. The final C17 candidate and annotated `v0.1.16` tag must descend through
+one exact C16-to-C17 edge. P16 is C17's contract-only child, followed by the
+single Q16 archive surface.
 
 ## Develop HRA v0
 

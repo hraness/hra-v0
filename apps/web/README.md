@@ -79,12 +79,14 @@ HRA v0 stays available at `https://hra-weld.vercel.app` while current HRA uses
 identifiers, release assets, and runtime protocol identities in place. Do not
 copy any of them into current HRA.
 
-HRA v0.1.16 build 17 is a native compatibility hotfix candidate. Its null
-download contract exposes no artifact URL. Candidate C16 must be Q15
-`443448b79e9016e00d52501f047fce3a408de092`'s single-parent direct child.
-After local production packaging and exact installed-state acceptance, the
-annotated `v0.1.16` tag must point directly to C16 and publication P16 must be
-C16's exact `release-download.json`-only child. Until those immutable remote
+HRA v0.1.16 build 17 is a native compatibility correction candidate. Its null
+download contract exposes no artifact URL. Compatibility commit C16
+`4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb` must be Q15
+`443448b79e9016e00d52501f047fce3a408de092`'s single-parent direct child, and
+the final C17 candidate must be C16's single-parent direct child. After local
+production packaging and exact installed-state acceptance, the annotated
+`v0.1.16` tag must point directly to C17 and publication P16 must be C17's
+exact `release-download.json`-only child. Until those immutable remote
 records exist and Q16 promotes generation 2, the checked history,
 `/.well-known/hra.json`, and provider allowlists remain the generation-1
 v0.1.15/Q15 authorities below.

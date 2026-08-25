@@ -58,6 +58,10 @@ function objectiveCFunctionSource(source: string, signature: string): string {
   throw new Error(`Unterminated Objective-C function body: ${signature}`);
 }
 
+function nativeTimeoutBoundaryRejects(timeout: number, cap: number): boolean {
+  return timeout === 0 || timeout > cap;
+}
+
 describe("macOS package contract", () => {
   test("uses canonical temporary roots for every strict DMG path", async () => {
     const [creatorSource, verifierSource] = await Promise.all([
@@ -125,6 +129,64 @@ describe("macOS package contract", () => {
       );
       expect(body).not.toContain("var response: [1024]u8");
     }
+  });
+
+  test("keeps prepared ACL and legacy custody within their native timeout caps", async () => {
+    const [hostSource, nativeSource] = await Promise.all([
+      readFile(new URL("../../src/runtime_host.zig", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../src/macos_keychain_custodian.m", import.meta.url),
+        "utf8",
+      ),
+    ]);
+    const preparedAclBudget = Number(
+      /harness_custody_migration_helper_timeout_ms: u32 = ([0-9_]+);/u
+        .exec(hostSource)?.[1]
+        ?.replaceAll("_", ""),
+    );
+    const custodianCap = Number(
+      /HRACustodianMaximumTimeoutMilliseconds = ([0-9]+);/u
+        .exec(nativeSource)?.[1],
+    );
+    const legacyCap = Number(
+      /HRALegacyHarnessCustodyMaximumTimeoutMilliseconds =\s*([0-9]+);/u
+        .exec(nativeSource)?.[1],
+    );
+    expect(preparedAclBudget).toBe(240_000);
+    expect(custodianCap).toBe(preparedAclBudget);
+    expect(legacyCap).toBe(60_000);
+
+    const custodianBoundary = objectiveCFunctionSource(
+      nativeSource,
+      "bool hra_macos_run_attested_keychain_custodian(",
+    );
+    expect(custodianBoundary).toContain(
+      "timeout_milliseconds == 0 ||\n" +
+      "        timeout_milliseconds > HRACustodianMaximumTimeoutMilliseconds ||",
+    );
+    expect(custodianBoundary).not.toContain("timeout_milliseconds >=");
+    expect(custodianBoundary).not.toContain("timeout_milliseconds > 60000");
+    expect(nativeTimeoutBoundaryRejects(preparedAclBudget, custodianCap))
+      .toBe(false);
+    expect(nativeTimeoutBoundaryRejects(custodianCap + 1, custodianCap))
+      .toBe(true);
+    expect(nativeTimeoutBoundaryRejects(0, custodianCap)).toBe(true);
+
+    const legacyBoundary = objectiveCFunctionSource(
+      nativeSource,
+      "bool hra_macos_run_attested_legacy_harness_custody(",
+    );
+    expect(legacyBoundary).toContain(
+      "timeout_milliseconds == 0 ||\n" +
+      "        timeout_milliseconds >\n" +
+      "            HRALegacyHarnessCustodyMaximumTimeoutMilliseconds ||",
+    );
+    expect(legacyBoundary).not.toContain(
+      "HRACustodianMaximumTimeoutMilliseconds",
+    );
+    expect(nativeTimeoutBoundaryRejects(legacyCap, legacyCap)).toBe(false);
+    expect(nativeTimeoutBoundaryRejects(legacyCap + 1, legacyCap)).toBe(true);
+    expect(nativeTimeoutBoundaryRejects(0, legacyCap)).toBe(true);
   });
 
   test("keeps signed helper paths byte-exact across private-tmp aliases", async () => {

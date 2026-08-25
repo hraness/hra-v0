@@ -18,6 +18,7 @@ import {
   HRA_V0_C15_HOST_TRUST_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
   HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
+  HRA_V0_C16_COMPATIBILITY_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
@@ -323,7 +324,7 @@ describe("hermetic release provenance", () => {
     })).toBe(candidateCommit);
   });
 
-  test("resolves and binds the unique linear C16 child of Q15", async () => {
+  test("resolves and binds the unique linear C17 child of exact C16 and Q15", async () => {
     const repositoryRoot = await createRepository();
     const q15Commit = (await runSetupGit(
       repositoryRoot,
@@ -331,7 +332,17 @@ describe("hermetic release provenance", () => {
     )).trim();
     await writeFile(join(repositoryRoot, "hotfix.txt"), "macOS ACL hotfix\n");
     await runSetupGit(repositoryRoot, ["add", "hotfix.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C16"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "compatibility C16"]);
+    const c16Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(
+      join(repositoryRoot, "timeout.txt"),
+      "native timeout correction\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "timeout.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C17"]);
     const candidateCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
@@ -342,15 +353,18 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
     });
     expect(await resolveReleaseHotfixCandidateCommit(repository, {
+      expectedC16Commit: c16Commit,
       expectedQ15Commit: q15Commit,
     })).toBe(candidateCommit);
     expect(await inspectReleaseHotfixCandidateLineage(repository, {
       candidateCommit,
+      expectedC16Commit: c16Commit,
       expectedQ15Commit: q15Commit,
     })).toEqual({
+      c16Commit,
       candidateCommit,
       q15Commit,
-      status: "exact_q15_c16_candidate_chain",
+      status: "exact_q15_c16_c17_candidate_chain",
     });
 
     await writeFile(join(repositoryRoot, "publication.txt"), "descendant\n");
@@ -361,6 +375,7 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
     });
     expect(await resolveReleaseHotfixCandidateCommit(repository, {
+      expectedC16Commit: c16Commit,
       expectedQ15Commit: q15Commit,
     })).toBe(candidateCommit);
   });
@@ -405,45 +420,89 @@ describe("hermetic release provenance", () => {
     );
   });
 
-  test("rejects wrong-parent, merge-child, and multiple-child C16 topologies", async () => {
-    const wrongParentRoot = await createRepository();
-    const q15Commit = (await runSetupGit(
-      wrongParentRoot,
+  test("rejects a C16 whose sole parent is not exact Q15", async () => {
+    const wrongC16Root = await createRepository();
+    const wrongC16Q15 = (await runSetupGit(
+      wrongC16Root,
       ["rev-parse", "HEAD"],
     )).trim();
-    await commitFixture(wrongParentRoot, "intermediate.txt", "intermediate");
-    const wrongParentCandidate = await commitFixture(
-      wrongParentRoot,
-      "candidate.txt",
-      "candidate C16",
+    await commitFixture(wrongC16Root, "intermediate.txt", "intermediate");
+    const wrongC16 = await commitFixture(
+      wrongC16Root,
+      "compatibility.txt",
+      "compatibility C16",
     );
-    const wrongParentRepository = await inspectReleaseSourceRepository({
+    const wrongC16Candidate = await commitFixture(
+      wrongC16Root,
+      "candidate.txt",
+      "candidate C17",
+    );
+    const wrongC16Repository = await inspectReleaseSourceRepository({
       environment: {},
-      repositoryRoot: wrongParentRoot,
+      repositoryRoot: wrongC16Root,
     });
     await expectRejection(
-      inspectReleaseHotfixCandidateLineage(wrongParentRepository, {
-        candidateCommit: wrongParentCandidate,
-        expectedQ15Commit: q15Commit,
+      inspectReleaseHotfixCandidateLineage(wrongC16Repository, {
+        candidateCommit: wrongC16Candidate,
+        expectedC16Commit: wrongC16,
+        expectedQ15Commit: wrongC16Q15,
       }),
-      "must have exact Q15 as its only direct parent",
+      "C16 compatibility commit must have exact Q15 as its only direct parent",
     );
+  });
 
+  test("rejects a C17 whose sole parent is not exact C16", async () => {
+    const wrongC17Root = await createRepository();
+    const wrongC17Q15 = (await runSetupGit(
+      wrongC17Root,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const wrongC17C16 = await commitFixture(
+      wrongC17Root,
+      "compatibility.txt",
+      "compatibility C16",
+    );
+    await commitFixture(wrongC17Root, "intermediate.txt", "intermediate");
+    const wrongC17Candidate = await commitFixture(
+      wrongC17Root,
+      "candidate.txt",
+      "candidate C17",
+    );
+    const wrongC17Repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: wrongC17Root,
+    });
+    await expectRejection(
+      inspectReleaseHotfixCandidateLineage(wrongC17Repository, {
+        candidateCommit: wrongC17Candidate,
+        expectedC16Commit: wrongC17C16,
+        expectedQ15Commit: wrongC17Q15,
+      }),
+      "C17 candidate must have exact C16 as its only direct parent",
+    );
+  });
+
+  test("rejects merge-child and multiple-child C17 topologies", async () => {
     const forkedRoot = await createRepository();
     const forkQ15 = (await runSetupGit(
       forkedRoot,
       ["rev-parse", "HEAD"],
     )).trim();
-    await runSetupGit(forkedRoot, ["switch", "-c", "other-c16"]);
-    await commitFixture(forkedRoot, "other.txt", "other C16 child");
+    const forkC16 = await commitFixture(
+      forkedRoot,
+      "compatibility.txt",
+      "compatibility C16",
+    );
+    await runSetupGit(forkedRoot, ["switch", "-c", "other-c17"]);
+    await commitFixture(forkedRoot, "other.txt", "other C17 child");
     await runSetupGit(forkedRoot, ["switch", "main"]);
-    await commitFixture(forkedRoot, "candidate.txt", "candidate C16 child");
+    await commitFixture(forkedRoot, "candidate.txt", "candidate C17 child");
     await runSetupGit(forkedRoot, [
       "merge",
       "--no-ff",
-      "other-c16",
+      "other-c17",
       "-m",
-      "merge two C16 children",
+      "merge two C17 children",
     ]);
     const forkedRepository = await inspectReleaseSourceRepository({
       environment: {},
@@ -451,16 +510,18 @@ describe("hermetic release provenance", () => {
     });
     await expectRejection(
       resolveReleaseHotfixCandidateCommit(forkedRepository, {
+        expectedC16Commit: forkC16,
         expectedQ15Commit: forkQ15,
       }),
-      "must have exact Q15 as its only direct parent",
+      "C17 candidate must have exact C16 as its only direct parent",
     );
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(forkedRepository, {
         candidateCommit: forkedRepository.commit,
+        expectedC16Commit: forkC16,
         expectedQ15Commit: forkQ15,
       }),
-      "must have exact Q15 as its only direct parent",
+      "C17 candidate must have exact C16 as its only direct parent",
     );
   });
 
@@ -1620,6 +1681,9 @@ describe("hermetic release provenance", () => {
     expect(HRA_V0_Q15_SURFACE_COMMIT).toBe(
       "443448b79e9016e00d52501f047fce3a408de092",
     );
+    expect(HRA_V0_C16_COMPATIBILITY_COMMIT).toBe(
+      "4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb",
+    );
   });
 
   test("accepts the ordered C/P and C/U to M bridge followed by one direct Q surface", async () => {
@@ -1946,7 +2010,12 @@ async function createLinearPublicationTopology(
     candidateContract,
   );
   await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
-  await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C16"]);
+  await runSetupGit(repositoryRoot, ["commit", "-m", "compatibility C16"]);
+  await commitFixture(
+    repositoryRoot,
+    "timeout-cap.txt",
+    "candidate C17",
+  );
   const candidateCommit = (
     await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
   ).trim();
