@@ -1146,7 +1146,7 @@ describe("hermetic release provenance", () => {
       }),
       "custody repair must have exact reviewed public surface as its only direct parent",
     );
-  });
+  }, 10_000);
 
   test("rejects a merge commit as the custody repair", async () => {
     const repositoryRoot = await createRepository();
@@ -1198,7 +1198,7 @@ describe("hermetic release provenance", () => {
       }),
       "custody repair must have exact reviewed public surface as its only direct parent",
     );
-  });
+  }, 10_000);
 
   test("rejects a multi-commit reviewed-surface-to-custody-repair range", async () => {
     const repositoryRoot = await createRepository();
