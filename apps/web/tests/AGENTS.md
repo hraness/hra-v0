@@ -1,7 +1,7 @@
 # Contents
 
 - `local-convex.ts` – serial black-box acceptance against the anonymous local Convex HTTP boundary and real scheduler, including tenant-isolated task CRUD, graph laws, projection repair, idempotency, submissions/review, a 100-attempt claim race, exact 500-dependent propagation, pagination, claims, and events; an opt-in path measures 10,000 ready tasks.
-- `run-local-convex.ts` – fail-closed local Convex supervisor that requires the child black-box gate's exact success marker.
+- `run-local-convex.ts` – fail-closed local Convex supervisor that launches through the product-owned anonymous boundary and requires the child black-box gate's exact success marker.
 - `fake-workos.ts` – loopback-only signed WorkOS, JWKS, membership, refresh, and webhook fixture without an authentication bypass.
 - `human-local-runner.ts` – keeps Convex and the fake provider alive while running signed CLI auth, provisioning, two-session promotion manifest convergence, fixed-slot refresh limiting, webhook, reconciliation, authorization, repository, direct human-review limiting, human cancel/reopen, and in-review cancellation acceptance.
 - `realtime-cli-proof.ts` – two-phase, signed-human Convex subscription proof that brackets a real `taskctl` claim subprocess and verifies its durable claim tuple and persisted agent event actor without a manual refresh.
@@ -10,6 +10,7 @@
 # Guidelines
 
 - Run these tests only through a live anonymous local Convex deployment; do not substitute mocked database semantics.
+- Route every acceptance-owned Convex process and one-shot CLI call through `../convex-local.ts`; ambient or dotenv remote authority must fail before a subprocess starts.
 - Seed unique two-tenant fixtures through identity-gated local fixture functions, never through a versioned HTTP bypass.
 - Keep production lease and authorization behavior fixed; test-only helpers may shorten an already-created deadline behind the fixture gate.
 - Assert public envelopes through `@hraness/agent-tasks-protocol` and inspect persistence only through the doubly gated fixture boundary.
