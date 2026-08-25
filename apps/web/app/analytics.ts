@@ -11,11 +11,46 @@ export const HRA_ANALYTICS_SITE_ID = "hra-v0" as const;
 export const HRA_ANALYTICS_CANONICAL_DOMAIN = "hra-weld.vercel.app" as const;
 export const HRA_ANALYTICS_CANONICAL_ORIGIN =
   `https://${HRA_ANALYTICS_CANONICAL_DOMAIN}` as const;
+export const HRA_ANALYTICS_COMPATIBILITY_SITE_ID = "hra" as const;
+export const HRA_ANALYTICS_COMPATIBILITY_DOMAIN = "hra.sh" as const;
+export const HRA_ANALYTICS_COMPATIBILITY_ORIGIN =
+  `https://${HRA_ANALYTICS_COMPATIBILITY_DOMAIN}` as const;
 export const HRA_POSTHOG_INGESTION_HOST = "https://us.i.posthog.com" as const;
 export const HRA_POSTHOG_COOKIELESS_DISTINCT_ID =
   "$posthog_cookieless" as const;
 
 const publicProjectTokenPattern = /^phc_[a-zA-Z0-9_-]{10,512}$/u;
+const rawUserAgentLimit = 2_048;
+
+type HraAnalyticsIdentity = Readonly<{
+  canonicalDomain:
+    | typeof HRA_ANALYTICS_CANONICAL_DOMAIN
+    | typeof HRA_ANALYTICS_COMPATIBILITY_DOMAIN;
+  origin:
+    | typeof HRA_ANALYTICS_CANONICAL_ORIGIN
+    | typeof HRA_ANALYTICS_COMPATIBILITY_ORIGIN;
+  siteId:
+    | typeof HRA_ANALYTICS_SITE_ID
+    | typeof HRA_ANALYTICS_COMPATIBILITY_SITE_ID;
+}>;
+
+function hraAnalyticsIdentity(origin: string): HraAnalyticsIdentity | null {
+  if (origin === HRA_ANALYTICS_CANONICAL_ORIGIN) {
+    return {
+      canonicalDomain: HRA_ANALYTICS_CANONICAL_DOMAIN,
+      origin: HRA_ANALYTICS_CANONICAL_ORIGIN,
+      siteId: HRA_ANALYTICS_SITE_ID,
+    };
+  }
+  if (origin === HRA_ANALYTICS_COMPATIBILITY_ORIGIN) {
+    return {
+      canonicalDomain: HRA_ANALYTICS_COMPATIBILITY_DOMAIN,
+      origin: HRA_ANALYTICS_COMPATIBILITY_ORIGIN,
+      siteId: HRA_ANALYTICS_COMPATIBILITY_SITE_ID,
+    };
+  }
+  return null;
+}
 
 export type HraAnalyticsRoute = Readonly<{
   analytics_schema_version: typeof HRA_ANALYTICS_SCHEMA_VERSION;
@@ -82,7 +117,7 @@ export function isHraAnalyticsBrowserEligible(
   projectToken: unknown,
 ): boolean {
   return evidence.production
-    && evidence.origin === HRA_ANALYTICS_CANONICAL_ORIGIN
+    && hraAnalyticsIdentity(evidence.origin) !== null
     && classifyHraAnalyticsRoute(evidence.pathname) !== null
     && isHraPublicProjectToken(projectToken);
 }
@@ -94,17 +129,21 @@ export function createHraPageviewFilter(
   return (capture) => {
     if (capture === null || capture.event !== "$pageview") return null;
     const evidence = resolveEvidence();
+    const identity = hraAnalyticsIdentity(evidence.origin);
     const route = classifyHraAnalyticsRoute(evidence.pathname);
     const token = capture.properties.token;
     const cookielessDistinctId = capture.properties.distinct_id;
     const cookielessMarker = capture.properties.$cookieless_mode;
+    const rawUserAgent = capture.properties.$raw_user_agent;
     if (
       !evidence.production
-      || evidence.origin !== HRA_ANALYTICS_CANONICAL_ORIGIN
+      || identity === null
       || route === null
       || !isHraPublicProjectToken(token)
       || cookielessDistinctId !== HRA_POSTHOG_COOKIELESS_DISTINCT_ID
       || cookielessMarker !== true
+      || typeof rawUserAgent !== "string"
+      || rawUserAgent.trim().length === 0
     ) {
       return null;
     }
@@ -113,11 +152,14 @@ export function createHraPageviewFilter(
       token,
       distinct_id: HRA_POSTHOG_COOKIELESS_DISTINCT_ID,
       $cookieless_mode: true,
-      $current_url: `${HRA_ANALYTICS_CANONICAL_ORIGIN}${route.canonical_path}`,
-      $host: HRA_ANALYTICS_CANONICAL_DOMAIN,
+      $current_url: `${identity.origin}${route.canonical_path}`,
+      $host: identity.canonicalDomain,
       $pathname: route.canonical_path,
       $process_person_profile: false,
+      $raw_user_agent: rawUserAgent.slice(0, rawUserAgentLimit),
       ...route,
+      canonical_domain: identity.canonicalDomain,
+      site_id: identity.siteId,
     };
 
     return {

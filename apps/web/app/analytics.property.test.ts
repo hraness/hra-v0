@@ -48,6 +48,7 @@ test("arbitrary provider properties cannot escape the pageview allowlist", () =>
     "$host",
     "$pathname",
     "$process_person_profile",
+    "$raw_user_agent",
     "analytics_schema_version",
     "canonical_domain",
     "canonical_path",
@@ -73,6 +74,7 @@ test("arbitrary provider properties cannot escape the pageview allowlist", () =>
           token: "phc_publicproject",
           distinct_id: HRA_POSTHOG_COOKIELESS_DISTINCT_ID,
           $cookieless_mode: true,
+          $raw_user_agent: "HRA property test browser",
         },
         uuid: "00000000-0000-4000-8000-000000000000",
       } as unknown as NonNullable<Parameters<typeof filter>[0]>;
@@ -108,6 +110,7 @@ test("arbitrary transport identity is rejected without the exact cookieless pair
           token: "phc_publicproject",
           distinct_id: distinctId,
           $cookieless_mode: cookielessMarker,
+          $raw_user_agent: "HRA property test browser",
         },
         uuid: "00000000-0000-4000-8000-000000000000",
       });

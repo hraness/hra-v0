@@ -6,6 +6,7 @@ import {
   createHraPageviewFilter,
   createHraPostHogConfiguration,
   HRA_ANALYTICS_CANONICAL_ORIGIN,
+  HRA_ANALYTICS_COMPATIBILITY_ORIGIN,
   isHraAnalyticsBrowserEligible,
   type HraAnalyticsBrowserEvidence,
 } from "./analytics";
@@ -14,6 +15,11 @@ const productionLanding = {
   origin: HRA_ANALYTICS_CANONICAL_ORIGIN,
   pathname: "/",
   production: true,
+} as const satisfies HraAnalyticsBrowserEvidence;
+
+const productionCompatibilityLanding = {
+  ...productionLanding,
+  origin: HRA_ANALYTICS_COMPATIBILITY_ORIGIN,
 } as const satisfies HraAnalyticsBrowserEvidence;
 
 describe("HRA analytics route boundary", () => {
@@ -62,6 +68,10 @@ describe("HRA analytics route boundary", () => {
       "phc_publicproject",
     )).toBeTrue();
     expect(isHraAnalyticsBrowserEligible(
+      productionCompatibilityLanding,
+      "phc_publicproject",
+    )).toBeTrue();
+    expect(isHraAnalyticsBrowserEligible(
       { ...productionLanding, origin: "https://www.hra-weld.vercel.app" },
       "phc_publicproject",
     )).toBeFalse();
@@ -101,6 +111,7 @@ describe("HRA PostHog pageviews", () => {
         $device_id: "device-id",
         $lib: "web",
         $lib_version: "test",
+        $raw_user_agent: "HRA test browser",
         $session_id: "session-id",
         $current_url: "https://hra-weld.vercel.app/alternatives/codex-app?token=sensitive#private",
         $pathname: "/app",
@@ -124,6 +135,7 @@ describe("HRA PostHog pageviews", () => {
         $host: "hra-weld.vercel.app",
         $pathname: "/alternatives/codex-app",
         $process_person_profile: false,
+        $raw_user_agent: "HRA test browser",
         analytics_schema_version: 1,
         canonical_domain: "hra-weld.vercel.app",
         canonical_path: "/alternatives/codex-app",
@@ -135,6 +147,27 @@ describe("HRA PostHog pageviews", () => {
     });
   });
 
+  test("attributes the temporary hra.sh alias to the current HRA identity", () => {
+    const filtered = createHraPageviewFilter(() => productionCompatibilityLanding)({
+      event: "$pageview",
+      properties: {
+        token: "phc_publicproject",
+        distinct_id: "$posthog_cookieless",
+        $cookieless_mode: true,
+        $raw_user_agent: "HRA test browser",
+      },
+      uuid: "00000000-0000-4000-8000-000000000001",
+    });
+
+    expect(filtered?.properties).toMatchObject({
+      $current_url: "https://hra.sh/",
+      $host: "hra.sh",
+      $raw_user_agent: "HRA test browser",
+      canonical_domain: "hra.sh",
+      site_id: "hra",
+    });
+  });
+
   test("drops pageviews outside every runtime boundary and every non-pageview event", () => {
     const event = {
       event: "$pageview",
@@ -142,6 +175,7 @@ describe("HRA PostHog pageviews", () => {
         token: "phc_publicproject",
         distinct_id: "$posthog_cookieless",
         $cookieless_mode: true,
+        $raw_user_agent: "HRA test browser",
       },
       uuid: "00000000-0000-4000-8000-000000000000",
     };
@@ -167,6 +201,13 @@ describe("HRA PostHog pageviews", () => {
         token: "phc_publicproject",
         distinct_id: "$posthog_cookieless",
         $cookieless_mode: "always",
+        $raw_user_agent: "HRA test browser",
+      },
+      {
+        token: "phc_publicproject",
+        distinct_id: "$posthog_cookieless",
+        $cookieless_mode: true,
+        $raw_user_agent: "",
       },
     ]) {
       expect(createHraPageviewFilter(() => productionLanding)({
