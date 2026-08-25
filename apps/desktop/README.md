@@ -301,7 +301,8 @@ extension: nine tags, eight releases, and 56 assets, with the v0.1.15 tag,
 release, and assets bound to the published contract.
 
 Publication uses two commits so no commit must contain its own object ID. Clean
-candidate C15 retains the null contract; the package, annotated `v0.1.15` tag,
+candidate C15 is the sole direct child of the reviewed signed-release-probe
+repair and retains the null contract; the package, annotated `v0.1.15` tag,
 manifest, app, DMG, and checksum all name C15. P15 must be C15's sole child and
 may change only `release-download.json` to the complete evidence. The verifier
 rejects another changed path or parent, candidate drift, a tag that does not
