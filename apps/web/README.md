@@ -86,16 +86,21 @@ The immutable v0.1.14 build 15 publication has three fixed Git identities:
 - Annotated tag object `37ed37afb39cacfd6a51044cf7f3c1b873571aa3`
   points directly to C.
 
-The seven-asset GitHub prerelease and P's release evidence are immutable in
-`hraness/hra-v0`. While v0.1.15 is a candidate, `release-download.json` names
-the new version and build but carries null publication evidence. The web app
-therefore exposes no candidate DMG, checksum, or manifest URL. Keep
-`HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at P in Vercel Production and
-Preview through C15. The C15/P15 provider gate consumes only that publication
-allowlist. It strips both publication and archive-surface allowlist records
-before the Next.js child build, and does not require or consume
-`HRA_V0_SURFACE_COMMIT_ALLOWLIST`. Archive-ledger and surface-authority
-promotion belong to a later, separately reviewed Q15 contract.
+The seven-asset v0.1.15 GitHub prerelease and its release evidence are
+immutable in `hraness/hra-v0`. `release-download.json` binds the public download
+to candidate C15, annotated tag object, runtime-tree digest, and exact artifact
+bytes and SHA-256 digests. Publication P15 is
+`890ac43f2ff00559305a4e884b32a28da0eb49a4`.
+
+Keep `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at exact P15 in Vercel
+Production and Preview. A provider build at a later source commit must also
+name that exact commit in `HRA_V0_SURFACE_COMMIT_ALLOWLIST`. The provider gate
+fetches canonical Git history and proves one contract-only C15-to-P15 frontier
+through the allowlisted source surface. It rejects a second publication,
+contract rollback, hidden rewrite and restore, or a branch that did not descend
+entirely from C15. Both authority records are stripped before the Next.js child
+build. Archive-ledger promotion remains a later, separately reviewed Q15
+contract.
 
 Rename the existing Vercel project in place from `hra` to `hra-v0`. Preserve
 the existing project identity, READY deployment, and `hra-weld.vercel.app`
@@ -188,17 +193,22 @@ Use this order for the v0.1.15 recovery publication:
    working-tree publication contract from C15's emitted evidence and require
    `bun run verify:remote-release` to read back exact remote names, byte counts,
    SHA-256 digests, checksum, manifest, DMG binding, and corresponding-source
-   binding before committing P15. Create P15 as the exact contract-only child,
-   push it, and require the green Required CI source-and-remote readback for
-   that exact P15. P15 changes only `release-download.json`. Preserve the
-   v0.1.14 publication allowlist throughout C15. A Git
+   binding before committing P15. Create P15 with C15 as its sole direct parent.
+   P15 changes only `release-download.json`. A later reviewed source commit may
+   reconcile candidate-preserving work only through the checked two-state DAG:
+   one exact C15-to-P15 frontier, no rollback, no third contract state, and no
+   history rooted outside C15. Require green Required CI source-and-remote
+   readback for that exact reviewed head. Preserve the v0.1.14 publication
+   allowlist throughout C15. A Git
    build of candidate C15 may proceed against the unchanged backend authority;
    it must not create or rotate provider authority. The automatic build of
    published P15 must then refuse against the retained v0.1.14 allowlist.
-5. Only after Required succeeds for exact P15, replace
-   `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` with P15 in Production and Preview.
-   This allowlist update is the only environment write for v0.1.15. Redeploy
-   exact P15, then read back its canonical Git SHA, complete build commands,
+5. Only after Required succeeds, replace
+   `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` with exact P15 in Production and
+   Preview. If the deployed source is a later reviewed surface, add only its
+   exact SHA to `HRA_V0_SURFACE_COMMIT_ALLOWLIST`. These two source-authority
+   records are the only environment writes for v0.1.15. Redeploy that exact
+   source surface, then read back its canonical Git SHA, complete build commands,
    unchanged environment inventory and scoping, READY state, production routes,
    release delivery, discovery, and OIDC endpoints before enabling or exercising
    the installation handoff.

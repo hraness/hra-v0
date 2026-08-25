@@ -50,8 +50,13 @@ export const HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT =
 export const HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT =
   "8b84baf7ebc80cc5e2b63365900454a7446f7479" as const;
 
+/** Exact contract-only publication child of the tagged v0.1.15 candidate. */
+export const HRA_V0_C15_RELEASE_PUBLICATION_COMMIT =
+  "890ac43f2ff00559305a4e884b32a28da0eb49a4" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
+const releasePublicationHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
 const productionRepositoryRoot = resolve(import.meta.dir, "../../..");
 const canonicalGitRepository = `${HRA_V0_CURRENT_REPOSITORY}.git` as const;
@@ -92,6 +97,12 @@ export interface ReleasePublicationEvidence {
   readonly status: "exact_candidate_publication_transition";
 }
 
+export interface ReleasePublicationSurfaceEvidence {
+  readonly publicationCommit: string;
+  readonly status: "verified_descendant_publication_surface";
+  readonly surfaceCommit: string;
+}
+
 export interface ReleaseCandidateLineageEvidence {
   readonly baseCommit: string;
   readonly bundleCodeAuthorityCommit: string;
@@ -107,6 +118,16 @@ export interface ReleaseCandidateLineageEvidence {
 export interface CanonicalReleasePublicationEvidence {
   readonly publication: ReleasePublicationEvidence;
   readonly tag: ReleaseTagEvidence;
+}
+
+export interface ReleasePublicationSurfaceInspectionEvidence {
+  readonly publication: ReleasePublicationEvidence;
+  readonly surface: ReleasePublicationSurfaceEvidence;
+}
+
+export interface CanonicalReleasePublicationSurfaceEvidence
+  extends CanonicalReleasePublicationEvidence,
+    ReleasePublicationSurfaceInspectionEvidence {
 }
 
 export interface ArchiveReleaseSurfaceEvidence {
@@ -624,6 +645,229 @@ export async function inspectReleasePublicationAtCommit(
 }
 
 /**
+ * Verify one exact C-to-P publication frontier inside a later reviewed source
+ * surface. This supports a publication branch merged after unrelated work won
+ * the main-branch race without permitting a merge commit to invent P, a later
+ * rollback to C, or a hidden third release-contract state.
+ */
+export async function inspectReleasePublicationSurface(
+  repository: ReleaseRepositoryEvidence,
+  candidateCommitValue: string,
+  publicationCommitValue: string,
+): Promise<ReleasePublicationSurfaceInspectionEvidence> {
+  const candidateCommit = requireObjectId(
+    candidateCommitValue,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    publicationCommitValue,
+    "Published publication commit",
+  );
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  const publication = await inspectReleasePublicationWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+  );
+  const surface = await inspectReleasePublicationSurfaceWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+    repository.commit,
+  );
+  return Object.freeze({ publication, surface });
+}
+
+async function inspectReleasePublicationSurfaceWithRunner(
+  runner: ReleaseGitRunner,
+  candidateCommit: string,
+  publicationCommit: string,
+  surfaceCommit: string,
+): Promise<ReleasePublicationSurfaceEvidence> {
+  const [candidateMergeBase, publicationMergeBase] = await Promise.all([
+    runner.run(["merge-base", candidateCommit, surfaceCommit]),
+    runner.run(["merge-base", publicationCommit, surfaceCommit]),
+  ]);
+  if (
+    requireObjectId(
+      candidateMergeBase,
+      "Release candidate surface merge base",
+    ) !== candidateCommit
+    || requireObjectId(
+      publicationMergeBase,
+      "Release publication surface merge base",
+    ) !== publicationCommit
+  ) {
+    throw new Error(
+      "The maintained release surface must descend from both candidate C and publication P.",
+    );
+  }
+
+  const [candidateContract, publicationContract, surfaceContract] =
+    await Promise.all([
+      readBoundedReleaseContractAtCommit(runner, candidateCommit),
+      readBoundedReleaseContractAtCommit(runner, publicationCommit),
+      readBoundedReleaseContractAtCommit(runner, surfaceCommit),
+    ]);
+  if (surfaceContract !== publicationContract) {
+    throw new Error(
+      "The maintained release surface must preserve exact publication P contract bytes.",
+    );
+  }
+
+  // Keep the entire unpruned DAG. A pathspec could hide a rewrite and restore
+  // on a merged side branch, so every commit and direct parent between C and S
+  // must carry exactly candidate C or publication P bytes.
+  const historyOutput = (await runner.run([
+    "rev-list",
+    "--full-history",
+    "--topo-order",
+    "--parents",
+    `--max-count=${String(releasePublicationHistoryCommitLimit + 1)}`,
+    `${candidateCommit}..${surfaceCommit}`,
+  ])).trim();
+  const historyLines = historyOutput.length === 0
+    ? []
+    : historyOutput.split("\n");
+  if (historyLines.length > releasePublicationHistoryCommitLimit) {
+    throw new Error(
+      `The maintained release history exceeds ${String(releasePublicationHistoryCommitLimit)} commits.`,
+    );
+  }
+  if (historyLines.length === 0) {
+    throw new Error("The maintained release history contains no publication commit.");
+  }
+
+  const history = historyLines.map((line, index) => {
+    const objectIds = line.trim().split(/\s+/u);
+    const commit = requireObjectId(
+      objectIds[0] ?? "",
+      `Maintained release history commit ${String(index)}`,
+    );
+    const parents = objectIds.slice(1).map((value, parentIndex) =>
+      requireObjectId(
+        value,
+        `Maintained release history commit ${String(index)} parent ${String(parentIndex)}`,
+      )
+    );
+    if (parents.length === 0) {
+      throw new Error("Every maintained release commit must have a direct parent.");
+    }
+    return Object.freeze({ commit, parents });
+  });
+  const historyCommits = new Set(history.map(({ commit }) => commit));
+  if (historyCommits.size !== history.length) {
+    throw new Error("The maintained release history contains a duplicate commit.");
+  }
+  if (!historyCommits.has(publicationCommit) || !historyCommits.has(surfaceCommit)) {
+    throw new Error(
+      "The maintained release history is missing publication P or its source surface.",
+    );
+  }
+  for (const { parents } of history) {
+    if (
+      parents.some((parent) =>
+        parent !== candidateCommit && !historyCommits.has(parent)
+      )
+    ) {
+      throw new Error(
+        "Every maintained release history branch must descend entirely from candidate C.",
+      );
+    }
+  }
+
+  type ReleaseContractState = "candidate" | "published";
+  const contracts = new Map<string, string>([
+    [candidateCommit, candidateContract],
+    [publicationCommit, publicationContract],
+    [surfaceCommit, surfaceContract],
+  ]);
+  for (const { commit, parents } of history) {
+    for (const relevantCommit of [commit, ...parents]) {
+      if (contracts.has(relevantCommit)) continue;
+      contracts.set(
+        relevantCommit,
+        await readBoundedReleaseContractAtCommit(runner, relevantCommit),
+      );
+    }
+  }
+  const states = new Map<string, ReleaseContractState>();
+  for (const [commit, contract] of contracts) {
+    const state = contract === candidateContract
+      ? "candidate"
+      : contract === publicationContract
+        ? "published"
+        : null;
+    if (state === null) {
+      throw new Error(
+        `Every maintained release commit and parent must preserve exact candidate C or publication P release contract bytes; ${commit} does not.`,
+      );
+    }
+    states.set(commit, state);
+  }
+
+  const historyStates = history.map(({ commit, parents }) => {
+    const state = states.get(commit);
+    if (state === undefined) {
+      throw new Error("Maintained release contract state is incomplete.");
+    }
+    const parentStates = parents.map((parent) => {
+      const parentState = states.get(parent);
+      if (parentState === undefined) {
+        throw new Error("Maintained release parent contract state is incomplete.");
+      }
+      return parentState;
+    });
+    return Object.freeze({ commit, parents, parentStates, state });
+  });
+  for (const { parentStates, state } of historyStates) {
+    if (
+      state === "candidate"
+      && parentStates.some((parentState) => parentState === "published")
+    ) {
+      throw new Error(
+        "The maintained release history may not contain a publication P to candidate C edge.",
+      );
+    }
+  }
+
+  const frontierCommits: string[] = [];
+  for (const { commit, parents, parentStates, state } of historyStates) {
+    if (
+      state === "published"
+      && !parentStates.some((parentState) => parentState === "published")
+    ) {
+      if (
+        commit !== publicationCommit
+        || parents.length !== 1
+        || parents[0] !== candidateCommit
+      ) {
+        throw new Error(
+          "A merge commit or alternate branch may not invent publication P.",
+        );
+      }
+      frontierCommits.push(commit);
+    }
+  }
+  if (
+    frontierCommits.length !== 1
+    || frontierCommits[0] !== publicationCommit
+  ) {
+    throw new Error(
+      "The maintained release history must contain exactly one direct candidate C to publication P frontier.",
+    );
+  }
+  return Object.freeze({
+    publicationCommit,
+    status: "verified_descendant_publication_surface",
+    surfaceCommit,
+  });
+}
+
+/**
  * Bind a maintained archive surface to the immutable publication while
  * allowing exactly one reviewed repository-coordinate migration. Every other
  * byte of release-download.json remains fixed at P.
@@ -1060,6 +1304,100 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
       HRA_V0_Q14_SURFACE_COMMIT,
     );
     return evidence;
+  } finally {
+    await rm(temporaryRoot, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Fetch and verify an allowlisted maintained source surface whose unpruned DAG
+ * contains the exact P15 child of C15. The ambient provider checkout remains
+ * outside the trust boundary.
+ */
+export async function inspectCanonicalReleasePublicationSurface(
+  options: Readonly<{
+    candidateCommit: string;
+    publicationCommit: string;
+    surfaceCommit: string;
+    tag: string;
+  }>,
+): Promise<CanonicalReleasePublicationSurfaceEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  const surfaceCommit = requireObjectId(
+    options.surfaceCommit,
+    "Maintained release surface commit",
+  );
+  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
+    throw new Error("Release tag is invalid.");
+  }
+  const temporaryRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "hra-release-surface-fetch-")),
+  );
+  const gitDirectory = join(temporaryRoot, "publication.git");
+  try {
+    await runHermeticGit(
+      ["init", "--bare", "--initial-branch=main", gitDirectory],
+      temporaryRoot,
+    );
+    const runner = releaseGitObjectRunner(gitDirectory);
+    await runner.run(["remote", "add", "canonical", canonicalGitRepository]);
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=64",
+      "--filter=blob:limit=32768",
+      "canonical",
+      surfaceCommit,
+    ]);
+    const tagRef = `refs/tags/${options.tag}`;
+    await runner.run([
+      "fetch",
+      "--quiet",
+      "--force",
+      "--no-tags",
+      "--depth=8",
+      "--filter=blob:limit=32768",
+      "canonical",
+      `${tagRef}:${tagRef}`,
+    ]);
+    const [publication, surface, tag] = await Promise.all([
+      inspectReleasePublicationWithRunner(
+        runner,
+        candidateCommit,
+        publicationCommit,
+      ),
+      inspectReleasePublicationSurfaceWithRunner(
+        runner,
+        candidateCommit,
+        publicationCommit,
+        surfaceCommit,
+      ),
+      inspectReleaseTagWithRunner(runner, options.tag),
+    ]);
+    if (tag === null) {
+      throw new Error("The canonical release repository has no annotated release tag.");
+    }
+    await inspectReleaseCandidateLineageWithRunner(
+      runner,
+      candidateCommit,
+      HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
+      HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
+      HRA_V0_C15_HOST_TRUST_COMMIT,
+      HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
+      HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
+      HRA_V0_C15_BASE_COMMIT,
+      HRA_V0_Q14_SURFACE_COMMIT,
+    );
+    return Object.freeze({ publication, surface, tag });
   } finally {
     await rm(temporaryRoot, { force: true, recursive: true });
   }

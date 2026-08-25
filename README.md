@@ -87,12 +87,10 @@ and data boundary.
 
 ## Install the prerelease
 
-The native app targets Apple Silicon and macOS 13 or newer. While the v0.1.15
-contract is a candidate, the [download page](https://hra-weld.vercel.app/download)
-continues to identify v0.1.14 build 15 as the latest ledgered prerelease and
-does not expose candidate assets. Once v0.1.15 is published, it exposes only
-the exact DMG, checksum, and manifest bound by the published contract. Verify
-the SHA-256 and follow the unknown-developer instructions.
+The native app targets Apple Silicon and macOS 13 or newer. The published
+[download page](https://hra-weld.vercel.app/download) exposes only the exact
+v0.1.15 build 16 DMG, checksum, and manifest bound by the checked release
+contract. Verify the SHA-256 and follow the unknown-developer instructions.
 
 The generation-0 [release history](https://hra-weld.vercel.app/releases)
 records every tag from v0.1.7 through v0.1.14, all seven immutable GitHub

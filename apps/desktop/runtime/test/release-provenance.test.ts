@@ -15,6 +15,7 @@ import {
   HRA_V0_C15_BUNDLE_CODE_AUTHORITY_COMMIT,
   HRA_V0_C15_CUSTODY_REPAIR_COMMIT,
   HRA_V0_C15_HOST_TRUST_COMMIT,
+  HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
   HRA_V0_C15_REVIEWED_SURFACE_COMMIT,
   HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
@@ -22,6 +23,7 @@ import {
   inspectArchiveReleaseSurface,
   inspectReleaseCandidateLineage,
   inspectReleasePublicationTransition,
+  inspectReleasePublicationSurface,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
   resolveReleaseCandidateCommit,
@@ -1422,6 +1424,188 @@ describe("hermetic release provenance", () => {
     await expectRejection(
       inspectReleasePublicationTransition(repository, candidateCommit),
       "only release-download.json",
+    );
+  });
+
+  test("pins the exact v0.1.15 publication child", () => {
+    expect(HRA_V0_C15_RELEASE_PUBLICATION_COMMIT).toBe(
+      "890ac43f2ff00559305a4e884b32a28da0eb49a4",
+    );
+  });
+
+  test("accepts one contract-only publication merged after candidate-preserving work", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(join(repositoryRoot, "release-download.json"), "candidate\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C"]);
+    const candidateCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "publication"]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "published\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await commitFixture(repositoryRoot, "publication.txt", "publication follow-up");
+
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await commitFixture(repositoryRoot, "main.txt", "candidate-preserving main work");
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "publication",
+      "-m",
+      "merge exact publication",
+    ]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    expect(await inspectReleasePublicationSurface(
+      repository,
+      candidateCommit,
+      publicationCommit,
+    )).toMatchObject({
+      publication: {
+        candidateCommit,
+        publicationCommit,
+        status: "exact_candidate_publication_transition",
+      },
+      surface: {
+        publicationCommit,
+        status: "verified_descendant_publication_surface",
+        surfaceCommit: repository.commit,
+      },
+    });
+  });
+
+  test("rejects a second publication frontier on a merged branch", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(join(repositoryRoot, "release-download.json"), "candidate\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C"]);
+    const candidateCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "publication"]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "published\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "main"]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "published\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "alternate publication"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "publication",
+      "-m",
+      "merge duplicate publication",
+    ]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleasePublicationSurface(
+        repository,
+        candidateCommit,
+        publicationCommit,
+      ),
+      "alternate branch may not invent publication P",
+    );
+  });
+
+  test("rejects a hidden release-contract rewrite and restore", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(join(repositoryRoot, "release-download.json"), "candidate\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C"]);
+    const candidateCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "publication"]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "published\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+
+    await runSetupGit(repositoryRoot, ["switch", "-c", "rewrite", candidateCommit]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "forged\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "rewrite contract"]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "candidate\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "restore candidate"]);
+
+    await runSetupGit(repositoryRoot, ["switch", "publication"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "rewrite",
+      "-m",
+      "merge restored rewrite",
+    ]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleasePublicationSurface(
+        repository,
+        candidateCommit,
+        publicationCommit,
+      ),
+      "must preserve exact candidate C or publication P",
+    );
+  });
+
+  test("rejects a publication rollback even when later restored", async () => {
+    const repositoryRoot = await createRepository();
+    await writeFile(join(repositoryRoot, "release-download.json"), "candidate\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C"]);
+    const candidateCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "release-download.json"), "published\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "publication P"]);
+    const publicationCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "release-download.json"), "candidate\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "rollback publication"]);
+    await writeFile(join(repositoryRoot, "release-download.json"), "published\n");
+    await runSetupGit(repositoryRoot, ["add", "release-download.json"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "restore publication"]);
+    const repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot,
+    });
+
+    await expectRejection(
+      inspectReleasePublicationSurface(
+        repository,
+        candidateCommit,
+        publicationCommit,
+      ),
+      "publication P to candidate C edge",
     );
   });
 

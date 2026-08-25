@@ -29,6 +29,7 @@ import {
 } from "../release-download-contract";
 import { correspondingSourceSpecs } from "../corresponding-sources";
 import {
+  HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
   inspectReleasePublicationObjectStore,
   inspectReleaseSourceRepository,
 } from "../release-provenance";
@@ -855,6 +856,7 @@ describe("release and download convergence", () => {
         expectedQ14Commit: q14Commit,
         expectedSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
         expectedSurfaceCommit: surfaceCommit,
+        publicationCommit,
       },
     );
     expect(verified.publication).toMatchObject({
@@ -863,25 +865,61 @@ describe("release and download convergence", () => {
       publicationCommit,
       status: "exact_candidate_publication_transition",
     });
+    expect(verified.surface).toEqual({
+      publicationCommit,
+      status: "verified_descendant_publication_surface",
+      surfaceCommit: publicationCommit,
+    });
+    const providerPublication = Object.freeze({
+      ...verified.publication,
+      publicationCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+    });
+    const providerPublicationSurface = Object.freeze({
+      publicationCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      status: "verified_descendant_publication_surface" as const,
+      surfaceCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+    });
     expect(await verifyVercelReleaseSourceState(published, {
       VERCEL: "1",
       VERCEL_ENV: "production",
       VERCEL_GIT_COMMIT_REF: "main",
-      VERCEL_GIT_COMMIT_SHA: publicationCommit,
+      VERCEL_GIT_COMMIT_SHA: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
       VERCEL_GIT_PROVIDER: "github",
       VERCEL_GIT_REPO_OWNER: "hraness",
       VERCEL_GIT_REPO_SLUG: "hra-v0",
       VERCEL_TARGET_ENV: "production",
       [releasePublicationCommitAllowlistEnvironmentVariable]:
-        publicationCommit,
+        HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
     }, () => Promise.resolve({
-      publication: verified.publication,
+      publication: providerPublication,
+      surface: providerPublicationSurface,
       tag: verified.tag,
     }))).toMatchObject({
       availability: "published",
-      publicationCommit,
+      publicationCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
       status: "verified_vercel_publication_binding",
+      surfaceCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
     });
+    await expectRejection(verifyVercelReleaseSourceState(published, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "hraness",
+      VERCEL_GIT_REPO_SLUG: "hra-v0",
+      VERCEL_TARGET_ENV: "production",
+      [releasePublicationCommitAllowlistEnvironmentVariable]:
+        HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+    }, () => Promise.resolve({
+      publication: Object.freeze({
+        ...providerPublication,
+        publicationCommit: "f".repeat(40),
+      }),
+      surface: providerPublicationSurface,
+      tag: verified.tag,
+    })), "differs from provider source");
+    let inspectedUnallowlistedSurface = false;
     await expectRejection(
       verifyVercelReleaseSourceState(published, {
         VERCEL: "1",
@@ -893,9 +931,32 @@ describe("release and download convergence", () => {
         VERCEL_GIT_REPO_SLUG: "hra-v0",
         VERCEL_TARGET_ENV: "production",
         [releasePublicationCommitAllowlistEnvironmentVariable]:
+          HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      }, () => {
+        inspectedUnallowlistedSurface = true;
+        return Promise.resolve({
+          publication: providerPublication,
+          surface: providerPublicationSurface,
+          tag: verified.tag,
+        });
+      }),
+      "Trusted HRA v0.1.15 surface commit allowlist",
+    );
+    expect(inspectedUnallowlistedSurface).toBe(false);
+    await expectRejection(
+      verifyVercelReleaseSourceState(published, {
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_GIT_COMMIT_REF: "main",
+        VERCEL_GIT_COMMIT_SHA: publicationCommit,
+        VERCEL_GIT_PROVIDER: "github",
+        VERCEL_GIT_REPO_OWNER: "hraness",
+        VERCEL_GIT_REPO_SLUG: "hra-v0",
+        VERCEL_TARGET_ENV: "production",
+        [releasePublicationCommitAllowlistEnvironmentVariable]:
           publicationCommit,
       }),
-      "trusted release publication commit",
+      "does not name exact P15",
     );
     await writeFile(join(repositoryRoot, "source.txt"), "post-P15 Q15\n");
     await runSetupGit(repositoryRoot, ["add", "source.txt"]);
@@ -904,8 +965,10 @@ describe("release and download convergence", () => {
       environment: {},
       repositoryRoot,
     });
-    await expectRejection(
-      verifyPublishedReleaseSourceEvidence(published, descendant, {
+    const verifiedDescendant = await verifyPublishedReleaseSourceEvidence(
+      published,
+      descendant,
+      {
         expectedBaseCommit: baseCommit,
         expectedBundleCodeAuthorityCommit: bundleCodeAuthorityCommit,
         expectedCustodyRepairCommit: custodyRepairCommit,
@@ -913,9 +976,45 @@ describe("release and download convergence", () => {
         expectedQ14Commit: q14Commit,
         expectedSignedReleaseProbeRepairCommit: signedReleaseProbeRepairCommit,
         expectedSurfaceCommit: surfaceCommit,
-      }),
-      "only direct parent",
+        publicationCommit,
+      },
     );
+    expect(verifiedDescendant).toMatchObject({
+      publication: { publicationCommit },
+      surface: {
+        publicationCommit,
+        status: "verified_descendant_publication_surface",
+        surfaceCommit: descendant.commit,
+      },
+    });
+    expect(await verifyVercelReleaseSourceState(published, {
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      VERCEL_GIT_COMMIT_REF: "main",
+      VERCEL_GIT_COMMIT_SHA: descendant.commit,
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "hraness",
+      VERCEL_GIT_REPO_SLUG: "hra-v0",
+      VERCEL_TARGET_ENV: "production",
+      [releasePublicationCommitAllowlistEnvironmentVariable]:
+        HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      [releaseSurfaceCommitAllowlistEnvironmentVariable]: descendant.commit,
+    }, () => Promise.resolve({
+      publication: Object.freeze({
+        ...verifiedDescendant.publication,
+        publicationCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      }),
+      surface: Object.freeze({
+        ...verifiedDescendant.surface,
+        publicationCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      }),
+      tag: verifiedDescendant.tag,
+    }))).toMatchObject({
+      availability: "published",
+      publicationCommit: HRA_V0_C15_RELEASE_PUBLICATION_COMMIT,
+      status: "verified_vercel_publication_binding",
+      surfaceCommit: descendant.commit,
+    });
   });
 
   test("keeps the full release suite valid across a synthetic contract-only publication P", async () => {

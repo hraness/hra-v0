@@ -284,13 +284,11 @@ zig-out/release/macos/arm64/
 
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
-The root `release-download.json` is the strict HRA v0.1.15 build 16 download
-and publication contract for `https://github.com/hraness/hra-v0`. While its
-availability is `candidate`, every source object, runtime-tree digest, artifact
-byte count, and SHA-256 field is `null`, and the website exposes no candidate
-download. After publication commit P15 changes it to `published`, the website
-exposes only the exact verified v0.1.15 assets. HRA v0.1.14 remains the frozen
-forward-recovery origin.
+The root `release-download.json` is the strict published HRA v0.1.15 build 16
+download contract for `https://github.com/hraness/hra-v0`. It records the exact
+candidate source, runtime-tree digest, annotated tag object, and artifact byte
+counts and SHA-256 digests. The website exposes only those verified v0.1.15
+assets. HRA v0.1.14 remains the frozen forward-recovery origin.
 
 The separate root `release-history.json` remains the generation-0 compatibility
 ledger through C15 and P15. It fixes the v0.1.7–v0.1.14 annotated tags, seven
@@ -303,10 +301,18 @@ release, and assets bound to the published contract.
 Publication uses two commits so no commit must contain its own object ID. Clean
 candidate C15 is the sole direct child of the reviewed signed-release-probe
 repair and retains the null contract; the package, annotated `v0.1.15` tag,
-manifest, app, DMG, and checksum all name C15. P15 must be C15's sole child and
-may change only `release-download.json` to the complete evidence. The verifier
-rejects another changed path or parent, candidate drift, a tag that does not
-peel to C15, or artifacts that do not embed C15 and its runtime-tree digest.
+manifest, app, DMG, and checksum all name C15. Exact publication P15
+`890ac43f2ff00559305a4e884b32a28da0eb49a4` has C15 as its sole direct parent
+and changes only `release-download.json` to the complete evidence.
+
+A maintained source surface may merge P15 after unrelated candidate-preserving
+work. The verifier walks the bounded unpruned DAG from C15 to that explicitly
+allowlisted surface. Every commit and direct parent must contain the exact C15
+or P15 contract bytes, with one C15-to-P15 frontier, no P15-to-C15 rollback,
+and no third contract state. This keeps P15 immutable while supporting the
+reviewed merge that reconciles a concurrent main-branch change. The annotated
+tag must still peel directly to C15, and every artifact must embed C15 and its
+runtime-tree digest.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -364,9 +370,10 @@ gh release create v0.1.15 \
 
 GitHub publishes only after every upload succeeds, and repository release
 immutability must report the release immutable. Fill only
-`release-download.json` with the candidate verifier's exact evidence, create
-P15, then run `check:release-source`, `verify:published-release`, and
-`verify:remote-release` from clean P15. The remote gate binds the list and
+`release-download.json` with the candidate verifier's exact evidence and create
+P15 directly from C15. Run `check:release-source`,
+`verify:published-release`, and `verify:remote-release` from a clean reviewed
+surface that contains P15. The remote gate binds the list and
 per-tag GitHub records, the exact annotated tag, all seven asset IDs, names,
 sizes, and digests, the checksum and manifest, and the four corresponding-source
 records without redownloading the multi-gigabyte DMG.
