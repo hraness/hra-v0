@@ -5,6 +5,7 @@
 - `direct/` – the isolated deterministic browser composition, scenarios, and evidence verifier.
 - `convex/` – schema, authentication, HTTP routes, and transactional domain functions.
 - `scripts/` – source-bound Production Convex deployment and anonymous Preview build fencing.
+- `convex-local.ts` and its tests – fail-closed anonymous local Convex planning across ambient, `.env`, and `.env.local` authority before any subprocess starts.
 - `README.md` – local HRA task-control-plane setup, commands, and configuration boundaries.
 - `package.json` – web, Convex, validation, and test commands.
 - `convex.json` – Convex code-generation configuration.
@@ -36,6 +37,7 @@
 - Send only anonymous, cookieless `$pageview` events from exact canonical public routes. Keep the public PostHog token Production-only, and leave Preview and every authenticated, account, task, and control-plane route without analytics ingestion capability.
 - Wrap the HRA Next.js configuration with `@hraness/vercel-delivery` using the registered `hra-v0` project name. Preserve HRA security and private-cache headers ahead of the package-owned delivery and Preview response policy.
 - Permit remote Convex deployment only through the checked Vercel Production wrapper bound to `benevolent-akita-439`. Preview is an app-only client of its exact public endpoints and must reject every production credential, origin claim, or write capability.
+- Run local initialization, development, and every acceptance Convex subprocess through `convex-local.ts`. Reject cloud, self-hosted, credential, remote-URL, and selector-argument authority from the ambient environment, `.env`, and `.env.local` before launching the checked web-local binary.
 - Keep `/download` as an exact public prerelease/source-build page. Retain authentication on near misses, and keep signing, notarization, artifact hosting, and release mutation authority outside the web application.
 - Bind every published v0.1.15 provider build to exact P15 through `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST`; when provider source is a later reviewed commit, require its exact SHA in `HRA_V0_SURFACE_COMMIT_ALLOWLIST` and canonical Git proof of the complete C15-to-P15-to-surface DAG. Strip both authority records before the Next.js child build.
 - Keep Hraness suite identity additive to the WorkOS human. The OIDC cookie secret belongs only in the web host, the HRA receipt HMAC keyring belongs only in Convex, and missing authority must leave linking unavailable.

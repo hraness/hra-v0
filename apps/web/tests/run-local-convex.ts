@@ -1,34 +1,20 @@
 #!/usr/bin/env bun
-import { fileURLToPath } from "node:url";
+import { runLocalConvex } from "../convex-local";
 
-const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const CONVEX_BINARY = fileURLToPath(new URL("../node_modules/.bin/convex", import.meta.url));
 const SUCCESS_MARKER = "✓ local Convex black-box acceptance passed";
 
 async function main(): Promise<void> {
-  const child = Bun.spawn(
-    [
-      CONVEX_BINARY,
-      "dev",
+  const { exitCode, stderr, stdout } = await runLocalConvex({
+    arguments: [
       "--once",
       "--tail-logs",
       "disable",
       "--start",
       "bun run test:local",
     ],
-    {
-      cwd: WEB_ROOT,
-      env: { ...process.env, CONVEX_AGENT_MODE: "anonymous" },
-      stdin: "inherit",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
+    captureOutput: true,
+    command: "dev",
+  });
   if (stdout.length > 0) process.stdout.write(stdout);
   if (stderr.length > 0) process.stderr.write(stderr);
   const successes = stdout.split(SUCCESS_MARKER).length - 1;

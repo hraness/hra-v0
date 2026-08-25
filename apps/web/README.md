@@ -22,11 +22,11 @@ The control plane uses the shared System-first design system. A first visit foll
 Use Bun 1.3.14 and Node 24. From this directory:
 
 ```sh
-CONVEX_AGENT_MODE=anonymous bun x convex init
+bun run convex:init
 bun run convex:dev
 ```
 
-In a second terminal, run `bun run dev:web`. The first command creates ignored `.convex/` state and `.env.local`; commit neither. Set the credential pepper through `convex env set` before exercising enrollment or agent authentication. Set the hosted mutation fingerprint key before exercising browser writes.
+In a second terminal, run `bun run dev:web`. The first command creates ignored `.convex/` state and `.env.local`; commit neither. The local commands validate ambient configuration plus both `.env` files, force the checked anonymous selector, and refuse cloud or self-hosted authority before the Convex binary starts. Set local fixture values through `bun run convex-local.ts env set <NAME> <VALUE>` before exercising enrollment, agent authentication, or browser writes.
 
 From the repository root, `bun run web:hra` runs this workspace's combined
 Convex and Next.js development command. It serves the hosted control plane with

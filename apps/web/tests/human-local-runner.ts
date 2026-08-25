@@ -25,11 +25,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  prepareLocalConvexLaunch,
+  type LocalConvexCommand,
+} from "../convex-local";
 import { startFakeWorkOS } from "./fake-workos";
 import { proveSignedHumanReceivesTaskctlMutation } from "./realtime-cli-proof";
 
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const CONVEX_BINARY = fileURLToPath(new URL("../node_modules/.bin/convex", import.meta.url));
 const ENV_FILE = fileURLToPath(new URL("../.env.local", import.meta.url));
 const FIXTURE_SUBJECT = "taskctl-local-black-box";
 
@@ -221,9 +224,18 @@ async function spawnConvex(
     readonly knownSecrets?: readonly string[];
   } = {},
 ): Promise<string> {
-  const child = Bun.spawn([CONVEX_BINARY, ...args], {
-    cwd: WEB_ROOT,
-    env: { ...process.env, ...environment, CI: "1", NO_COLOR: "1" },
+  const [rawCommand, ...arguments_] = args;
+  if (rawCommand !== "env" && rawCommand !== "run") {
+    throw new Error("Signed acceptance requested an unsupported Convex command.");
+  }
+  const plan = await prepareLocalConvexLaunch({
+    arguments: arguments_,
+    command: rawCommand satisfies LocalConvexCommand,
+    environment: { ...process.env, ...environment, CI: "1", NO_COLOR: "1" },
+  });
+  const child = Bun.spawn([...plan.command], {
+    cwd: plan.cwd,
+    env: plan.environment,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -274,9 +286,14 @@ async function spawnBunScript(
 }
 
 async function startConvexDevelopment(environment: Readonly<Record<string, string>>) {
-  const child = Bun.spawn([CONVEX_BINARY, "dev", "--tail-logs", "disable"], {
-    cwd: WEB_ROOT,
-    env: { ...process.env, ...environment, CI: "1", NO_COLOR: "1" },
+  const plan = await prepareLocalConvexLaunch({
+    arguments: ["--tail-logs", "disable"],
+    command: "dev",
+    environment: { ...process.env, ...environment, CI: "1", NO_COLOR: "1" },
+  });
+  const child = Bun.spawn([...plan.command], {
+    cwd: plan.cwd,
+    env: plan.environment,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
