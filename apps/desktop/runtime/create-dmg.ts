@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   symlink,
@@ -84,7 +85,9 @@ async function main(): Promise<void> {
       throw new Error(`Refusing to replace release output outside ${releaseRoot}.`);
     }
   }
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "hra-dmg-create-"));
+  const temporaryRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "hra-dmg-create-")),
+  );
   const stagingRoot = join(temporaryRoot, "root");
   const outputRoot = join(temporaryRoot, "output");
   const temporaryDmg = join(outputRoot, `${macosPackage.artifactBaseName}.dmg`);

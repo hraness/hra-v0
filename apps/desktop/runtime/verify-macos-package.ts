@@ -78,6 +78,7 @@ export type {
 } from "./custody-probe-supervisor-authority";
 import {
   authorizeResidentCustodyCandidate,
+  inspectResidentEnrollmentCustodyNoUi,
   smokeResidentCustodyCandidate,
 } from "./resident-custody-probe-adapter";
 import { loadGcmDependencyLicenseInventory } from "./gcm-dependency-licenses";
@@ -1884,6 +1885,17 @@ export async function probePackagedCustodyAuthorization(
   }
 }
 
+export async function probePackagedCustodyStatus(
+  appPath: string,
+  authority?: CustodyProbeSupervisorAuthorityEvidence,
+  inspectCandidate: typeof inspectResidentEnrollmentCustodyNoUi =
+    inspectResidentEnrollmentCustodyNoUi,
+): Promise<void> {
+  const exactAuthority = authority
+    ?? (await verifyMacOSApp(appPath)).custodyProbeSupervisor;
+  await inspectCandidate(appPath, exactAuthority);
+}
+
 async function verifyMacOSDmgSnapshot(
   dmgPath: string,
   options: Readonly<{
@@ -1919,6 +1931,10 @@ async function verifyMacOSDmgSnapshot(
     const mountedApp = join(mountPoint, "HRA.app");
     evidence = await verifyMacOSApp(mountedApp);
     if (options.custodyAuthorizationProbe === true) {
+      await probePackagedCustodyStatus(
+        mountedApp,
+        evidence.custodyProbeSupervisor,
+      );
       await probePackagedCustodyAuthorization(
         mountedApp,
         evidence.custodyProbeSupervisor,
@@ -2224,6 +2240,10 @@ async function main(): Promise<void> {
   if (dmg === undefined) {
     const evidence = await verifyMacOSApp(appPath);
     if (custodyAuthorizationProbe) {
+      await probePackagedCustodyStatus(
+        appPath,
+        evidence.custodyProbeSupervisor,
+      );
       await probePackagedCustodyAuthorization(
         appPath,
         evidence.custodyProbeSupervisor,

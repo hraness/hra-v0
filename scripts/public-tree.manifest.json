@@ -1780,6 +1780,7 @@
     "apps/desktop/runtime/test/local-task-reconciler.test.ts",
     "apps/desktop/runtime/test/local-task-store.test.ts",
     "apps/desktop/runtime/test/longitudinal-routing-v1.test.ts",
+    "apps/desktop/runtime/test/macos-package-adversarial.test.ts",
     "apps/desktop/runtime/test/macos-package-config.test.ts",
     "apps/desktop/runtime/test/macos-package-resident-probe.test.ts",
     "apps/desktop/runtime/test/macos-resident-custody-probe.test.ts",
