@@ -2112,7 +2112,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "da80de77af4502e7936047f1bcab4dbb522d45c14c5b97785fba199c482dba2a",
+      "matchingLinesSha256": "99497bfec23de0af173a51f78be7a12f78f86f2693e6dd5dd724636405d7955e",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
@@ -2412,23 +2412,13 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "306b6013660216b9d2eb619def0b22468634d3e5cd48e08cd8132e312a7bcbde",
+      "matchingLinesSha256": "6cc58e927f0653b1ef2fc24533decfe620ec8531fc6f39ad2a085007c2ad535f",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
-        "oprte": 4
+        "oprte": 1
       },
       "path": "apps/web/scripts/create-convex-deploy-key.test.ts"
-    },
-    {
-      "category": "compatibility",
-      "matchingLinesSha256": "820c0f96916477fe4221cc6b1f75b471d48072a66d9bcfad32868dbf2466b0cc",
-      "occurrences": {
-        "kitchen": 0,
-        "operateStylized": 0,
-        "oprte": 2
-      },
-      "path": "apps/web/scripts/create-convex-deploy-key.ts"
     },
     {
       "category": "compatibility",

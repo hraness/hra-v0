@@ -119,6 +119,7 @@ export type VercelConvexBuildRefusal =
   | "missing-production-site-url"
   | "non-production-deploy-key"
   | "production-capability-in-preview"
+  | "convex-deploy-outside-vercel"
   | "convex-only-capability-in-production"
   | "production-deploy-key-outside-production"
   | "production-deployment-declaration-mismatch"
@@ -392,12 +393,22 @@ export function planVercelConvexBuild(
   ) {
     return { kind: "refuse", reason: "production-deploy-key-outside-production" };
   }
-  return { environmentMode: "deploy-convex", kind: "run" };
+  return { kind: "refuse", reason: "convex-deploy-outside-vercel" };
 }
 
 export function planVercelAppBuild(
   environment: VercelConvexBuildEnvironment,
 ): VercelAppBuildPlan {
+  if (
+    environment.VERCEL !== "1"
+    && environment.VERCEL_ENV === undefined
+    && environment.VERCEL_TARGET_ENV === undefined
+    && environment[productionDeploymentNameEnvironmentVariable] === undefined
+    && !convexProviderRecords(environment)
+      .some(([, value]) => value?.startsWith("prod:") === true)
+  ) {
+    return { kind: "run" };
+  }
   const plan = planVercelConvexBuild(environment);
   return plan.kind === "refuse"
     ? plan

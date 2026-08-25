@@ -17,8 +17,8 @@ const MANAGEMENT_API_ORIGIN = "https://api.convex.dev/v1";
 const HRA_PROJECT_ID = 2_680_173;
 const HRA_TEAM_ID = 513_923;
 const HRA_TEAM_SLUG = "cclrte";
-const HRA_PRE_RENAME_PROJECT_NAME = "oprte";
-const HRA_PRE_RENAME_PROJECT_SLUG = "oprte";
+const HRA_PROJECT_NAME = "HRA v0";
+const HRA_PROJECT_SLUG = "hra-v0";
 const HRA_PRODUCTION_DEPLOYMENT_ID = 4_677_913;
 const HRA_PRODUCTION_DEPLOYMENT_NAME = "benevolent-akita-439";
 const HRA_PRODUCTION_DEPLOYMENT_URL =
@@ -81,7 +81,7 @@ export type ConvexDeployKeyProvisioning = Readonly<{
   }>;
   project: Readonly<{
     id: typeof HRA_PROJECT_ID;
-    slug: typeof HRA_PRE_RENAME_PROJECT_SLUG;
+    slug: typeof HRA_PROJECT_SLUG;
     teamId: typeof HRA_TEAM_ID;
     teamSlug: typeof HRA_TEAM_SLUG;
   }>;
@@ -300,8 +300,8 @@ function parseProject(value: unknown): ConvexDeployKeyProvisioning["project"] {
   if (
     !isRecord(value)
     || value["id"] !== HRA_PROJECT_ID
-    || value["name"] !== HRA_PRE_RENAME_PROJECT_NAME
-    || value["slug"] !== HRA_PRE_RENAME_PROJECT_SLUG
+    || value["name"] !== HRA_PROJECT_NAME
+    || value["slug"] !== HRA_PROJECT_SLUG
     || value["teamId"] !== HRA_TEAM_ID
     || value["teamSlug"] !== HRA_TEAM_SLUG
     || value["prodDeploymentName"] !== HRA_PRODUCTION_DEPLOYMENT_NAME
@@ -310,7 +310,7 @@ function parseProject(value: unknown): ConvexDeployKeyProvisioning["project"] {
   }
   return {
     id: HRA_PROJECT_ID,
-    slug: HRA_PRE_RENAME_PROJECT_SLUG,
+    slug: HRA_PROJECT_SLUG,
     teamId: HRA_TEAM_ID,
     teamSlug: HRA_TEAM_SLUG,
   };

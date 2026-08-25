@@ -184,8 +184,12 @@ describe("HRA Vercel Convex target plans", () => {
     }
   });
 
-  test("keeps local app builds available but production keys remote-only", () => {
+  test("keeps local app builds available while refusing every local Convex deploy", () => {
     expect(planVercelAppBuild({})).toEqual({ kind: "run" });
+    expect(planVercelConvexBuild({})).toEqual({
+      kind: "refuse",
+      reason: "convex-deploy-outside-vercel",
+    });
     expect(planVercelConvexBuild({
       CONVEX_PROVIDER_AUTHORITY: `prod:${deployment}|secret`,
     })).toEqual({
@@ -253,6 +257,20 @@ describe("provider process boundary", () => {
     })).toBe(0);
     expect(calls).toEqual(["strict-local-source"]);
     expect(observed.calls).toHaveLength(1);
+  });
+
+  test("a non-Vercel provider entry launches no subprocess", async () => {
+    const observed = recorder();
+    const reasons: string[] = [];
+    expect(await runVercelConvexBuild({
+      environment: {},
+      expectedProductionDeploymentName: deployment,
+      launch: observed.launch,
+      reportRefusal: reason => reasons.push(reason),
+      verifyReleaseSource: verifyExplicitCandidateReleaseSource,
+    })).toBe(1);
+    expect(observed.calls).toEqual([]);
+    expect(reasons).toEqual(["convex-deploy-outside-vercel"]);
   });
 
   test("refuses every build before provider or app launch when release provenance fails", async () => {

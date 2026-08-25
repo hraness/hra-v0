@@ -60,7 +60,7 @@ import {
 import { fileURLToPath } from "node:url";
 
 import {
-  prepareLocalConvexLaunch,
+  runLocalConvex,
   type LocalConvexCommand,
 } from "../convex-local";
 
@@ -642,31 +642,22 @@ async function deploymentConfiguration(): Promise<{ readonly siteOrigin: string 
 
 async function spawnConvex(
   args: readonly string[],
-  options: { readonly captureJson?: boolean } = {},
+  options: {
+    readonly captureJson?: boolean;
+    readonly stdinText?: string;
+  } = {},
 ): Promise<unknown> {
   const [rawCommand, ...arguments_] = args;
   if (rawCommand !== "env" && rawCommand !== "run") {
     throw new Error("Local acceptance requested an unsupported Convex command.");
   }
-  const plan = await prepareLocalConvexLaunch({
+  const { exitCode, stderr, stdout } = await runLocalConvex({
     arguments: arguments_,
+    captureOutput: true,
     command: rawCommand satisfies LocalConvexCommand,
     environment: { ...process.env, CI: "1", NO_COLOR: "1" },
+    ...(options.stdinText === undefined ? {} : { stdinText: options.stdinText }),
   });
-  const child = Bun.spawn([...plan.command], {
-    cwd: plan.cwd,
-    env: plan.environment,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stdoutPromise = new Response(child.stdout).text();
-  const stderrPromise = new Response(child.stderr).text();
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    stdoutPromise,
-    stderrPromise,
-  ]);
   if (exitCode !== 0) {
     const detail = redactSecretsInText(stderr.trim()).slice(0, 1_000);
     throw new Error(`Convex CLI command failed${detail.length === 0 ? "." : `: ${detail}`}`);
@@ -690,7 +681,7 @@ async function spawnConvex(
 }
 
 async function setConvexEnvironment(name: string, value: string): Promise<void> {
-  await spawnConvex(["env", "set", name, value]);
+  await spawnConvex(["env", "set", name], { stdinText: `${value}\n` });
 }
 
 async function runFixture<Value>(

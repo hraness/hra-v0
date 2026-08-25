@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   prepareLocalConvexLaunch,
+  runLocalConvex,
   type LocalConvexCommand,
 } from "../convex-local";
 import { startFakeWorkOS } from "./fake-workos";
@@ -222,31 +223,20 @@ async function spawnConvex(
   options: {
     readonly forwardOutput?: boolean;
     readonly knownSecrets?: readonly string[];
+    readonly stdinText?: string;
   } = {},
 ): Promise<string> {
   const [rawCommand, ...arguments_] = args;
   if (rawCommand !== "env" && rawCommand !== "run") {
     throw new Error("Signed acceptance requested an unsupported Convex command.");
   }
-  const plan = await prepareLocalConvexLaunch({
+  const { exitCode, stderr, stdout } = await runLocalConvex({
     arguments: arguments_,
+    captureOutput: true,
     command: rawCommand satisfies LocalConvexCommand,
     environment: { ...process.env, ...environment, CI: "1", NO_COLOR: "1" },
+    ...(options.stdinText === undefined ? {} : { stdinText: options.stdinText }),
   });
-  const child = Bun.spawn([...plan.command], {
-    cwd: plan.cwd,
-    env: plan.environment,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stdoutPromise = new Response(child.stdout).text();
-  const stderrPromise = new Response(child.stderr).text();
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    stdoutPromise,
-    stderrPromise,
-  ]);
   const safeStdout = redactSecretsInText(stdout, options.knownSecrets);
   const safeStderr = redactSecretsInText(stderr, options.knownSecrets);
   if (options.forwardOutput === true) {
@@ -258,6 +248,17 @@ async function spawnConvex(
     throw new Error(`Convex CLI command failed${detail.length === 0 ? "." : `: ${detail}`}`);
   }
   return safeStdout;
+}
+
+async function setConvexEnvironment(
+  name: string,
+  value: string,
+  environment: Readonly<Record<string, string>>,
+): Promise<void> {
+  await spawnConvex(["env", "set", name], environment, {
+    knownSecrets: [value],
+    stdinText: `${value}\n`,
+  });
 }
 
 async function spawnBunScript(
@@ -383,7 +384,7 @@ async function main(): Promise<void> {
     } as const;
 
     for (const [name, value] of Object.entries(fixtureEnvironment)) {
-      await spawnConvex(["env", "set", name, value], fixtureEnvironment);
+      await setConvexEnvironment(name, value, fixtureEnvironment);
     }
 
     async function apiRequest(args: {
@@ -1735,25 +1736,24 @@ async function main(): Promise<void> {
     });
     assert(firstAgent.response.status === 200, "Agent locator regression setup failed.");
     const rotatedEnrollmentPepper = createBearerSecret(deterministicBytes(0x524f5441, 32));
-    await spawnConvex(
-      ["env", "set", "TASKCTL_ENROLLMENT_PEPPER_PREVIOUS", fixtureEnvironment.TASKCTL_ENROLLMENT_PEPPER_CURRENT],
+    await setConvexEnvironment(
+      "TASKCTL_ENROLLMENT_PEPPER_PREVIOUS",
+      fixtureEnvironment.TASKCTL_ENROLLMENT_PEPPER_CURRENT,
       fixtureEnvironment,
     );
-    await spawnConvex(
-      [
-        "env",
-        "set",
-        "TASKCTL_ENROLLMENT_PEPPER_PREVIOUS_VERSION",
-        fixtureEnvironment.TASKCTL_ENROLLMENT_PEPPER_CURRENT_VERSION,
-      ],
+    await setConvexEnvironment(
+      "TASKCTL_ENROLLMENT_PEPPER_PREVIOUS_VERSION",
+      fixtureEnvironment.TASKCTL_ENROLLMENT_PEPPER_CURRENT_VERSION,
       fixtureEnvironment,
     );
-    await spawnConvex(
-      ["env", "set", "TASKCTL_ENROLLMENT_PEPPER_CURRENT", rotatedEnrollmentPepper],
+    await setConvexEnvironment(
+      "TASKCTL_ENROLLMENT_PEPPER_CURRENT",
+      rotatedEnrollmentPepper,
       fixtureEnvironment,
     );
-    await spawnConvex(
-      ["env", "set", "TASKCTL_ENROLLMENT_PEPPER_CURRENT_VERSION", "local-human-v2"],
+    await setConvexEnvironment(
+      "TASKCTL_ENROLLMENT_PEPPER_CURRENT_VERSION",
+      "local-human-v2",
       fixtureEnvironment,
     );
     const rotatedReplay = await apiRequest({

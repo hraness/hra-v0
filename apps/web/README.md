@@ -22,11 +22,21 @@ The control plane uses the shared System-first design system. A first visit foll
 Use Bun 1.3.14 and Node 24. From this directory:
 
 ```sh
-bun run convex:init
-bun run convex:dev
+bun run convex:dev:once
 ```
 
-In a second terminal, run `bun run dev:web`. The first command creates ignored `.convex/` state and `.env.local`; commit neither. The local commands validate ambient configuration plus both `.env` files, force the checked anonymous selector, and refuse cloud or self-hosted authority before the Convex binary starts. Set local fixture values through `bun run convex-local.ts env set <NAME> <VALUE>` before exercising enrollment, agent authentication, or browser writes.
+The one-shot command performs first-use initialization, pushes once to the
+anonymous local deployment, and exits. After that, run `bun run convex:dev` in
+one terminal and `bun run dev:web` in a second terminal. These commands create
+ignored `.convex/` state and `.env.local`; commit neither. They validate ambient
+configuration plus both `.env` files, force the checked anonymous selector, and
+refuse cloud or self-hosted authority before the Convex binary starts.
+
+Set each local fixture value through stdin so it never enters shell history or
+the child process arguments. On macOS, copy one value and run
+`pbpaste | bun run convex-local.ts env set NAME`, replacing `NAME` with the
+declared environment-variable name. The launcher removes any same-named ambient
+value and redacts the supplied value from captured child diagnostics.
 
 From the repository root, `bun run web:hra` runs this workspace's combined
 Convex and Next.js development command. It serves the hosted control plane with
@@ -55,9 +65,11 @@ Configure `WORKOS_WEBHOOK_SECRET` in the Convex deployment and send WorkOS webho
 Two leased, paginated Convex jobs run every 15 minutes. One rechecks projected membership IDs, including provider-side deletion; the other enumerates active, inactive, and pending provider memberships for every projected WorkOS organization so a missed create webhook is recoverable. Bounded runs schedule immediate cursor-based continuations instead of waiting for the next interval. Provider calls remain in actions, and projection writes remain in transactions.
 
 The workspace serves the canonical `hra-weld.vercel.app` origin. Local `bun run build`
-compiles the application without provider mutation. Vercel uses the separate
-checked build entry in `vercel.json`: only its exact Production target may
-deploy Convex functions to `benevolent-akita-439`. A generated Preview skips
+compiles the application without provider mutation. The provider entry refuses
+every invocation outside Vercel, including a maintainer shell with an active
+Convex login. Vercel uses the separate checked build entry in `vercel.json`:
+only its exact Production target may deploy Convex functions to
+`benevolent-akita-439`. A generated Preview skips
 Convex deployment and builds an anonymous app-only client of the exact
 `benevolent-akita-439.convex.cloud` and `benevolent-akita-439.convex.site`
 public endpoints. Custom staging and every unrecognized provider target fail
@@ -120,21 +132,14 @@ scoped to Production only. Preview must remain free of production capability.
 Do not place Convex-only keyrings, session flags, hosted-mutation keys, taskctl
 peppers, WorkOS webhook secrets, or local fixture settings in Vercel.
 
-The existing Convex project has immutable project ID `2680173`, team ID
-`513923`, team slug `cclrte`, and current name and slug `HRA` / `hra`. Rename
-that project in place to `HRA v0` / `hra-v0` before current HRA claims the clean
-name. Preserve Production deployment ID `4677913`, name
+The retained Convex project has immutable project ID `2680173`, team ID
+`513923`, team slug `cclrte`, and current name and slug `HRA v0` / `hra-v0`.
+It owns exactly one default Production deployment and no development, staging,
+or Preview deployment. Preserve Production deployment ID `4677913`, name
 `benevolent-akita-439`, reference `production`, region `aws-us-east-1`, and the
 public `.convex.cloud` and `.convex.site` URLs.
 
-Bind the rename to the immutable project ID. The Management API operation is
-`PATCH /v1/projects/2680173` with body
-`{"name":"HRA v0","slug":"hra-v0"}`. Perform it in the signed-in Convex
-dashboard or through a reviewed client that reads its personal token from a
-mode-0600 file and redacts foreign errors. Never put that token in argv, an
-environment variable, shell history, or terminal output.
-
-Before and after the rename, read only these non-secret records:
+Audit the identity through these non-secret records:
 
 - `GET /v1/projects/2680173`.
 - `GET /v1/deployments/benevolent-akita-439`.
@@ -142,12 +147,12 @@ Before and after the rename, read only these non-secret records:
 - Environment variable names from
   `bun x convex env list --names-only --deployment benevolent-akita-439`.
 
-Require unchanged team, project ID, Production deployment identity and URL,
-environment-name set, and deploy-key IDs, names, permissions, expiry, and
-last-used timestamps. Update confirmed operator selectors from `cclrte:hra` to
-`cclrte:hra-v0`; source selects the deployment by name and needs no selector
-change. Do not rotate keys, rewrite environment values, move data, or delete a
-deployment as part of the rename.
+Require the exact team, project name and slug, Production deployment identity
+and URL, zero non-Production deployments, zero Preview keys, zero project-level
+default environment variables, and one least-privilege Production deploy key.
+The confirmed operator selector is `cclrte:hra-v0`; source selects the
+deployment by name. Do not add a staging selector or create a non-Production
+deployment for testing. Local tests use the anonymous local launcher.
 
 Verify the fallback root, `/download`, authentication callback, release asset
 links, and security headers before removing `hra.sh` from the v0 Vercel

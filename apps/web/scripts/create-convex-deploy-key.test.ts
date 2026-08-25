@@ -29,9 +29,9 @@ const project = {
   createTime: 1,
   devDeploymentName: null,
   id: 2_680_173,
-  name: "oprte",
+  name: "HRA v0",
   prodDeploymentName: "benevolent-akita-439",
-  slug: "oprte",
+  slug: "hra-v0",
   teamId: 513_923,
   teamSlug: "cclrte",
 } as const;
@@ -226,7 +226,7 @@ describe("least-privilege Convex deploy-key provisioning", () => {
       key: hraKey,
       project: {
         id: 2_680_173,
-        slug: "oprte",
+        slug: "hra-v0",
         teamId: 513_923,
         teamSlug: "cclrte",
       },

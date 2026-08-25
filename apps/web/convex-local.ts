@@ -7,10 +7,11 @@ const WEB_ROOT = fileURLToPath(new URL("./", import.meta.url));
 const DEFAULT_ENV_PATH = fileURLToPath(new URL("./.env", import.meta.url));
 const DEFAULT_ENV_LOCAL_PATH = fileURLToPath(new URL("./.env.local", import.meta.url));
 const CONVEX_BINARY = fileURLToPath(new URL("./node_modules/.bin/convex", import.meta.url));
+const MAXIMUM_ENV_VALUE_STDIN_BYTES = 64 * 1_024;
 
 export const anonymousLocalDeployment = "anonymous:anonymous-agent" as const;
 
-const deploymentCredentialKeys = new Set([
+const deploymentCredentialKeyNames = [
   "CONVEX_ACCESS_TOKEN",
   ["CONVEX", "DEPLOY", "KEY"].join("_"),
   ["CONVEX", "DEPLOYMENT", "TOKEN"].join("_"),
@@ -19,9 +20,9 @@ const deploymentCredentialKeys = new Set([
   "CONVEX_PROVISION_HOST",
   "CONVEX_SELF_HOSTED_ADMIN_KEY",
   "CONVEX_SELF_HOSTED_URL",
-]);
+] as const;
 
-const convexUrlKeys = new Set([
+const convexUrlKeyNames = [
   "CONVEX_CLOUD_URL",
   "CONVEX_SITE_URL",
   "CONVEX_URL",
@@ -36,7 +37,15 @@ const convexUrlKeys = new Set([
   "REACT_APP_CONVEX_URL",
   "VITE_CONVEX_SITE_URL",
   "VITE_CONVEX_URL",
-]);
+] as const;
+
+const deploymentCredentialKeys = new Set<string>(deploymentCredentialKeyNames);
+const convexUrlKeys = new Set<string>(convexUrlKeyNames);
+
+export const localConvexAuthorityTombstoneKeys = [
+  ...deploymentCredentialKeyNames,
+  ...convexUrlKeyNames,
+] as const;
 
 const safeDevFlags = new Set([
   "--help",
@@ -55,7 +64,7 @@ const safeTailLogModes = new Set(["always", "disable", "pause-on-deploy"]);
 const safeTypecheckModes = new Set(["disable", "enable", "try"]);
 const safeCodegenModes = new Set(["disable", "enable"]);
 
-export type LocalConvexCommand = "dev" | "env" | "init" | "run";
+export type LocalConvexCommand = "dev" | "env" | "run";
 export type LocalConvexEnvironment = Readonly<Record<string, string | undefined>>;
 
 export type LocalConvexLaunchPlan = {
@@ -73,7 +82,14 @@ export type LocalConvexExecution = {
 export type LocalConvexExecutor = (
   plan: LocalConvexLaunchPlan,
   captureOutput: boolean,
+  stdinText?: string,
 ) => Promise<LocalConvexExecution>;
+
+export type LocalConvexCliIO = {
+  readonly readStdin: () => Promise<string>;
+  readonly writeError: (value: string) => void;
+  readonly writeOutput: (value: string) => void;
+};
 
 type EnvAssignment = {
   readonly key: string;
@@ -225,12 +241,13 @@ function validateDevArguments(arguments_: readonly string[]): void {
 
 function validateEnvArguments(arguments_: readonly string[]): void {
   if (
-    arguments_.length !== 3
+    arguments_.length !== 2
     || arguments_[0] !== "set"
     || !/^[A-Z][A-Z0-9_]{0,127}$/u.test(arguments_[1] ?? "")
-    || arguments_[2]?.startsWith("-") === true
   ) {
-    throw new Error("HRA v0 local Convex env accepts only one named local set operation.");
+    throw new Error(
+      "HRA v0 local Convex env accepts only `set NAME`; provide the value through stdin.",
+    );
   }
 }
 
@@ -261,12 +278,6 @@ function validateRunArguments(arguments_: readonly string[]): void {
 }
 
 function validateArguments(command: LocalConvexCommand, arguments_: readonly string[]): void {
-  if (command === "init") {
-    if (arguments_.length > 0) {
-      throw new Error("HRA v0 local Convex init accepts no arguments.");
-    }
-    return;
-  }
   if (command === "dev") return validateDevArguments(arguments_);
   if (command === "env") return validateEnvArguments(arguments_);
   validateRunArguments(arguments_);
@@ -294,7 +305,11 @@ export function planLocalConvexLaunch(options: {
   }
 
   const childEnvironment: Record<string, string | undefined> = { ...environment };
-  for (const key of deploymentCredentialKeys) delete childEnvironment[key];
+  for (const key of localConvexAuthorityTombstoneKeys) childEnvironment[key] = "";
+  if (options.command === "env") {
+    const targetName = arguments_[1];
+    if (targetName !== undefined) childEnvironment[targetName] = "";
+  }
   childEnvironment.CONVEX_AGENT_MODE = "anonymous";
   childEnvironment.CONVEX_ALLOW_ANONYMOUS = "true";
   childEnvironment.CONVEX_DEPLOYMENT = anonymousLocalDeployment;
@@ -340,11 +355,12 @@ export async function prepareLocalConvexLaunch(options: {
 async function defaultExecutor(
   plan: LocalConvexLaunchPlan,
   captureOutput: boolean,
+  stdinText?: string,
 ): Promise<LocalConvexExecution> {
   const child = Bun.spawn([...plan.command], {
     cwd: plan.cwd,
     env: plan.environment,
-    stdin: "inherit",
+    stdin: stdinText === undefined ? "inherit" : new Blob([stdinText]),
     stdout: captureOutput ? "pipe" : "inherit",
     stderr: captureOutput ? "pipe" : "inherit",
   });
@@ -357,6 +373,55 @@ async function defaultExecutor(
   return { exitCode, stderr, stdout };
 }
 
+function redactStdinValue(value: string, stdinText: string | undefined): string {
+  if (stdinText === undefined || stdinText.length === 0) return value;
+  const candidates = new Set([stdinText, stdinText.trimEnd()]);
+  let redacted = value;
+  for (const candidate of candidates) {
+    if (candidate.length > 0) {
+      redacted = redacted.split(candidate).join("[REDACTED]");
+    }
+  }
+  return redacted;
+}
+
+async function executeLocalConvexPlan(options: {
+  readonly captureOutput: boolean;
+  readonly command: LocalConvexCommand;
+  readonly execute?: LocalConvexExecutor;
+  readonly plan: LocalConvexLaunchPlan;
+  readonly stdinText?: string;
+}): Promise<LocalConvexExecution> {
+  if (options.stdinText !== undefined && options.command !== "env") {
+    throw new Error(
+      "HRA v0 local Convex accepts stdin values only for checked env set operations.",
+    );
+  }
+  if (options.stdinText !== undefined && !options.captureOutput) {
+    throw new Error(
+      "HRA v0 local Convex must capture output while forwarding a stdin value.",
+    );
+  }
+  let execution: LocalConvexExecution;
+  try {
+    execution = await (options.execute ?? defaultExecutor)(
+      options.plan,
+      options.captureOutput,
+      options.stdinText,
+    );
+  } catch (error: unknown) {
+    const message = error instanceof Error
+      ? error.message
+      : "HRA v0 local Convex failed to launch the checked binary.";
+    throw new Error(redactStdinValue(message, options.stdinText));
+  }
+  return {
+    exitCode: execution.exitCode,
+    stderr: redactStdinValue(execution.stderr, options.stdinText),
+    stdout: redactStdinValue(execution.stdout, options.stdinText),
+  };
+}
+
 export async function runLocalConvex(options: {
   readonly arguments?: readonly string[];
   readonly captureOutput?: boolean;
@@ -365,28 +430,118 @@ export async function runLocalConvex(options: {
   readonly envLocalPath?: string;
   readonly environment?: LocalConvexEnvironment;
   readonly execute?: LocalConvexExecutor;
+  readonly stdinText?: string;
 }): Promise<LocalConvexExecution> {
   const plan = await prepareLocalConvexLaunch(options);
-  return await (options.execute ?? defaultExecutor)(plan, options.captureOutput ?? false);
+  return await executeLocalConvexPlan({
+    captureOutput: options.stdinText === undefined ? options.captureOutput ?? false : true,
+    command: options.command,
+    ...(options.execute === undefined ? {} : { execute: options.execute }),
+    plan,
+    ...(options.stdinText === undefined ? {} : { stdinText: options.stdinText }),
+  });
 }
 
-function parseCommand(value: string | undefined): LocalConvexCommand {
-  if (value === "dev" || value === "env" || value === "init" || value === "run") return value;
+export async function readBoundedLocalConvexStdin(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      byteLength += next.value.byteLength;
+      if (byteLength > MAXIMUM_ENV_VALUE_STDIN_BYTES) {
+        next.value.fill(0);
+        try {
+          await reader.cancel();
+        } catch {
+          // The fixed refusal remains authoritative if the source cannot
+          // acknowledge cancellation.
+        }
+        throw new Error("HRA v0 local Convex refused an oversized stdin value.");
+      }
+      chunks.push(Uint8Array.from(next.value));
+      next.value.fill(0);
+    }
+
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error("HRA v0 local Convex refused non-UTF-8 stdin.");
+    } finally {
+      bytes.fill(0);
+    }
+  } finally {
+    for (const chunk of chunks) chunk.fill(0);
+    reader.releaseLock();
+  }
+}
+
+export function parseLocalConvexCommand(value: string | undefined): LocalConvexCommand {
+  if (value === "dev" || value === "env" || value === "run") return value;
   throw new Error(
-    "Usage: bun run convex-local.ts <dev|env|init|run> [checked local Convex arguments]",
+    "Usage: bun run convex-local.ts <dev|env|run> [checked local Convex arguments]",
   );
 }
 
-if (import.meta.main) {
+export async function dispatchLocalConvexCli(options: {
+  readonly arguments: readonly string[];
+  readonly envPath?: string;
+  readonly envLocalPath?: string;
+  readonly environment?: LocalConvexEnvironment;
+  readonly execute?: LocalConvexExecutor;
+  readonly io: LocalConvexCliIO;
+}): Promise<number> {
+  let stdinText: string | undefined;
   try {
-    const [rawCommand, ...arguments_] = process.argv.slice(2);
-    const result = await runLocalConvex({
+    const [rawCommand, ...arguments_] = options.arguments;
+    const command = parseLocalConvexCommand(rawCommand);
+    const plan = await prepareLocalConvexLaunch({
       arguments: arguments_,
-      command: parseCommand(rawCommand),
+      command,
+      ...(options.envPath === undefined ? {} : { envPath: options.envPath }),
+      ...(options.envLocalPath === undefined ? {} : { envLocalPath: options.envLocalPath }),
+      ...(options.environment === undefined ? {} : { environment: options.environment }),
     });
-    process.exitCode = result.exitCode;
+
+    if (command === "env") stdinText = await options.io.readStdin();
+    const result = await executeLocalConvexPlan({
+      captureOutput: command === "env",
+      command,
+      ...(options.execute === undefined ? {} : { execute: options.execute }),
+      plan,
+      ...(stdinText === undefined ? {} : { stdinText }),
+    });
+    if (command === "env") {
+      if (result.stdout.length > 0) options.io.writeOutput(result.stdout);
+      if (result.stderr.length > 0) options.io.writeError(result.stderr);
+    }
+    return result.exitCode;
   } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : "HRA v0 local Convex refused an invalid launch.");
-    process.exitCode = 1;
+    const message = error instanceof Error
+      ? error.message
+      : "HRA v0 local Convex refused an invalid launch.";
+    options.io.writeError(`${redactStdinValue(message, stdinText)}\n`);
+    return 1;
   }
+}
+
+if (import.meta.main) {
+  process.exitCode = await dispatchLocalConvexCli({
+    arguments: process.argv.slice(2),
+    io: {
+      readStdin: async () => await readBoundedLocalConvexStdin(Bun.stdin.stream()),
+      writeError: (value) => void process.stderr.write(value),
+      writeOutput: (value) => void process.stdout.write(value),
+    },
+  });
 }

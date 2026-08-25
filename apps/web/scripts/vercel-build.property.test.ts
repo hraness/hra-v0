@@ -129,3 +129,18 @@ test("a production key never authorizes any non-Production target", () => {
     },
   ));
 });
+
+test("a non-Vercel environment can never plan a Convex deploy", () => {
+  assertProperty(fc.property(
+    fc.constantFrom(undefined, "development", "preview", "production", "custom-staging"),
+    fc.constantFrom(undefined, "development", "preview", "production", "custom-staging"),
+    fc.constantFrom(undefined, "0", "true"),
+    (environment, target, vercel) => {
+      expect(planVercelConvexBuild({
+        VERCEL: vercel,
+        VERCEL_ENV: environment,
+        VERCEL_TARGET_ENV: target,
+      }).kind).toBe("refuse");
+    },
+  ));
+});

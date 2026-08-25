@@ -18,7 +18,6 @@
     "dev": "bun run convex-local.ts dev --tail-logs disable --start 'bun run dev:web'",
     "dev:web": "next dev --webpack",
     "dev:direct": "vite --config direct/vite.config.ts",
-    "convex:init": "bun run convex-local.ts init",
     "convex:dev": "bun run convex-local.ts dev --tail-logs disable",
     "convex:dev:once": "bun run convex-local.ts dev --once --tail-logs disable",
     "build": "bun run scripts/vercel-build.ts --run-app-build --production-deployment benevolent-akita-439",
