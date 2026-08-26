@@ -76,15 +76,26 @@ const harness_custody_native_result_kind =
 const removal_deletion_capability_bytes: usize = 32;
 const removal_deletion_capability_hex_bytes: usize =
     removal_deletion_capability_bytes * 2;
-// Direct v2 custody performs at most three helper calls. Each call also
-// receives the one absolute operation deadline. Keep the aggregate success
-// budget below the gateway client's fixed timeout so a mutation can never
-// finish after its reporter abandons it.
-const harness_custody_helper_timeout_ms: u32 = 5_000;
+// A fresh helper revalidates the complete signed host, gateway, and custodian
+// chain before every no-UI Keychain operation. Cold Security trust evaluation
+// can exceed a five-second warm-path budget. Keep the ordinary helper and reap
+// below the gateway client's ordinary Native deadline, with separate longer
+// bounds for the one interactive prepared-ACL migration.
+const harness_custody_helper_timeout_ms: u32 = 45_000;
 const harness_custody_migration_helper_timeout_ms: u32 = 240_000;
 const legacy_harness_custody_timeout_ms: u32 = 10_000;
 const harness_custody_helper_reap_timeout_ms: u32 = 1_000;
 const legacy_harness_group_absence_timeout_ms: u32 = 1_000;
+const harness_custody_ordinary_native_deadline_ms: u32 = 50_000;
+// Authenticated deletion performs delete, absence readback, and marker cleanup
+// through three independently attested helpers. Its one absolute deadline
+// contains every helper timeout and reap without widening ordinary reads.
+const harness_custody_deletion_helper_call_count: u32 = 3;
+const max_harness_custody_deletion_operation_ms: u32 =
+    harness_custody_deletion_helper_call_count *
+    (harness_custody_helper_timeout_ms +
+        harness_custody_helper_reap_timeout_ms);
+const harness_custody_deletion_native_deadline_ms: u32 = 150_000;
 const max_harness_custody_native_operation_ms: u32 =
     harness_custody_migration_helper_timeout_ms +
     harness_custody_helper_reap_timeout_ms;
@@ -106,7 +117,12 @@ const account_profile_delete_helper_timeout_ms: u32 = 295_000;
 // remains for the next explicit recovery launch.
 const removal_recovery_helper_timeout_ms: u32 = 295_000;
 comptime {
-    if (max_harness_custody_native_operation_ms >=
+    if (harness_custody_helper_timeout_ms +
+        harness_custody_helper_reap_timeout_ms >=
+        harness_custody_ordinary_native_deadline_ms or
+        max_harness_custody_deletion_operation_ms >=
+            harness_custody_deletion_native_deadline_ms or
+        max_harness_custody_native_operation_ms >=
         harness_custody_native_deadline_ms or
         harness_custody_native_deadline_ms >=
             harness_custody_gateway_timeout_ms)
@@ -952,7 +968,7 @@ fn runPackagedCustodyHelperProbe(
         response.ptr,
         response.len,
         &response_length,
-        30_000,
+        harness_custody_helper_timeout_ms,
         false,
     )) return error.CustodyProbeFailed;
     try requirePackagedProbeParent();
@@ -2162,12 +2178,25 @@ fn generateRemovalDeletionCapability(
 fn harnessCustodyDeadlineIsAdmissible(
     now_raw: i64,
     deadline_unix_milliseconds: u64,
+    maximum_milliseconds: u32,
 ) bool {
-    if (now_raw < 0) return false;
+    if (now_raw < 0 or maximum_milliseconds == 0) return false;
     const now: u64 = @intCast(now_raw);
     return deadline_unix_milliseconds > now and
         deadline_unix_milliseconds - now <=
-            harness_custody_native_deadline_ms;
+            maximum_milliseconds;
+}
+
+fn harnessCustodyNativeDeadlineForAction(
+    action: HarnessCustodyAction,
+) u32 {
+    return switch (action) {
+        .read, .set_if_absent =>
+            harness_custody_ordinary_native_deadline_ms,
+        .delete_both => harness_custody_deletion_native_deadline_ms,
+        .validate_prepared_acl, .migrate_prepared_acl =>
+            harness_custody_native_deadline_ms,
+    };
 }
 
 fn harnessCustodyBootDeadlineFromAdmissionSamples(
@@ -2175,6 +2204,7 @@ fn harnessCustodyBootDeadlineFromAdmissionSamples(
     boot_now_raw: i64,
     real_after_raw: i64,
     deadline_unix_milliseconds: u64,
+    maximum_milliseconds: u32,
 ) ?u64 {
     if (real_before_raw < 0 or real_after_raw < 0 or boot_now_raw < 0)
         return null;
@@ -2184,6 +2214,7 @@ fn harnessCustodyBootDeadlineFromAdmissionSamples(
     if (!harnessCustodyDeadlineIsAdmissible(
         effective_real_raw,
         deadline_unix_milliseconds,
+        maximum_milliseconds,
     )) return null;
     const effective_real: u64 = @intCast(effective_real_raw);
     const boot_now: u64 = @intCast(boot_now_raw);
@@ -7877,6 +7908,7 @@ pub const RuntimeHost = struct {
                 boot_now_raw,
                 real_after_raw,
                 request.deadline_unix_milliseconds,
+                harnessCustodyNativeDeadlineForAction(request.action),
             ) orelse 0;
         request.deadline_admitted =
             request.deadline_boot_milliseconds != 0;
@@ -10095,16 +10127,20 @@ const HarnessCustodyOperationProbe = struct {
     validation_digest_mismatch: bool = false,
     migration_digest_mismatch: bool = false,
     helper_read_count: usize = 0,
+    helper_read_timeout_ms: u32 = 0,
     helper_validation_count: usize = 0,
     helper_migration_count: usize = 0,
     helper_validation_timeout_ms: u32 = 0,
     helper_migration_timeout_ms: u32 = 0,
     helper_set_count: usize = 0,
+    helper_set_timeout_ms: u32 = 0,
     helper_delete_count: usize = 0,
+    helper_delete_timeout_ms: u32 = 0,
     marker_read_count: usize = 0,
     marker_prepare_count: usize = 0,
     marker_commit_count: usize = 0,
     marker_delete_count: usize = 0,
+    marker_delete_timeout_ms: u32 = 0,
     legacy_read_count: usize = 0,
     legacy_delete_count: usize = 0,
 
@@ -10162,6 +10198,7 @@ const HarnessCustodyOperationProbe = struct {
         switch (action) {
             .envelope_read => {
                 self.helper_read_count += 1;
+                self.helper_read_timeout_ms = timeout_milliseconds;
                 if (self.envelope_read_fails) return false;
                 output.* = .{ .envelope_read = self.v2 };
             },
@@ -10203,6 +10240,7 @@ const HarnessCustodyOperationProbe = struct {
             },
             .envelope_set_if_absent => {
                 self.helper_set_count += 1;
+                self.helper_set_timeout_ms = timeout_milliseconds;
                 if (self.envelope_set_fails_once) {
                     self.envelope_set_fails_once = false;
                     return false;
@@ -10227,6 +10265,7 @@ const HarnessCustodyOperationProbe = struct {
             },
             .envelope_delete => {
                 self.helper_delete_count += 1;
+                self.helper_delete_timeout_ms = timeout_milliseconds;
                 if (self.envelope_delete_fails) return false;
                 const deleted = self.v2.state == .present;
                 self.v2 = .{ .state = .absent };
@@ -10272,6 +10311,7 @@ const HarnessCustodyOperationProbe = struct {
             },
             .marker_delete => {
                 self.marker_delete_count += 1;
+                self.marker_delete_timeout_ms = timeout_milliseconds;
                 if (self.marker_delete_fails_once) {
                     self.marker_delete_fails_once = false;
                     return false;
@@ -10370,8 +10410,10 @@ fn testingHarnessCustodyRequest(
         .id_len = 0,
         .binding = undefined,
         .action = action,
-        .deadline_unix_milliseconds = now + harness_custody_native_deadline_ms,
-        .deadline_boot_milliseconds = boot + harness_custody_native_deadline_ms,
+        .deadline_unix_milliseconds = now +
+            harnessCustodyNativeDeadlineForAction(action),
+        .deadline_boot_milliseconds = boot +
+            harnessCustodyNativeDeadlineForAction(action),
     };
 }
 
@@ -10446,6 +10488,158 @@ fn setTestingRemovalAuthorization(
         request.removal_preview_id[0..preview_id.len],
         preview_id,
     );
+}
+
+test "Harness ordinary helper operations receive the cold trust timeout" {
+    try std.testing.expect(
+        harness_custody_helper_timeout_ms +
+            harness_custody_helper_reap_timeout_ms <
+            harness_custody_ordinary_native_deadline_ms,
+    );
+    try std.testing.expectEqual(
+        harness_custody_ordinary_native_deadline_ms,
+        harnessCustodyNativeDeadlineForAction(.read),
+    );
+    try std.testing.expectEqual(
+        harness_custody_ordinary_native_deadline_ms,
+        harnessCustodyNativeDeadlineForAction(.set_if_absent),
+    );
+    try std.testing.expectEqual(
+        harness_custody_deletion_native_deadline_ms,
+        harnessCustodyNativeDeadlineForAction(.delete_both),
+    );
+    try std.testing.expectEqual(
+        harness_custody_native_deadline_ms,
+        harnessCustodyNativeDeadlineForAction(.migrate_prepared_acl),
+    );
+    const deletion_deadline: HarnessCustodyDeadline = .{
+        .io = std.testing.io,
+        .boot_milliseconds = harness_custody_deletion_native_deadline_ms,
+    };
+    try std.testing.expectEqual(
+        @as(?u32, harness_custody_helper_timeout_ms),
+        deletion_deadline.remainingAt(0, harness_custody_helper_timeout_ms),
+    );
+    try std.testing.expectEqual(
+        @as(?u32, harness_custody_helper_timeout_ms),
+        deletion_deadline.remainingAt(
+            harness_custody_helper_timeout_ms +
+                harness_custody_helper_reap_timeout_ms,
+            harness_custody_helper_timeout_ms,
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(?u32, harness_custody_helper_timeout_ms),
+        deletion_deadline.remainingAt(
+            2 * (harness_custody_helper_timeout_ms +
+                harness_custody_helper_reap_timeout_ms),
+            harness_custody_helper_timeout_ms,
+        ),
+    );
+    try std.testing.expect(
+        max_harness_custody_deletion_operation_ms <
+            harness_custody_deletion_native_deadline_ms,
+    );
+    var probe: HarnessCustodyOperationProbe = .{};
+
+    var read_request = testingHarnessCustodyRequest(.read);
+    var read_result = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &read_request,
+        testingHarnessCustodyDeadline(&read_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&read_result);
+    try std.testing.expect(switch (read_result) {
+        .read => true,
+        else => false,
+    });
+    try std.testing.expectEqual(
+        harness_custody_helper_timeout_ms,
+        probe.helper_read_timeout_ms,
+    );
+
+    var set_request = testingHarnessCustodyRequest(.set_if_absent);
+    setTestingHarnessCustodyValue(
+        &set_request,
+        testing_harness_envelope_zero,
+    );
+    defer secureWipe(&set_request.value);
+    var set_result = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &set_request,
+        testingHarnessCustodyDeadline(&set_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&set_result);
+    try std.testing.expect(switch (set_result) {
+        .set_if_absent => true,
+        else => false,
+    });
+    try std.testing.expectEqual(
+        harness_custody_helper_timeout_ms,
+        probe.helper_set_timeout_ms,
+    );
+
+    var delete_request = testingHarnessCustodyRequest(.delete_both);
+    var delete_result = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &delete_request,
+        testingHarnessCustodyDeadline(&delete_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&delete_result);
+    try std.testing.expect(switch (delete_result) {
+        .delete_both => true,
+        else => false,
+    });
+    try std.testing.expectEqual(
+        harness_custody_helper_timeout_ms,
+        probe.helper_delete_timeout_ms,
+    );
+    try std.testing.expectEqual(
+        harness_custody_helper_timeout_ms,
+        probe.helper_read_timeout_ms,
+    );
+    try std.testing.expectEqual(
+        harness_custody_helper_timeout_ms,
+        probe.marker_delete_timeout_ms,
+    );
+}
+
+test "Harness direct deletion retries safely after readback failure" {
+    var probe: HarnessCustodyOperationProbe = .{
+        .v2 = testingHarnessCustodyValue(testing_harness_envelope_zero),
+        .envelope_read_fails = true,
+    };
+    var request = testingHarnessCustodyRequest(.delete_both);
+    var interrupted = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &request,
+        testingHarnessCustodyDeadline(&request),
+    );
+    defer wipeHarnessCustodyOperationResult(&interrupted);
+    try expectHarnessCustodyFailureStage(&interrupted, .envelope_read);
+    try std.testing.expectEqual(HarnessCustodyReadState.absent, probe.v2.state);
+    try std.testing.expectEqual(@as(usize, 1), probe.helper_delete_count);
+    try std.testing.expectEqual(@as(usize, 0), probe.marker_delete_count);
+
+    probe.envelope_read_fails = false;
+    var retry_request = testingHarnessCustodyRequest(.delete_both);
+    var retried = executeDirectHarnessCustodyOperation(
+        probe.helperRunner(),
+        testing_keychain_custodian_path,
+        &retry_request,
+        testingHarnessCustodyDeadline(&retry_request),
+    );
+    defer wipeHarnessCustodyOperationResult(&retried);
+    try std.testing.expect(switch (retried) {
+        .delete_both => |deleted| !deleted.deleted_v1 and !deleted.deleted_v2,
+        else => false,
+    });
+    try std.testing.expectEqual(@as(usize, 2), probe.helper_delete_count);
+    try std.testing.expectEqual(@as(usize, 1), probe.marker_delete_count);
 }
 
 test "Harness prepared ACL actions execute separately and reject digest substitution" {
@@ -10697,22 +10891,40 @@ test "Harness reconciliation marker is canonical and bridge bound" {
 
 test "Harness custody rejects expired or overlong Native deadlines" {
     const now: i64 = 1_800_000_000_000;
-    try std.testing.expect(!harnessCustodyDeadlineIsAdmissible(-1, 1));
+    try std.testing.expect(!harnessCustodyDeadlineIsAdmissible(
+        -1,
+        1,
+        harness_custody_native_deadline_ms,
+    ));
     try std.testing.expect(!harnessCustodyDeadlineIsAdmissible(
         now,
         @intCast(now),
+        harness_custody_native_deadline_ms,
     ));
     try std.testing.expect(harnessCustodyDeadlineIsAdmissible(
         now,
         @intCast(now + 1),
+        harness_custody_ordinary_native_deadline_ms,
     ));
     try std.testing.expect(harnessCustodyDeadlineIsAdmissible(
         now,
         @intCast(now + harness_custody_native_deadline_ms),
+        harness_custody_native_deadline_ms,
     ));
     try std.testing.expect(!harnessCustodyDeadlineIsAdmissible(
         now,
         @intCast(now + harness_custody_native_deadline_ms + 1),
+        harness_custody_native_deadline_ms,
+    ));
+    try std.testing.expect(!harnessCustodyDeadlineIsAdmissible(
+        now,
+        @intCast(now + harness_custody_ordinary_native_deadline_ms + 1),
+        harness_custody_ordinary_native_deadline_ms,
+    ));
+    try std.testing.expect(harnessCustodyDeadlineIsAdmissible(
+        now,
+        @intCast(now + harness_custody_deletion_native_deadline_ms),
+        harness_custody_deletion_native_deadline_ms,
     ));
     try std.testing.expectEqual(
         @as(?u64, 550),
@@ -10721,6 +10933,7 @@ test "Harness custody rejects expired or overlong Native deadlines" {
             500,
             900,
             1_050,
+            harness_custody_ordinary_native_deadline_ms,
         ),
     );
     try std.testing.expectEqual(
@@ -10730,6 +10943,7 @@ test "Harness custody rejects expired or overlong Native deadlines" {
             500,
             1_025,
             1_050,
+            harness_custody_ordinary_native_deadline_ms,
         ),
     );
     const fixed_boot_deadline: HarnessCustodyDeadline = .{

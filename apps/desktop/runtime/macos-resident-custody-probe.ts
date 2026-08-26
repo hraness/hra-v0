@@ -117,7 +117,10 @@ const errnoNoProcess = 3;
 
 const maximumSupervisorBytes = 64 * 1024 * 1024;
 const admissionMilliseconds = 5_000;
-const operationMilliseconds = 50_000;
+// The packaged supervisor admits a 60-second host phase, a 60-second operation
+// phase, and a five-second cleanup after its own static validation. Keep the
+// outer exact-process lease bounded with headroom for that nested sequence.
+const operationMilliseconds = 150_000;
 const cleanupMilliseconds = 10_000;
 const pollSliceMilliseconds = 10;
 const maximumListedProcesses = 256;

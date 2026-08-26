@@ -29,7 +29,7 @@
 // cleanup boundary is complete.
 
 #ifndef HRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS
-#define HRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS 45000
+#define HRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS 60000
 #endif
 #ifndef HRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS
 #define HRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS 5000
@@ -970,6 +970,22 @@ static int HRAParsePositiveMilliseconds(const char *text) {
   return value == 0 ? 0 : (int)value;
 }
 
+#if defined(HRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD)
+static bool HRATestDelayPastProbePhase(void) {
+  uint64_t delayDeadline = 0;
+  if (!HRADeadlineFromNow(
+          HRAProbeTimeoutMilliseconds + 250, &delayDeadline)) return false;
+  while (HRADeadlineHasTime(delayDeadline)) {
+    struct timespec pause = {
+      .tv_sec = 0,
+      .tv_nsec = HRAProbeGatePollMilliseconds * 1000 * 1000,
+    };
+    if (nanosleep(&pause, NULL) != 0 && errno != EINTR) return false;
+  }
+  return true;
+}
+#endif
+
 static int HRARunProbe(
     HRAProbeMode mode,
     const HRAProbeParentGeneration *parentGeneration,
@@ -978,10 +994,21 @@ static int HRARunProbe(
     const char *hostileSignalLauncherPath,
     const char *smokeRoot,
     int smokeDwellMilliseconds) {
+  // The outer runner grants one admission phase for all static validation,
+  // process construction, and the two live-image checks. Starting the clock
+  // here prevents an expensive Security trust evaluation from receiving an
+  // undeclared interval before the child gate is admitted.
+  uint64_t admissionDeadline = 0;
+  if (!HRADeadlineFromNow(
+          HRAProbeTimeoutMilliseconds, &admissionDeadline)) return 70;
   bool hostileSignals = mode == HRAProbeAuthorizeHostileSignals;
   bool untrustedHost = false;
 #if defined(HRA_CUSTODY_PROBE_ADVERSARIAL_BUILD)
   untrustedHost = mode == HRAProbeRejectAuthorize;
+#endif
+#if defined(HRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD)
+  if (strstr(hostPath, "hra-static-admission-delay") != NULL &&
+      !HRATestDelayPastProbePhase()) return 70;
 #endif
   HRAProbeParentGeneration selfGeneration;
   memset(&selfGeneration, 0, sizeof(selfGeneration));
@@ -1161,6 +1188,7 @@ static int HRARunProbe(
   const char *spawnPath = hostileSignals ? canonicalLauncher : canonicalHost;
   pid_t processIdentifier = -1;
   int spawnStatus = configured
+      && HRADeadlineHasTime(admissionDeadline)
       && !HRACancellationOrAuthorityLost()
       ? posix_spawn(
           &processIdentifier,
@@ -1189,9 +1217,7 @@ static int HRARunProbe(
 
   bool signalIssued = false;
   int testFailureExitCode = 70;
-  uint64_t admissionDeadline = 0;
-  bool admitted = HRADeadlineFromNow(
-      HRAProbeTimeoutMilliseconds, &admissionDeadline) &&
+  bool admitted = HRADeadlineHasTime(admissionDeadline) &&
       getpgid(processIdentifier) == processIdentifier;
 #if defined(HRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD)
   if (!admitted) testFailureExitCode = 71;
@@ -1237,9 +1263,13 @@ static int HRARunProbe(
           launcherDescriptor, canonicalLauncher, &launcherIdentity));
 #if defined(HRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD)
   if (!admitted && testFailureExitCode == 70) testFailureExitCode = 74;
+  if (admitted &&
+      strstr(canonicalHost, "hra-final-admission-delay") != NULL &&
+      !HRATestDelayPastProbePhase()) admitted = false;
 #endif
   memset(repeatedCDHash, 0, sizeof(repeatedCDHash));
-  admitted = admitted && !HRACancellationOrAuthorityLost() &&
+  admitted = admitted && HRADeadlineHasTime(admissionDeadline) &&
+      !HRACancellationOrAuthorityLost() &&
       HRAInvokingAuthorityRemainsLive(parentGeneration, authorityLease);
   static const uint8_t admissionByte = HRAProbeGoByte;
 #if defined(HRA_CUSTODY_PROBE_SUPERVISOR_TEST_BUILD)

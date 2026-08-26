@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import {
@@ -188,6 +188,95 @@ describe("native Harness Keychain custody client", () => {
       absentV2: true,
     })).toBeTrue();
     expect(await pending).toBeTrue();
+  });
+
+  test("places the default authenticated delete deadline before its reporter", async () => {
+    const requests: NativeHarnessCustodyRequestEnvelope[] = [];
+    const timeout = spyOn(globalThis, "setTimeout");
+    const custody = new NativeHarnessKeyCustody({
+      writeRequest: request => {
+        requests.push(request);
+        return Promise.resolve();
+      },
+    });
+    try {
+      const startedAt = Date.now();
+      const pending = custody.deleteBothForAuthenticatedRemoval({
+        operationId: "op_removal02",
+        previewId: "removal_example2",
+        nativeRemovalCapability: "ef".repeat(32),
+        receiptAuthentication: `hmac_sha256_${"01".repeat(32)}`,
+      });
+      const request = await nextRequest(requests);
+      const nativeDeadlineMs =
+        request.request.deadlineUnixMilliseconds - startedAt;
+      expect(request.request.action).toBe("deleteBoth");
+      expect(nativeDeadlineMs).toBeGreaterThan(149_000);
+      expect(nativeDeadlineMs).toBeLessThanOrEqual(150_000);
+      expect(timeout).toHaveBeenCalledWith(expect.any(Function), 165_000);
+      expect(nativeDeadlineMs).toBeLessThan(165_000);
+      expect(custody.complete({
+        kind: "harnessCustodyNativeResult",
+        version: 1,
+        nativeRequestId: request.request.id,
+        binding: request.request.binding,
+        action: "deleteBoth",
+        ok: true,
+        deletedV1: false,
+        deletedV2: true,
+        absentV1: true,
+        absentV2: true,
+      })).toBeTrue();
+      expect(await pending).toBeTrue();
+    } finally {
+      custody.close();
+      timeout.mockRestore();
+    }
+  });
+
+  test("applies a custom short timeout to authenticated delete with bounded grace", async () => {
+    const requests: NativeHarnessCustodyRequestEnvelope[] = [];
+    const timeout = spyOn(globalThis, "setTimeout");
+    const custody = new NativeHarnessKeyCustody({
+      timeoutMs: 20,
+      writeRequest: request => {
+        requests.push(request);
+        return Promise.resolve();
+      },
+    });
+    try {
+      const startedAt = Date.now();
+      const pending = custody.deleteBothForAuthenticatedRemoval({
+        operationId: "op_removal03",
+        previewId: "removal_example3",
+        nativeRemovalCapability: "23".repeat(32),
+        receiptAuthentication: `hmac_sha256_${"45".repeat(32)}`,
+      });
+      const request = await nextRequest(requests);
+      const nativeDeadlineMs =
+        request.request.deadlineUnixMilliseconds - startedAt;
+      expect(request.request.action).toBe("deleteBoth");
+      expect(nativeDeadlineMs).toBeGreaterThan(0);
+      expect(nativeDeadlineMs).toBeLessThanOrEqual(18);
+      expect(timeout).toHaveBeenCalledWith(expect.any(Function), 20);
+      expect(nativeDeadlineMs).toBeLessThan(20);
+      await expectCustodyUnavailable(pending);
+      expect(custody.complete({
+        kind: "harnessCustodyNativeResult",
+        version: 1,
+        nativeRequestId: request.request.id,
+        binding: request.request.binding,
+        action: "deleteBoth",
+        ok: true,
+        deletedV1: true,
+        deletedV2: true,
+        absentV1: true,
+        absentV2: true,
+      })).toBeFalse();
+    } finally {
+      custody.close();
+      timeout.mockRestore();
+    }
   });
 
   test("rejects malformed, replayed, or mismatched native results", async () => {

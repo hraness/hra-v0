@@ -405,12 +405,19 @@ function gatewayHarnessCustodyResponder(
     const binding = requiredString(request, "binding");
     const action = requiredString(request, "action");
     const now = Date.now();
+    const maximumDeadlineOffsetMilliseconds = action === "deleteBoth"
+      ? 150_000
+      : action === "read" || action === "setIfAbsent"
+      ? 50_000
+      : 0;
     if (
       !/^native-harness-[a-f0-9]{24}$/u.test(nativeRequestId)
       || !/^binding_[a-f0-9]{48}$/u.test(binding)
+      || maximumDeadlineOffsetMilliseconds === 0
       || !Number.isSafeInteger(request.deadlineUnixMilliseconds)
       || (request.deadlineUnixMilliseconds as number) <= now
-      || (request.deadlineUnixMilliseconds as number) > now + 50_000
+      || (request.deadlineUnixMilliseconds as number) >
+        now + maximumDeadlineOffsetMilliseconds
     ) {
       throw new Error("unbound Harness custody Native request");
     }

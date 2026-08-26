@@ -131,6 +131,158 @@ describe("macOS package contract", () => {
     }
   });
 
+  test("keeps cold signed custody inside every nested timeout boundary", async () => {
+    const [
+      hostSource,
+      clientSource,
+      custodianSource,
+      residentSource,
+      supervisorSource,
+    ] =
+      await Promise.all([
+        readFile(new URL("../../src/runtime_host.zig", import.meta.url), "utf8"),
+        readFile(
+          new URL("../src/harness/native-key-custody.ts", import.meta.url),
+          "utf8",
+        ),
+        readFile(
+          new URL("../../src/macos_keychain_custodian.m", import.meta.url),
+          "utf8",
+        ),
+        readFile(
+          new URL("../macos-resident-custody-probe.ts", import.meta.url),
+          "utf8",
+        ),
+        readFile(
+          new URL("../../src/macos_custody_probe_supervisor.c", import.meta.url),
+          "utf8",
+        ),
+      ]);
+    const number = (source: string, pattern: RegExp): number => {
+      const value = pattern.exec(source)?.[1];
+      if (value === undefined) throw new Error(`Missing ${pattern.source}`);
+      return Number(value.replaceAll("_", ""));
+    };
+    const helper = number(
+      hostSource,
+      /harness_custody_helper_timeout_ms: u32 = ([0-9_]+);/u,
+    );
+    const reap = number(
+      hostSource,
+      /harness_custody_helper_reap_timeout_ms: u32 = ([0-9_]+);/u,
+    );
+    const nativeDeadline = number(
+      hostSource,
+      /harness_custody_ordinary_native_deadline_ms: u32 = ([0-9_]+);/u,
+    );
+    const deletionHelperCalls = number(
+      hostSource,
+      /harness_custody_deletion_helper_call_count: u32 = ([0-9_]+);/u,
+    );
+    const deletionNativeDeadline = number(
+      hostSource,
+      /harness_custody_deletion_native_deadline_ms: u32 = ([0-9_]+);/u,
+    );
+    const migrationHelper = number(
+      hostSource,
+      /harness_custody_migration_helper_timeout_ms: u32 = ([0-9_]+);/u,
+    );
+    const migrationNativeDeadline = number(
+      hostSource,
+      /harness_custody_native_deadline_ms: u32 = ([0-9_]+);/u,
+    );
+    const gatewayTimeout = number(
+      hostSource,
+      /harness_custody_gateway_timeout_ms: u32 = ([0-9_]+);/u,
+    );
+    const clientTimeout = number(
+      clientSource,
+      /const defaultTimeoutMs = ([0-9_]+);/u,
+    );
+    const clientNativeDeadline = number(
+      clientSource,
+      /const maximumNativeDeadlineMs = ([0-9_]+);/u,
+    );
+    const clientDeletionTimeout = number(
+      clientSource,
+      /const defaultDeleteTimeoutMs = ([0-9_]+);/u,
+    );
+    const clientDeletionNativeDeadline = number(
+      clientSource,
+      /const maximumDeleteNativeDeadlineMs = ([0-9_]+);/u,
+    );
+    const clientMigrationTimeout = number(
+      clientSource,
+      /const defaultMigrationTimeoutMs = ([0-9_]+);/u,
+    );
+    const clientMigrationNativeDeadline = number(
+      clientSource,
+      /const maximumMigrationNativeDeadlineMs = ([0-9_]+);/u,
+    );
+    const custodianMaximum = number(
+      custodianSource,
+      /HRACustodianMaximumTimeoutMilliseconds = ([0-9_]+);/u,
+    );
+    const supervisorPhase = number(
+      supervisorSource,
+      /#define HRA_CUSTODY_PROBE_TIMEOUT_MILLISECONDS ([0-9_]+)/u,
+    );
+    const supervisorCleanup = number(
+      supervisorSource,
+      /#define HRA_CUSTODY_PROBE_CLEANUP_MILLISECONDS ([0-9_]+)/u,
+    );
+    const residentOperation = number(
+      residentSource,
+      /const operationMilliseconds = ([0-9_]+);/u,
+    );
+    const residentCleanup = number(
+      residentSource,
+      /const cleanupMilliseconds = ([0-9_]+);/u,
+    );
+
+    expect(helper).toBe(45_000);
+    expect(reap).toBe(1_000);
+    expect(nativeDeadline).toBe(50_000);
+    expect(clientTimeout).toBe(55_000);
+    expect(clientNativeDeadline).toBe(nativeDeadline);
+    expect(helper + reap).toBeLessThan(nativeDeadline);
+    expect(nativeDeadline).toBeLessThan(clientTimeout);
+    expect(deletionHelperCalls).toBe(3);
+    expect(clientDeletionNativeDeadline).toBe(deletionNativeDeadline);
+    expect(deletionHelperCalls * (helper + reap)).toBeLessThan(
+      deletionNativeDeadline,
+    );
+    expect(deletionNativeDeadline).toBeLessThan(clientDeletionTimeout);
+    expect(clientDeletionTimeout).toBeLessThan(gatewayTimeout);
+    expect(hostSource).toContain(
+      ".delete_both => harness_custody_deletion_native_deadline_ms,",
+    );
+    expect(migrationHelper).toBe(240_000);
+    expect(custodianMaximum).toBe(migrationHelper);
+    expect(migrationNativeDeadline).toBe(270_000);
+    expect(clientMigrationNativeDeadline).toBe(migrationNativeDeadline);
+    expect(migrationHelper + reap).toBeLessThan(migrationNativeDeadline);
+    expect(migrationNativeDeadline).toBeLessThan(gatewayTimeout);
+    expect(gatewayTimeout).toBe(clientMigrationTimeout);
+    expect(hostSource).toContain(
+      "&response_length,\n        harness_custody_helper_timeout_ms,\n        false,",
+    );
+    expect(supervisorPhase).toBe(60_000);
+    expect(supervisorCleanup).toBe(5_000);
+    expect(helper + reap).toBeLessThan(supervisorPhase);
+    expect(residentOperation).toBe(150_000);
+    expect(residentOperation).toBeGreaterThan(
+      supervisorPhase * 2 + supervisorCleanup,
+    );
+    expect(
+      residentOperation - supervisorPhase * 2 - supervisorCleanup,
+    ).toBe(25_000);
+    expect(residentCleanup).toBe(10_000);
+    expect(residentCleanup).toBeGreaterThan(
+      supervisorCleanup + 500,
+    );
+  });
+
   test("keeps prepared ACL and legacy custody within their native timeout caps", async () => {
     const [hostSource, nativeSource] = await Promise.all([
       readFile(new URL("../../src/runtime_host.zig", import.meta.url), "utf8"),

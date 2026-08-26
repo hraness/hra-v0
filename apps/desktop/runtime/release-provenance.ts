@@ -74,6 +74,10 @@ export const HRA_V0_Q15_SURFACE_COMMIT =
 export const HRA_V0_C16_COMPATIBILITY_COMMIT =
   "4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb" as const;
 
+/** Canonical C17 native timeout-cap correction immediately before C18. */
+export const HRA_V0_C17_TIMEOUT_CAP_COMMIT =
+  "112175bfdbcd6be0e3cca7ed43dd57e79453c00a" as const;
+
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
 const archiveHistoryCommitLimit = 1_024;
 const releaseContractByteLimit = 32_768;
@@ -130,9 +134,10 @@ export interface ReleaseCandidateLineageEvidence {
 
 export interface ReleaseHotfixCandidateLineageEvidence {
   readonly c16Commit: string;
+  readonly c17Commit: string;
   readonly candidateCommit: string;
   readonly q15Commit: string;
-  readonly status: "exact_q15_c16_c17_candidate_chain";
+  readonly status: "exact_q15_c16_c17_c18_candidate_chain";
 }
 
 /** A Q16 surface that is the sole direct child of exact publication P16. */
@@ -147,7 +152,7 @@ export interface CanonicalReleasePublicationEvidence {
   readonly tag: ReleaseTagEvidence;
 }
 
-/** Canonical remote evidence for the linear Q15/C16/C17/P16/Q16 topology. */
+/** Canonical remote evidence for the linear Q15/C16/C17/C18/P16/Q16 topology. */
 export interface CanonicalReleasePublicationSurfaceEvidence
   extends CanonicalReleasePublicationEvidence {
   readonly surface: ReleasePublicationSurfaceEvidence;
@@ -389,14 +394,16 @@ export async function resolveReleaseCandidateCommit(
 }
 
 /**
- * Find the unique C17 candidate on the linear path from exact C16 to HEAD.
- * HEAD may be the candidate or a later CI descendant. C16 must remain Q15's
- * sole-parent child, and the candidate must remain C16's sole-parent child.
+ * Find the unique C18 candidate on the linear path from exact C17 to HEAD.
+ * HEAD may be the candidate or a later CI descendant. The fixed Q15-to-C16-to-
+ * C17 chain must remain exact, and the candidate must be C17's sole-parent
+ * child.
  */
 export async function resolveReleaseHotfixCandidateCommit(
   repository: ReleaseRepositoryEvidence,
   options: Readonly<{
     expectedC16Commit?: string;
+    expectedC17Commit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<string> {
@@ -408,54 +415,59 @@ export async function resolveReleaseHotfixCandidateCommit(
     options.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
     "HRA v0.1.16 C16 compatibility commit",
   );
+  const expectedC17Commit = requireObjectId(
+    options.expectedC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+    "HRA v0.1.16 C17 timeout-cap commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
   );
-  await inspectReleaseC16LineageWithRunner(
+  await inspectReleaseC17LineageWithRunner(
     runner,
+    expectedC17Commit,
     expectedC16Commit,
     expectedQ15Commit,
   );
   let mergeBase: string;
   try {
     mergeBase = requireObjectId(
-      await runner.run(["merge-base", expectedC16Commit, repository.commit]),
-      "HRA v0.1.16 C16 merge base",
+      await runner.run(["merge-base", expectedC17Commit, repository.commit]),
+      "HRA v0.1.16 C17 merge base",
     );
   } catch {
     throw new Error(
-      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
+      "The HRA v0.1.16 C18 candidate must have exact C17 as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedC16Commit) {
+  if (mergeBase !== expectedC17Commit) {
     throw new Error(
-      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
+      "The HRA v0.1.16 C18 candidate must have exact C17 as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedC16Commit}..${repository.commit}`,
+    `${expectedC17Commit}..${repository.commit}`,
   ])).trim();
-  const c16Children: string[] = [];
+  const c17Children: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedC16Commit) {
-      c16Children.push(
-        requireObjectId(commit, "HRA v0.1.16 C17 candidate commit"),
+    if (parents.length === 1 && parents[0] === expectedC17Commit) {
+      c17Children.push(
+        requireObjectId(commit, "HRA v0.1.16 C18 candidate commit"),
       );
     }
   }
-  if (c16Children.length !== 1) {
+  if (c17Children.length !== 1) {
     throw new Error(
-      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
+      "The HRA v0.1.16 C18 candidate must have exact C17 as its only direct parent.",
     );
   }
-  return c16Children[0] ?? "";
+  return c17Children[0] ?? "";
 }
 
 export async function inspectReleaseHotfixCandidateLineage(
@@ -463,6 +475,7 @@ export async function inspectReleaseHotfixCandidateLineage(
   options: Readonly<{
     candidateCommit?: string;
     expectedC16Commit?: string;
+    expectedC17Commit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<ReleaseHotfixCandidateLineageEvidence> {
@@ -478,6 +491,10 @@ export async function inspectReleaseHotfixCandidateLineage(
     options.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
     "HRA v0.1.16 C16 compatibility commit",
   );
+  const expectedC17Commit = requireObjectId(
+    options.expectedC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+    "HRA v0.1.16 C17 timeout-cap commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
@@ -485,6 +502,7 @@ export async function inspectReleaseHotfixCandidateLineage(
   return await inspectReleaseHotfixCandidateLineageWithRunner(
     runner,
     candidateCommit,
+    expectedC17Commit,
     expectedC16Commit,
     expectedQ15Commit,
   );
@@ -513,9 +531,39 @@ async function inspectReleaseC16LineageWithRunner(
   }
 }
 
+async function inspectReleaseC17LineageWithRunner(
+  runner: ReleaseGitRunner,
+  expectedC17Commit: string,
+  expectedC16Commit: string,
+  expectedQ15Commit: string,
+): Promise<void> {
+  const ancestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedC17Commit,
+  ])).trim().split(/\s+/u);
+  if (
+    ancestry.length !== 2
+    || ancestry[0] !== expectedC17Commit
+    || ancestry[1] !== expectedC16Commit
+  ) {
+    throw new Error(
+      "The HRA v0.1.16 C17 timeout-cap commit must have exact C16 as its only direct parent.",
+    );
+  }
+  await inspectReleaseC16LineageWithRunner(
+    runner,
+    expectedC16Commit,
+    expectedQ15Commit,
+  );
+}
+
 async function inspectReleaseHotfixCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
+  expectedC17Commit: string,
   expectedC16Commit: string,
   expectedQ15Commit: string,
 ): Promise<ReleaseHotfixCandidateLineageEvidence> {
@@ -529,22 +577,24 @@ async function inspectReleaseHotfixCandidateLineageWithRunner(
   if (
     ancestry.length !== 2
     || ancestry[0] !== candidateCommit
-    || ancestry[1] !== expectedC16Commit
+    || ancestry[1] !== expectedC17Commit
   ) {
     throw new Error(
-      "The HRA v0.1.16 C17 candidate must have exact C16 as its only direct parent.",
+      "The HRA v0.1.16 C18 candidate must have exact C17 as its only direct parent.",
     );
   }
-  await inspectReleaseC16LineageWithRunner(
+  await inspectReleaseC17LineageWithRunner(
     runner,
+    expectedC17Commit,
     expectedC16Commit,
     expectedQ15Commit,
   );
   return Object.freeze({
     c16Commit: expectedC16Commit,
+    c17Commit: expectedC17Commit,
     candidateCommit,
     q15Commit: expectedQ15Commit,
-    status: "exact_q15_c16_c17_candidate_chain",
+    status: "exact_q15_c16_c17_c18_candidate_chain",
   });
 }
 
@@ -1593,13 +1643,15 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
 }
 
 /**
- * Fetch and verify the exact linear Q15/C16/C17/P16/Q16 publication topology
- * from the canonical HRA v0 repository without trusting a provider checkout.
+ * Fetch and verify the exact linear Q15/C16/C17/C18/P16/Q16 publication
+ * topology from the canonical HRA v0 repository without trusting a provider
+ * checkout.
  */
 export async function inspectCanonicalReleasePublicationSurface(
   options: Readonly<{
     candidateCommit: string;
     expectedC16Commit?: string;
+    expectedC17Commit?: string;
     expectedQ15Commit?: string;
     publicationCommit: string;
     surfaceCommit: string;
@@ -1626,6 +1678,10 @@ export async function inspectCanonicalReleasePublicationSurface(
     options.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
     "HRA v0.1.16 C16 compatibility commit",
   );
+  const expectedC17Commit = requireObjectId(
+    options.expectedC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+    "HRA v0.1.16 C17 timeout-cap commit",
+  );
   if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
     throw new Error("Release tag is invalid.");
   }
@@ -1645,7 +1701,7 @@ export async function inspectCanonicalReleasePublicationSurface(
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=5",
+      "--depth=6",
       "--filter=blob:limit=32768",
       "canonical",
       surfaceCommit,
@@ -1656,7 +1712,7 @@ export async function inspectCanonicalReleasePublicationSurface(
       "--quiet",
       "--force",
       "--no-tags",
-      "--depth=3",
+      "--depth=4",
       "--filter=blob:limit=32768",
       "canonical",
       `${tagRef}:${tagRef}`,
@@ -1678,6 +1734,7 @@ export async function inspectCanonicalReleasePublicationSurface(
     await inspectReleaseHotfixCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      expectedC17Commit,
       expectedC16Commit,
       expectedQ15Commit,
     );

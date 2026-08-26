@@ -144,6 +144,45 @@ describe("native custody probe supervisor", () => {
     });
   });
 
+  test("charges static validation delay to the one admission phase", async () => {
+    await withFixtureRoot(async (root) => {
+      const host = await fixtureCopy(root, "hra-static-admission-delay");
+      const started = performance.now();
+      const result = Bun.spawnSync(
+        supervised(["authorize", host]),
+        { env: environment(root), stderr: "pipe", stdout: "pipe" },
+      );
+      const elapsed = performance.now() - started;
+      expect(result.exitCode).toBe(70);
+      expect(result.stderr.toString()).toBe("");
+      expect(result.stdout.toString()).toBe("");
+      expect(elapsed).toBeGreaterThanOrEqual(1_400);
+      expect(elapsed).toBeLessThan(10_000);
+      expect(await Bun.file(`${host}.pids`).exists()).toBe(false);
+    });
+  }, 15_000);
+
+  test("rechecks the admission deadline immediately before GO", async () => {
+    await withFixtureRoot(async (root) => {
+      const host = await fixtureCopy(
+        root,
+        "hra-final-admission-delay-success",
+      );
+      const started = performance.now();
+      const result = Bun.spawnSync(
+        supervised(["authorize", host]),
+        { env: environment(root), stderr: "pipe", stdout: "pipe" },
+      );
+      const elapsed = performance.now() - started;
+      expect(result.exitCode).toBe(70);
+      expect(result.stderr.toString()).toBe("");
+      expect(result.stdout.toString()).toBe("");
+      expect(elapsed).toBeGreaterThanOrEqual(1_400);
+      expect(elapsed).toBeLessThan(10_000);
+      expect(await Bun.file(`${host}.pids`).exists()).toBe(false);
+    });
+  }, 15_000);
+
   test("preserves the inner fd-3 lease when verifier pipes begin at fd 3", async () => {
     await withFixtureRoot(async (root) => {
       const host = await fixtureCopy(root, "hra-success-fd3");

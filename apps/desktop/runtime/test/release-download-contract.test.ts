@@ -765,7 +765,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-P16-to-Q16 path", async () => {
+  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-C18-to-P16-to-Q16 path", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v016-publication-")),
     );
@@ -809,12 +809,22 @@ describe("release and download convergence", () => {
       "native timeout correction\n",
     );
     await runSetupGit(repositoryRoot, ["add", "timeout-cap.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C17"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "timeout cap C17"]);
+    const c17Commit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
+      join(repositoryRoot, "latency.txt"),
+      "native custody latency correction\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "latency.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C18"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateC16Commit: c16Commit,
+      candidateC17Commit: c17Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -881,7 +891,11 @@ describe("release and download convergence", () => {
     const verified = await verifyPublishedReleaseSourceEvidence(
       published,
       repository,
-      { expectedC16Commit: c16Commit, expectedQ15Commit: q15Commit },
+      {
+        expectedC16Commit: c16Commit,
+        expectedC17Commit: c17Commit,
+        expectedQ15Commit: q15Commit,
+      },
     );
     expect(verified.publication).toMatchObject({
       candidateCommit,
@@ -891,6 +905,7 @@ describe("release and download convergence", () => {
     });
     expect(await verifyReleaseSourceState(published, {
       candidateC16Commit: c16Commit,
+      candidateC17Commit: c17Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -921,6 +936,7 @@ describe("release and download convergence", () => {
       surfaceRepository,
       {
         expectedC16Commit: c16Commit,
+        expectedC17Commit: c17Commit,
         expectedQ15Commit: q15Commit,
         historyContract: generationTwo,
         publicationCommit,
@@ -933,6 +949,7 @@ describe("release and download convergence", () => {
     });
     expect(await verifyReleaseSourceState(published, {
       candidateC16Commit: c16Commit,
+      candidateC17Commit: c17Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       historyContract: generationTwo,
@@ -945,6 +962,7 @@ describe("release and download convergence", () => {
     await expectRejection(
       verifyReleaseSourceState(published, {
         candidateC16Commit: c16Commit,
+        candidateC17Commit: c17Commit,
         candidateQ15Commit: q15Commit,
         environment: {},
         historyContract: readReleaseHistoryContract(),
@@ -1044,7 +1062,7 @@ describe("release and download convergence", () => {
       ),
       "generation-2 P16 release ledger",
     );
-  });
+  }, 20_000);
 
   test("binds published v0.1.15 to the exact Q14-to-base-to-surface-to-custody-to-host-trust-to-bundle-code-authority-to-signed-release-probe-repair-to-final-C15-to-P15 chain", async () => {
     const repositoryRoot = await realpath(

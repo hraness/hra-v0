@@ -311,4 +311,5 @@ test.skipIf(process.platform !== "darwin")(
       await rm(root, { force: true, recursive: true });
     }
   },
+  30_000,
 );
