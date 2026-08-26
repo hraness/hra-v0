@@ -22,6 +22,7 @@ import {
   HRA_V0_C16_COMPATIBILITY_COMMIT,
   HRA_V0_C17_TIMEOUT_CAP_COMMIT,
   HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
+  HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
@@ -328,7 +329,7 @@ describe("hermetic release provenance", () => {
     })).toBe(candidateCommit);
   });
 
-  test("resolves and binds the unique linear C19 child of exact C18, C17, C16, and Q15", async () => {
+  test("resolves and binds the unique linear C20 child of exact C19, C18, C17, C16, and Q15", async () => {
     const repositoryRoot = await createRepository();
     const q15Commit = (await runSetupGit(
       repositoryRoot,
@@ -366,7 +367,17 @@ describe("hermetic release provenance", () => {
       "Keychain transition correction\n",
     );
     await runSetupGit(repositoryRoot, ["add", "transition.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C19"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "custody transition C19"]);
+    const c19Commit = (await runSetupGit(
+      repositoryRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    await writeFile(
+      join(repositoryRoot, "zombie-fence.txt"),
+      "zombie-aware gateway fencing\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "zombie-fence.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C20"]);
     const candidateCommit = (await runSetupGit(
       repositoryRoot,
       ["rev-parse", "HEAD"],
@@ -380,6 +391,7 @@ describe("hermetic release provenance", () => {
       expectedC16Commit: c16Commit,
       expectedC17Commit: c17Commit,
       expectedC18Commit: c18Commit,
+      expectedC19Commit: c19Commit,
       expectedQ15Commit: q15Commit,
     })).toBe(candidateCommit);
     expect(await inspectReleaseHotfixCandidateLineage(repository, {
@@ -387,14 +399,16 @@ describe("hermetic release provenance", () => {
       expectedC16Commit: c16Commit,
       expectedC17Commit: c17Commit,
       expectedC18Commit: c18Commit,
+      expectedC19Commit: c19Commit,
       expectedQ15Commit: q15Commit,
     })).toEqual({
       c16Commit,
       c17Commit,
       c18Commit,
+      c19Commit,
       candidateCommit,
       q15Commit,
-      status: "exact_q15_c16_c17_c18_c19_candidate_chain",
+      status: "exact_q15_c16_c17_c18_c19_c20_candidate_chain",
     });
 
     await writeFile(join(repositoryRoot, "publication.txt"), "descendant\n");
@@ -408,11 +422,12 @@ describe("hermetic release provenance", () => {
       expectedC16Commit: c16Commit,
       expectedC17Commit: c17Commit,
       expectedC18Commit: c18Commit,
+      expectedC19Commit: c19Commit,
       expectedQ15Commit: q15Commit,
     })).toBe(candidateCommit);
   }, 10_000);
 
-  test("retains the C16-to-Q15 edge across sequential Q16 and C19 shallow fetches", async () => {
+  test("retains the C16-to-Q15 edge across sequential Q16 and C20 shallow fetches", async () => {
     const canonicalRoot = await createRepository();
     const q15Commit = (await runSetupGit(
       canonicalRoot,
@@ -429,16 +444,21 @@ describe("hermetic release provenance", () => {
       "cold-custody-timeout.txt",
       "cold custody timeout C18",
     );
-    const c19Commit = await commitFixture(
+    await commitFixture(
       canonicalRoot,
       "transition.txt",
-      "candidate C19",
+      "custody transition C19",
+    );
+    const c20Commit = await commitFixture(
+      canonicalRoot,
+      "zombie-fence.txt",
+      "candidate C20",
     );
     await runSetupGit(canonicalRoot, [
       "tag",
       "-a",
       "v0.1.16",
-      c19Commit,
+      c20Commit,
       "-m",
       "HRA v0.1.16",
     ]);
@@ -563,10 +583,15 @@ describe("hermetic release provenance", () => {
       "latency.txt",
       "timeout correction C18",
     );
+    const wrongC16C19 = await commitFixture(
+      wrongC16Root,
+      "transition.txt",
+      "custody transition C19",
+    );
     const wrongC16Candidate = await commitFixture(
       wrongC16Root,
       "candidate.txt",
-      "candidate C19",
+      "candidate C20",
     );
     const wrongC16Repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -578,6 +603,7 @@ describe("hermetic release provenance", () => {
         expectedC16Commit: wrongC16,
         expectedC17Commit: wrongC16C17,
         expectedC18Commit: wrongC16C18,
+        expectedC19Commit: wrongC16C19,
         expectedQ15Commit: wrongC16Q15,
       }),
       "C16 compatibility commit must have exact Q15 as its only direct parent",
@@ -606,10 +632,15 @@ describe("hermetic release provenance", () => {
       "latency.txt",
       "timeout correction C18",
     );
+    const wrongC17C19 = await commitFixture(
+      wrongC17Root,
+      "transition.txt",
+      "custody transition C19",
+    );
     const wrongC17Candidate = await commitFixture(
       wrongC17Root,
       "candidate.txt",
-      "candidate C19",
+      "candidate C20",
     );
     const wrongC17Repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -621,6 +652,7 @@ describe("hermetic release provenance", () => {
         expectedC16Commit: wrongC17C16,
         expectedC17Commit: wrongC17,
         expectedC18Commit: wrongC17C18,
+        expectedC19Commit: wrongC17C19,
         expectedQ15Commit: wrongC17Q15,
       }),
       "C17 timeout-cap commit must have exact C16 as its only direct parent",
@@ -649,10 +681,15 @@ describe("hermetic release provenance", () => {
       "latency.txt",
       "timeout correction C18",
     );
+    const wrongC18C19 = await commitFixture(
+      wrongC18Root,
+      "transition.txt",
+      "custody transition C19",
+    );
     const wrongC18Candidate = await commitFixture(
       wrongC18Root,
       "candidate.txt",
-      "candidate C19",
+      "candidate C20",
     );
     const wrongC18Repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -664,13 +701,63 @@ describe("hermetic release provenance", () => {
         expectedC16Commit: wrongC18C16,
         expectedC17Commit: wrongC18C17,
         expectedC18Commit: wrongC18,
+        expectedC19Commit: wrongC18C19,
         expectedQ15Commit: wrongC18Q15,
       }),
       "C18 cold-custody timeout commit must have exact C17 as its only direct parent",
     );
   });
 
-  test("rejects merge-child and multiple-child C19 topologies", async () => {
+  test("rejects a C19 whose sole parent is not exact C18", async () => {
+    const wrongC19Root = await createRepository();
+    const wrongC19Q15 = (await runSetupGit(
+      wrongC19Root,
+      ["rev-parse", "HEAD"],
+    )).trim();
+    const wrongC19C16 = await commitFixture(
+      wrongC19Root,
+      "compatibility.txt",
+      "compatibility C16",
+    );
+    const wrongC19C17 = await commitFixture(
+      wrongC19Root,
+      "timeout-cap.txt",
+      "timeout cap C17",
+    );
+    const wrongC19C18 = await commitFixture(
+      wrongC19Root,
+      "latency.txt",
+      "timeout correction C18",
+    );
+    await commitFixture(wrongC19Root, "intermediate.txt", "intermediate");
+    const wrongC19 = await commitFixture(
+      wrongC19Root,
+      "transition.txt",
+      "custody transition C19",
+    );
+    const wrongC19Candidate = await commitFixture(
+      wrongC19Root,
+      "candidate.txt",
+      "candidate C20",
+    );
+    const wrongC19Repository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: wrongC19Root,
+    });
+    await expectRejection(
+      inspectReleaseHotfixCandidateLineage(wrongC19Repository, {
+        candidateCommit: wrongC19Candidate,
+        expectedC16Commit: wrongC19C16,
+        expectedC17Commit: wrongC19C17,
+        expectedC18Commit: wrongC19C18,
+        expectedC19Commit: wrongC19,
+        expectedQ15Commit: wrongC19Q15,
+      }),
+      "C19 custody-transition commit must have exact C18 as its only direct parent",
+    );
+  });
+
+  test("rejects merge-child and multiple-child C20 topologies", async () => {
     const forkedRoot = await createRepository();
     const forkQ15 = (await runSetupGit(
       forkedRoot,
@@ -691,16 +778,21 @@ describe("hermetic release provenance", () => {
       "latency.txt",
       "timeout correction C18",
     );
-    await runSetupGit(forkedRoot, ["switch", "-c", "other-c19"]);
-    await commitFixture(forkedRoot, "other.txt", "other C19 child");
+    const forkC19 = await commitFixture(
+      forkedRoot,
+      "transition.txt",
+      "custody transition C19",
+    );
+    await runSetupGit(forkedRoot, ["switch", "-c", "other-c20"]);
+    await commitFixture(forkedRoot, "other.txt", "other C20 child");
     await runSetupGit(forkedRoot, ["switch", "main"]);
-    await commitFixture(forkedRoot, "candidate.txt", "candidate C19 child");
+    await commitFixture(forkedRoot, "candidate.txt", "candidate C20 child");
     await runSetupGit(forkedRoot, [
       "merge",
       "--no-ff",
-      "other-c19",
+      "other-c20",
       "-m",
-      "merge two C19 children",
+      "merge two C20 children",
     ]);
     const forkedRepository = await inspectReleaseSourceRepository({
       environment: {},
@@ -711,9 +803,10 @@ describe("hermetic release provenance", () => {
         expectedC16Commit: forkC16,
         expectedC17Commit: forkC17,
         expectedC18Commit: forkC18,
+        expectedC19Commit: forkC19,
         expectedQ15Commit: forkQ15,
       }),
-      "C19 candidate must have exact C18 as its only direct parent",
+      "C20 candidate must have exact C19 as its only direct parent",
     );
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(forkedRepository, {
@@ -721,9 +814,10 @@ describe("hermetic release provenance", () => {
         expectedC16Commit: forkC16,
         expectedC17Commit: forkC17,
         expectedC18Commit: forkC18,
+        expectedC19Commit: forkC19,
         expectedQ15Commit: forkQ15,
       }),
-      "C19 candidate must have exact C18 as its only direct parent",
+      "C20 candidate must have exact C19 as its only direct parent",
     );
   }, 10_000);
 
@@ -1867,7 +1961,7 @@ describe("hermetic release provenance", () => {
     );
   });
 
-  test("pins the fixed C15/P15/U/M/Q15/C16/C17/C18 release objects", () => {
+  test("pins the fixed C15/P15/U/M/Q15/C16/C17/C18/C19 release objects", () => {
     expect(HRA_V0_C15_CANDIDATE_COMMIT).toBe(
       "0c7764da0dea0a71bbccca817539a02d8e4284d0",
     );
@@ -1891,6 +1985,9 @@ describe("hermetic release provenance", () => {
     );
     expect(HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT).toBe(
       "14904f1fc60b254455b7089f32e9764d67fffd95",
+    );
+    expect(HRA_V0_C19_CUSTODY_TRANSITION_COMMIT).toBe(
+      "aa613e86f874efa089a375231a9506e5934973f0",
     );
   });
 

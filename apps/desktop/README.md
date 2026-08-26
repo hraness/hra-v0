@@ -3,7 +3,7 @@
 This directory preserves the archived HRA v0 macOS application. Its
 generation-1 release ledger currently ends at the immutable v0.1.15 recovery
 release. HRA v0.1.16 build 17 is the checked native compatibility correction
-candidate C19. The current HRA is at
+candidate C20. The current HRA is at
 [hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
@@ -292,7 +292,7 @@ zig-out/release/macos/arm64/
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
 The root `release-download.json` is the strict HRA v0.1.16 build 17 download
-and publication contract for `https://github.com/hraness/hra-v0`. C19 keeps
+and publication contract for `https://github.com/hraness/hra-v0`. C20 keeps
 artifact hashes and source identities null, so the website exposes no v0.1.16
 download. The immutable v0.1.15 release remains the current frozen ledger
 entry and the v0.1.14 origin remains available for its bounded forward
@@ -322,8 +322,10 @@ single-parent direct child. Native timeout-cap commit C17
 `112175bfdbcd6be0e3cca7ed43dd57e79453c00a` is C16's single-parent direct
 child. Unreleased cold-custody-timeout commit C18
 `14904f1fc60b254455b7089f32e9764d67fffd95` is C17's single-parent direct
-child. The final C19 candidate must be C18's single-parent direct child. P16
-must be C19's exact contract-only child, and Q16 must be P16's single direct
+child. Unreleased custody-transition commit C19
+`aa613e86f874efa089a375231a9506e5934973f0` is C18's single-parent direct
+child. The final C20 candidate must be C19's single-parent direct child. P16
+must be C20's exact contract-only child, and Q16 must be P16's single direct
 archive-surface child without changing the published contract.
 
 C17 exists because C16's runtime requests a 240-second interactive ACL
@@ -337,18 +339,24 @@ preinstall resident status probe cannot read custody whose strict ACL still
 names the installed C17 helper. C19 admits that exact C17 helper as an audited
 transition predecessor and limits preinstall package verification to candidate
 authorization. Full installed and DMG verification still proves resident status
-before authorization. These corrections do not change the 240-second migration
-budget, v0.1.16 version, or build 17 identity.
+before authorization. Installed C19 acceptance then exposed a latent native
+fence error: terminated launchd-owned zombie descendants kept the gateway
+process-group identifier alive after every executable member was gone. C20
+distinguishes those inert zombies from live descendants while preserving
+fail-closed handling for ambiguous or executable group members. These
+corrections do not change the 240-second migration budget, v0.1.16 version, or
+build 17 identity.
 
 The active `main` rulesets require a pull request, the strict `Required` status
 check on an up-to-date head, resolved review threads, and linear history; only
 squash and rebase merges are allowed. `Required` verifies both the pull-request
 head and the resulting `main` push. C17 is the fixed canonical direct child of
-exact C16, and C18 is the fixed canonical direct child of exact C17. Keep C19
-based on exact C18 and integrate it as one direct child. If a squash or rebase
-changes C19's object ID, build, package, verify, and tag only a clean checkout
-of the resulting `main` commit. A concurrent `main` commit after C18 requires a
-reviewed provenance-contract change rather than merging around the C18 edge.
+exact C16, C18 is the fixed canonical direct child of exact C17, and C19 is the
+fixed canonical direct child of exact C18. Keep C20 based on exact C19 and
+integrate it as one direct child. If a squash or rebase changes C20's object ID,
+build, package, verify, and tag only a clean checkout of the resulting `main`
+commit. A concurrent `main` commit after C19 requires a reviewed
+provenance-contract change rather than merging around the C19 edge.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -364,7 +372,7 @@ C14 and P14 record the repository's historical name,
 contract byte remains fixed. C15 descends from the maintained archive surface,
 so its new candidate and publication contracts use `hraness/hra-v0` directly.
 
-Run candidate checks from a clean standalone C19 checkout:
+Run candidate checks from a clean standalone C20 checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
@@ -376,13 +384,14 @@ The gate requires the canonical top level with a real `.git` directory, a clean
 tree, and no submodules, alternates, grafts, replacement refs, shallow history,
 included local Git configuration, or inherited `GIT_*` steering.
 
-The candidate command verifies the exact Q15-to-C16-to-C17-to-C18-to-C19 chain,
+The candidate command verifies the exact
+Q15-to-C16-to-C17-to-C18-to-C19-to-C20 chain,
 collision-free tag state, the DMG, checksum, manifest, runtime tree, and exact
 production signing authority. It emits the exact evidence for P16. Historical
 tags, releases, and assets remain immutable inputs and are never rewritten.
 
 After the full package and candidate verifier pass, create the new direct
-annotated tag and immutable prerelease from the clean standalone C19 checkout.
+annotated tag and immutable prerelease from the clean standalone C20 checkout.
 Do not use `--clobber`, a glob, or an existing release:
 
 ```sh
