@@ -18,6 +18,7 @@ import { type ReactNode, useCallback, useMemo } from "react";
 
 import { isHraPublicComparisonPath } from "./alternatives/slugs";
 import { HraAnalyticsProvider } from "./analytics-provider";
+import { isHraPublicReadingPath } from "./reading";
 
 function useWorkOSConvexAuth() {
   const { loading, user } = useAuth();
@@ -71,7 +72,8 @@ export function Providers({
     || pathname === "/privacy/"
     || pathname === "/releases"
     || pathname === "/releases/"
-    || isHraPublicComparisonPath(pathname);
+    || isHraPublicComparisonPath(pathname)
+    || isHraPublicReadingPath(pathname);
   const content = standalonePublicRoute || !authConfigured ? children : (
     <AuthKitProvider>
       {deployment.kind !== "ready" ? (

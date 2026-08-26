@@ -178,6 +178,7 @@ describe("HRA public landing", () => {
 
     expect(page).toContain('href="#main-content">Skip to content</a>');
     expect(page).toContain('aria-label="Primary navigation"');
+    expect(page).toContain('href={HRA_HEADLONG_READING_PATH}>Reading</Link>');
     expect(page).toContain('<main id="main-content">');
     expect(page).toContain('<figure className="landing-authority-card">');
     expect(page).toContain("<figcaption>");
