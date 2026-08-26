@@ -86,10 +86,22 @@ export const HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT =
 export const HRA_V0_C19_CUSTODY_TRANSITION_COMMIT =
   "aa613e86f874efa089a375231a9506e5934973f0" as const;
 
-/** Shallow depths that retain Q15 across the sequential Q16 and C20 fetches. */
+/** Canonical C20 zombie-aware host fence immediately before accepted reading work. */
+export const HRA_V0_C20_ZOMBIE_FENCE_COMMIT =
+  "0c2feb8fa39b1a5141a44930a6ed0b5a913f8256" as const;
+
+/** Accepted Headlong reading surface immediately after C20. */
+export const HRA_V0_R20_HEADLONG_READING_COMMIT =
+  "f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9" as const;
+
+/** Final accepted reading surface immediately before the C21 candidate. */
+export const HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT =
+  "cd3df81438cd54cfe997162116a92e4e9730f1f9" as const;
+
+/** Shallow depths that retain Q15 across the sequential Q16 and C21 fetches. */
 export const HRA_V0_PUBLICATION_SURFACE_FETCH_DEPTHS = Object.freeze({
-  surface: 8,
-  tag: 6,
+  surface: 11,
+  tag: 9,
 });
 
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
@@ -151,9 +163,12 @@ export interface ReleaseHotfixCandidateLineageEvidence {
   readonly c17Commit: string;
   readonly c18Commit: string;
   readonly c19Commit: string;
+  readonly c20Commit: string;
   readonly candidateCommit: string;
+  readonly headlongReadingCommit: string;
+  readonly notACodexTuiReadingCommit: string;
   readonly q15Commit: string;
-  readonly status: "exact_q15_c16_c17_c18_c19_c20_candidate_chain";
+  readonly status: "exact_q15_c16_c17_c18_c19_c20_headlong_reading_not_a_codex_tui_reading_c21_candidate_chain";
 }
 
 /** A Q16 surface that is the sole direct child of exact publication P16. */
@@ -168,7 +183,7 @@ export interface CanonicalReleasePublicationEvidence {
   readonly tag: ReleaseTagEvidence;
 }
 
-/** Canonical remote evidence for the linear Q15/C16/C17/C18/C19/C20/P16/Q16 topology. */
+/** Canonical remote evidence for the linear Q15-to-C21-to-P16-to-Q16 topology. */
 export interface CanonicalReleasePublicationSurfaceEvidence
   extends CanonicalReleasePublicationEvidence {
   readonly surface: ReleasePublicationSurfaceEvidence;
@@ -410,10 +425,11 @@ export async function resolveReleaseCandidateCommit(
 }
 
 /**
- * Find the unique C20 candidate on the linear path from exact C19 to HEAD.
- * HEAD may be the candidate or a later CI descendant. The fixed Q15-to-C16-to-
- * C17-to-C18-to-C19 chain must remain exact, and the candidate must be C19's
- * sole-parent child.
+ * Find the unique C21 candidate on the linear path from the final accepted
+ * reading surface to HEAD. HEAD may be the candidate or a later publication
+ * descendant. The fixed Q15-to-C20 and accepted-reading chain must remain
+ * exact, and the candidate must be the final reading commit's sole-parent
+ * child.
  */
 export async function resolveReleaseHotfixCandidateCommit(
   repository: ReleaseRepositoryEvidence,
@@ -422,6 +438,9 @@ export async function resolveReleaseHotfixCandidateCommit(
     expectedC17Commit?: string;
     expectedC18Commit?: string;
     expectedC19Commit?: string;
+    expectedC20Commit?: string;
+    expectedHeadlongReadingCommit?: string;
+    expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<string> {
@@ -445,12 +464,28 @@ export async function resolveReleaseHotfixCandidateCommit(
     options.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
     "HRA v0.1.16 C19 custody-transition commit",
   );
+  const expectedC20Commit = requireObjectId(
+    options.expectedC20Commit ?? HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+    "HRA v0.1.16 C20 zombie-fence commit",
+  );
+  const expectedHeadlongReadingCommit = requireObjectId(
+    options.expectedHeadlongReadingCommit ?? HRA_V0_R20_HEADLONG_READING_COMMIT,
+    "HRA v0.1.16 accepted Headlong reading commit",
+  );
+  const expectedNotACodexTuiReadingCommit = requireObjectId(
+    options.expectedNotACodexTuiReadingCommit
+      ?? HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
+    "HRA v0.1.16 final accepted reading commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
   );
-  await inspectReleaseC19LineageWithRunner(
+  await inspectReleaseAcceptedReadingLineageWithRunner(
     runner,
+    expectedNotACodexTuiReadingCommit,
+    expectedHeadlongReadingCommit,
+    expectedC20Commit,
     expectedC19Commit,
     expectedC18Commit,
     expectedC17Commit,
@@ -460,42 +495,49 @@ export async function resolveReleaseHotfixCandidateCommit(
   let mergeBase: string;
   try {
     mergeBase = requireObjectId(
-      await runner.run(["merge-base", expectedC19Commit, repository.commit]),
-      "HRA v0.1.16 C19 merge base",
+      await runner.run([
+        "merge-base",
+        expectedNotACodexTuiReadingCommit,
+        repository.commit,
+      ]),
+      "HRA v0.1.16 final accepted reading merge base",
     );
   } catch {
     throw new Error(
-      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
+      "The HRA v0.1.16 C21 candidate must have the final accepted reading commit as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedC19Commit) {
+  if (mergeBase !== expectedNotACodexTuiReadingCommit) {
     throw new Error(
-      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
+      "The HRA v0.1.16 C21 candidate must have the final accepted reading commit as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedC19Commit}..${repository.commit}`,
+    `${expectedNotACodexTuiReadingCommit}..${repository.commit}`,
   ])).trim();
-  const c19Children: string[] = [];
+  const acceptedReadingChildren: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedC19Commit) {
-      c19Children.push(
-        requireObjectId(commit, "HRA v0.1.16 C20 candidate commit"),
+    if (
+      parents.length === 1
+      && parents[0] === expectedNotACodexTuiReadingCommit
+    ) {
+      acceptedReadingChildren.push(
+        requireObjectId(commit, "HRA v0.1.16 C21 candidate commit"),
       );
     }
   }
-  if (c19Children.length !== 1) {
+  if (acceptedReadingChildren.length !== 1) {
     throw new Error(
-      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
+      "The HRA v0.1.16 C21 candidate must have the final accepted reading commit as its only direct parent.",
     );
   }
-  return c19Children[0] ?? "";
+  return acceptedReadingChildren[0] ?? "";
 }
 
 export async function inspectReleaseHotfixCandidateLineage(
@@ -506,6 +548,9 @@ export async function inspectReleaseHotfixCandidateLineage(
     expectedC17Commit?: string;
     expectedC18Commit?: string;
     expectedC19Commit?: string;
+    expectedC20Commit?: string;
+    expectedHeadlongReadingCommit?: string;
+    expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<ReleaseHotfixCandidateLineageEvidence> {
@@ -533,6 +578,19 @@ export async function inspectReleaseHotfixCandidateLineage(
     options.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
     "HRA v0.1.16 C19 custody-transition commit",
   );
+  const expectedC20Commit = requireObjectId(
+    options.expectedC20Commit ?? HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+    "HRA v0.1.16 C20 zombie-fence commit",
+  );
+  const expectedHeadlongReadingCommit = requireObjectId(
+    options.expectedHeadlongReadingCommit ?? HRA_V0_R20_HEADLONG_READING_COMMIT,
+    "HRA v0.1.16 accepted Headlong reading commit",
+  );
+  const expectedNotACodexTuiReadingCommit = requireObjectId(
+    options.expectedNotACodexTuiReadingCommit
+      ?? HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
+    "HRA v0.1.16 final accepted reading commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
@@ -540,6 +598,9 @@ export async function inspectReleaseHotfixCandidateLineage(
   return await inspectReleaseHotfixCandidateLineageWithRunner(
     runner,
     candidateCommit,
+    expectedNotACodexTuiReadingCommit,
+    expectedHeadlongReadingCommit,
+    expectedC20Commit,
     expectedC19Commit,
     expectedC18Commit,
     expectedC17Commit,
@@ -664,9 +725,105 @@ async function inspectReleaseC19LineageWithRunner(
   );
 }
 
+async function inspectReleaseC20LineageWithRunner(
+  runner: ReleaseGitRunner,
+  expectedC20Commit: string,
+  expectedC19Commit: string,
+  expectedC18Commit: string,
+  expectedC17Commit: string,
+  expectedC16Commit: string,
+  expectedQ15Commit: string,
+): Promise<void> {
+  const ancestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedC20Commit,
+  ])).trim().split(/\s+/u);
+  if (
+    ancestry.length !== 2
+    || ancestry[0] !== expectedC20Commit
+    || ancestry[1] !== expectedC19Commit
+  ) {
+    throw new Error(
+      "The HRA v0.1.16 C20 zombie-fence commit must have exact C19 as its only direct parent.",
+    );
+  }
+  await inspectReleaseC19LineageWithRunner(
+    runner,
+    expectedC19Commit,
+    expectedC18Commit,
+    expectedC17Commit,
+    expectedC16Commit,
+    expectedQ15Commit,
+  );
+}
+
+async function inspectReleaseAcceptedReadingLineageWithRunner(
+  runner: ReleaseGitRunner,
+  expectedNotACodexTuiReadingCommit: string,
+  expectedHeadlongReadingCommit: string,
+  expectedC20Commit: string,
+  expectedC19Commit: string,
+  expectedC18Commit: string,
+  expectedC17Commit: string,
+  expectedC16Commit: string,
+  expectedQ15Commit: string,
+): Promise<void> {
+  const [headlongAncestry, notACodexTuiAncestry] = await Promise.all([
+    runner.run([
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      expectedHeadlongReadingCommit,
+    ]),
+    runner.run([
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      expectedNotACodexTuiReadingCommit,
+    ]),
+  ]);
+  const headlongObjects = headlongAncestry.trim().split(/\s+/u);
+  if (
+    headlongObjects.length !== 2
+    || headlongObjects[0] !== expectedHeadlongReadingCommit
+    || headlongObjects[1] !== expectedC20Commit
+  ) {
+    throw new Error(
+      "The accepted Headlong reading commit must have exact C20 as its only direct parent.",
+    );
+  }
+  const notACodexTuiObjects = notACodexTuiAncestry.trim().split(/\s+/u);
+  if (
+    notACodexTuiObjects.length !== 2
+    || notACodexTuiObjects[0] !== expectedNotACodexTuiReadingCommit
+    || notACodexTuiObjects[1] !== expectedHeadlongReadingCommit
+  ) {
+    throw new Error(
+      "The final accepted reading commit must have the accepted Headlong reading commit as its only direct parent.",
+    );
+  }
+  await inspectReleaseC20LineageWithRunner(
+    runner,
+    expectedC20Commit,
+    expectedC19Commit,
+    expectedC18Commit,
+    expectedC17Commit,
+    expectedC16Commit,
+    expectedQ15Commit,
+  );
+}
+
 async function inspectReleaseHotfixCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
+  expectedNotACodexTuiReadingCommit: string,
+  expectedHeadlongReadingCommit: string,
+  expectedC20Commit: string,
   expectedC19Commit: string,
   expectedC18Commit: string,
   expectedC17Commit: string,
@@ -683,14 +840,17 @@ async function inspectReleaseHotfixCandidateLineageWithRunner(
   if (
     ancestry.length !== 2
     || ancestry[0] !== candidateCommit
-    || ancestry[1] !== expectedC19Commit
+    || ancestry[1] !== expectedNotACodexTuiReadingCommit
   ) {
     throw new Error(
-      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
+      "The HRA v0.1.16 C21 candidate must have the final accepted reading commit as its only direct parent.",
     );
   }
-  await inspectReleaseC19LineageWithRunner(
+  await inspectReleaseAcceptedReadingLineageWithRunner(
     runner,
+    expectedNotACodexTuiReadingCommit,
+    expectedHeadlongReadingCommit,
+    expectedC20Commit,
     expectedC19Commit,
     expectedC18Commit,
     expectedC17Commit,
@@ -702,9 +862,12 @@ async function inspectReleaseHotfixCandidateLineageWithRunner(
     c17Commit: expectedC17Commit,
     c18Commit: expectedC18Commit,
     c19Commit: expectedC19Commit,
+    c20Commit: expectedC20Commit,
     candidateCommit,
+    headlongReadingCommit: expectedHeadlongReadingCommit,
+    notACodexTuiReadingCommit: expectedNotACodexTuiReadingCommit,
     q15Commit: expectedQ15Commit,
-    status: "exact_q15_c16_c17_c18_c19_c20_candidate_chain",
+    status: "exact_q15_c16_c17_c18_c19_c20_headlong_reading_not_a_codex_tui_reading_c21_candidate_chain",
   });
 }
 
@@ -1753,9 +1916,9 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
 }
 
 /**
- * Fetch and verify the exact linear Q15/C16/C17/C18/C19/C20/P16/Q16 publication
- * topology from the canonical HRA v0 repository without trusting a provider
- * checkout.
+ * Fetch and verify the exact linear Q15-to-C20-to-accepted-readings-to-C21-to-
+ * P16-to-Q16 publication topology from the canonical HRA v0 repository without
+ * trusting a provider checkout.
  */
 export async function inspectCanonicalReleasePublicationSurface(
   options: Readonly<{
@@ -1764,6 +1927,9 @@ export async function inspectCanonicalReleasePublicationSurface(
     expectedC17Commit?: string;
     expectedC18Commit?: string;
     expectedC19Commit?: string;
+    expectedC20Commit?: string;
+    expectedHeadlongReadingCommit?: string;
+    expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
     publicationCommit: string;
     surfaceCommit: string;
@@ -1801,6 +1967,19 @@ export async function inspectCanonicalReleasePublicationSurface(
   const expectedC19Commit = requireObjectId(
     options.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
     "HRA v0.1.16 C19 custody-transition commit",
+  );
+  const expectedC20Commit = requireObjectId(
+    options.expectedC20Commit ?? HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+    "HRA v0.1.16 C20 zombie-fence commit",
+  );
+  const expectedHeadlongReadingCommit = requireObjectId(
+    options.expectedHeadlongReadingCommit ?? HRA_V0_R20_HEADLONG_READING_COMMIT,
+    "HRA v0.1.16 accepted Headlong reading commit",
+  );
+  const expectedNotACodexTuiReadingCommit = requireObjectId(
+    options.expectedNotACodexTuiReadingCommit
+      ?? HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
+    "HRA v0.1.16 final accepted reading commit",
   );
   if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
     throw new Error("Release tag is invalid.");
@@ -1854,6 +2033,9 @@ export async function inspectCanonicalReleasePublicationSurface(
     await inspectReleaseHotfixCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      expectedNotACodexTuiReadingCommit,
+      expectedHeadlongReadingCommit,
+      expectedC20Commit,
       expectedC19Commit,
       expectedC18Commit,
       expectedC17Commit,

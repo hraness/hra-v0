@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmod,
   cp,
+  link,
   lstat,
   mkdir,
   mkdtemp,
@@ -16,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  acquireNativeInstallationLock,
   candidateStagePath,
   inspectInstallationBundle,
   inspectTree,
@@ -165,6 +167,26 @@ describe("OPRTE to HRA installation handoff", () => {
     for (const malformedStatus of [-1, 2, 64, 255]) {
       expect(lsofResultIsQuiescent(result(malformedStatus))).toBeFalse();
     }
+  });
+
+  test("rejects a hardlinked native lock before changing protected target mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hra-native-lock-hardlink-test."));
+    roots.push(root);
+    const protectedTarget = join(root, "protected-executable");
+    const lockPath = join(root, "native-instance.lock");
+    await writeFile(protectedTarget, "protected bytes\n", { mode: 0o755 });
+    await chmod(protectedTarget, 0o755);
+    await link(protectedTarget, lockPath);
+    const before = await lstat(protectedTarget);
+
+    expect(() => acquireNativeInstallationLock(lockPath)).toThrow(
+      "Native instance lock is unsafe.",
+    );
+
+    const after = await lstat(protectedTarget);
+    expect(after.ino).toBe(before.ino);
+    expect(after.nlink).toBe(2);
+    expect(after.mode & 0o777).toBe(0o755);
   });
 
   test("keeps the staged candidate under an app path and rolls a verifier failure back", async () => {

@@ -1941,7 +1941,6 @@ export function acquireNativeInstallationLock(pathValue: string): HeldLock {
       constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | closeOnExec,
       0o600,
     );
-    fchmodSync(descriptor, 0o600);
     const opened = fstatSync(descriptor);
     const published = lstatSync(path);
     if (
@@ -1952,6 +1951,25 @@ export function acquireNativeInstallationLock(pathValue: string): HeldLock {
       || opened.dev !== published.dev
       || opened.ino !== published.ino
     ) throw new Error("Native instance lock is unsafe.");
+    // Validate the opened vnode before changing its mode. An existing lock
+    // path may otherwise be a hard link to protected state or application
+    // code; chmod would mutate that protected file before the nlink check
+    // rejected it.
+    fchmodSync(descriptor, 0o600);
+    const hardened = fstatSync(descriptor);
+    const hardenedPublished = lstatSync(path);
+    if (
+      !hardened.isFile()
+      || hardened.isSymbolicLink()
+      || hardened.uid !== expectedUser
+      || hardened.nlink !== 1
+      || (hardened.mode & 0o777) !== 0o600
+      || hardened.dev !== opened.dev
+      || hardened.ino !== opened.ino
+      || hardened.dev !== hardenedPublished.dev
+      || hardened.ino !== hardenedPublished.ino
+      || hardenedPublished.isSymbolicLink()
+    ) throw new Error("Native instance lock changed while it was hardened.");
     if (!tryFlock(descriptor)) throw new Error("Another application instance owns the lock.");
   } catch (error: unknown) {
     if (descriptor !== null) closeSync(descriptor);

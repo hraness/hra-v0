@@ -765,7 +765,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-C18-to-C19-to-C20-to-P16-to-Q16 path", async () => {
+  test("binds v0.1.16 to the linear Q15-to-C20-to-readings-to-C21-to-P16-to-Q16 path", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v016-publication-")),
     );
@@ -840,7 +840,38 @@ describe("release and download convergence", () => {
       "zombie-aware gateway fencing\n",
     );
     await runSetupGit(repositoryRoot, ["add", "zombie-fence.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C20"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "zombie fence C20"]);
+    const c20Commit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
+      join(repositoryRoot, "headlong-reading.txt"),
+      "accepted Headlong reading\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "headlong-reading.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "Headlong reading"]);
+    const headlongReadingCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
+      join(repositoryRoot, "not-a-codex-tui-reading.txt"),
+      "final accepted reading\n",
+    );
+    await runSetupGit(repositoryRoot, [
+      "add",
+      "not-a-codex-tui-reading.txt",
+    ]);
+    await runSetupGit(repositoryRoot, [
+      "commit",
+      "-m",
+      "not-a-Codex-TUI reading",
+    ]);
+    const notACodexTuiReadingCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(join(repositoryRoot, "candidate.txt"), "candidate C21\n");
+    await runSetupGit(repositoryRoot, ["add", "candidate.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C21"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
@@ -849,6 +880,9 @@ describe("release and download convergence", () => {
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
       candidateC19Commit: c19Commit,
+      candidateC20Commit: c20Commit,
+      candidateHeadlongReadingCommit: headlongReadingCommit,
+      candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -862,11 +896,14 @@ describe("release and download convergence", () => {
         candidateC17Commit: c17Commit,
         candidateC18Commit: c18Commit,
         candidateC19Commit: c18Commit,
+        candidateC20Commit: c20Commit,
+        candidateHeadlongReadingCommit: headlongReadingCommit,
+        candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         candidateQ15Commit: q15Commit,
         environment: {},
         repositoryRoot,
       }),
-      "C19 custody-transition commit must have exact C18 as its only direct parent",
+      "C20 zombie-fence commit must have exact C19 as its only direct parent",
     );
 
     await runSetupGit(repositoryRoot, [
@@ -932,6 +969,9 @@ describe("release and download convergence", () => {
         expectedC17Commit: c17Commit,
         expectedC18Commit: c18Commit,
         expectedC19Commit: c19Commit,
+        expectedC20Commit: c20Commit,
+        expectedHeadlongReadingCommit: headlongReadingCommit,
+        expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         expectedQ15Commit: q15Commit,
       },
     );
@@ -946,6 +986,9 @@ describe("release and download convergence", () => {
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
       candidateC19Commit: c19Commit,
+      candidateC20Commit: c20Commit,
+      candidateHeadlongReadingCommit: headlongReadingCommit,
+      candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -979,6 +1022,9 @@ describe("release and download convergence", () => {
         expectedC17Commit: c17Commit,
         expectedC18Commit: c18Commit,
         expectedC19Commit: c19Commit,
+        expectedC20Commit: c20Commit,
+        expectedHeadlongReadingCommit: headlongReadingCommit,
+        expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         expectedQ15Commit: q15Commit,
         historyContract: generationTwo,
         publicationCommit,
@@ -994,6 +1040,9 @@ describe("release and download convergence", () => {
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
       candidateC19Commit: c19Commit,
+      candidateC20Commit: c20Commit,
+      candidateHeadlongReadingCommit: headlongReadingCommit,
+      candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       candidateQ15Commit: q15Commit,
       environment: {},
       historyContract: generationTwo,
@@ -1009,6 +1058,9 @@ describe("release and download convergence", () => {
         candidateC17Commit: c17Commit,
         candidateC18Commit: c18Commit,
         candidateC19Commit: c19Commit,
+        candidateC20Commit: c20Commit,
+        candidateHeadlongReadingCommit: headlongReadingCommit,
+        candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         candidateQ15Commit: q15Commit,
         environment: {},
         historyContract: readReleaseHistoryContract(),
@@ -1031,12 +1083,21 @@ describe("release and download convergence", () => {
     } as const;
     const inspectCanonicalSurface = (options: Readonly<{
       candidateCommit: string;
+      expectedC20Commit: string;
+      expectedHeadlongReadingCommit: string;
+      expectedNotACodexTuiReadingCommit: string;
       publicationCommit: string;
       surfaceCommit: string;
       tag: string;
     }>) => {
       expect(options).toEqual({
         candidateCommit,
+        expectedC20Commit:
+          "0c2feb8fa39b1a5141a44930a6ed0b5a913f8256",
+        expectedHeadlongReadingCommit:
+          "f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9",
+        expectedNotACodexTuiReadingCommit:
+          "cd3df81438cd54cfe997162116a92e4e9730f1f9",
         publicationCommit,
         surfaceCommit,
         tag: published.release.tag,

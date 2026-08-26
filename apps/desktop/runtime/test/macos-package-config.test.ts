@@ -378,6 +378,63 @@ describe("macOS package contract", () => {
     }
   });
 
+  test("keeps gateway retirement native-only without changing custody attestation inputs", async () => {
+    const [
+      buildSource,
+      attestationHeader,
+      attestationSource,
+      retirementHeader,
+      retirementSource,
+    ] = await Promise.all([
+      readFile(new URL("../../build.zig", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../src/macos_gateway_attestation.h", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../../src/macos_gateway_attestation.m", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../../src/macos_gateway_retirement.h", import.meta.url),
+        "utf8",
+      ),
+      readFile(
+        new URL("../../src/macos_gateway_retirement.m", import.meta.url),
+        "utf8",
+      ),
+    ]);
+
+    expect(createHash("sha256").update(attestationHeader).digest("hex")).toBe(
+      "527b9fa9e29b923416f9f6d3e59619e01b3ae378fffb82446aaaa3fbb7c74aff",
+    );
+    expect(createHash("sha256").update(attestationSource).digest("hex")).toBe(
+      "aae69b4c0d4dff75a132783a9bb26d5947d537c48b7109f0f53cdac31ca7e27e",
+    );
+    expect(attestationHeader).not.toContain("GatewayGroupRetirement");
+    expect(attestationSource).not.toContain(
+      "hra_macos_gateway_process_group_retirement_state",
+    );
+    expect(retirementHeader).toContain(
+      '#if defined(HRA_KEYCHAIN_CUSTODIAN_HELPER_BUILD)\n' +
+      '#error "gateway retirement belongs only to the native HRA host"',
+    );
+    expect(retirementHeader).toContain(
+      "hra_macos_gateway_process_group_retirement_state",
+    );
+    expect(retirementSource).toContain(
+      "hra_macos_gateway_retained_child_is_zombie",
+    );
+
+    const nativeSource = 'b.path("src/macos_gateway_retirement.m")';
+    expect(buildSource.match(/src\/macos_gateway_retirement\.m/gu)).toHaveLength(1);
+    const linkPlatform = buildSource.indexOf("fn linkPlatform(");
+    const nativeSourceIndex = buildSource.indexOf(nativeSource);
+    expect(linkPlatform).toBeGreaterThanOrEqual(0);
+    expect(nativeSourceIndex).toBeGreaterThan(linkPlatform);
+    expect(buildSource.slice(0, linkPlatform)).not.toContain(nativeSource);
+  });
+
   test("scopes the private-root trust result behind the complete pinned proof", async () => {
     const source = await readFile(
       new URL("../../src/macos_gateway_attestation.m", import.meta.url),
@@ -623,8 +680,14 @@ describe("macOS package contract", () => {
       await readFile(new URL("../../package.json", import.meta.url), "utf8"),
     ) as { scripts?: Record<string, unknown> };
     const command = packageJson.scripts?.["package:macos:uncoordinated"];
+    const structuralCommand =
+      packageJson.scripts?.["package:macos:structural:uncoordinated"];
+    const macosTestCommand = packageJson.scripts?.["test:macos:uncoordinated"];
     if (typeof command !== "string") {
       throw new Error("Missing package:macos:uncoordinated script.");
+    }
+    if (typeof structuralCommand !== "string" || typeof macosTestCommand !== "string") {
+      throw new Error("Missing structural package or macOS test script.");
     }
     expect(command).toContain(
       "runtime/verify-macos-package.ts --app " +
@@ -632,6 +695,44 @@ describe("macOS package contract", () => {
       "--custody-authorize-without-keychain-probe",
     );
     expect(command).not.toContain("--custody-authorization-probe");
+    expect(command).toContain("-Dexact-custody-normalization=true");
+    expect(structuralCommand).not.toContain("exact-custody-normalization");
+    expect(macosTestCommand).not.toContain("exact-custody-normalization");
+  });
+
+  test("normalizes only separate production custody copies and gates the enrolled ACL", async () => {
+    const [buildSource, normalizerSource, packageSource, verifierSource] =
+      await Promise.all([
+        readFile(new URL("../../build.zig", import.meta.url), "utf8"),
+        readFile(
+          new URL("../normalize-c19-custody-binary.ts", import.meta.url),
+          "utf8",
+        ),
+        readFile(new URL("../package-macos.ts", import.meta.url), "utf8"),
+        readFile(new URL("../verify-macos-package.ts", import.meta.url), "utf8"),
+      ]);
+
+    expect(buildSource).toContain(
+      '"exact-custody-normalization",\n' +
+      '        "Restore the three production custody artifacts to their reviewed C19 bytes"',
+    );
+    expect(buildSource).toContain("normalize.addArtifactArg(artifact);");
+    expect(buildSource).toContain("normalize.addOutputFileArg(installed_name)");
+    expect(buildSource).toContain("b.addInstallBinFile(normalized, installed_name)");
+    expect(buildSource).toContain("if (!exact_normalization)");
+    expect(normalizerSource).toContain("constants.O_EXCL");
+    expect(normalizerSource).toContain("constants.O_NOFOLLOW");
+    expect(normalizerSource).toContain("constants.O_DIRECTORY");
+    expect(normalizerSource).toContain("await link(temporaryPath, outputPath)");
+    expect(normalizerSource).toContain("await verifyCodeSignature(outputPath)");
+    expect(normalizerSource).not.toContain(["", "private", "tmp"].join("/"));
+    expect(packageSource).toContain(
+      'signingContext.label === "production"\n' +
+      "    && keychainCustodianSignature.cdHash !== C19_PACKAGED_CUSTODIAN_CDHASH",
+    );
+    expect(verifierSource).toContain(
+      'profile === "production" && custodian.cdHash !== C19_PACKAGED_CUSTODIAN_CDHASH',
+    );
   });
 
   test("streams large archive listings with bounded line memory", async () => {

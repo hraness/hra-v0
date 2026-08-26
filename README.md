@@ -112,9 +112,14 @@ child. Unreleased cold-custody-timeout commit C18 is
 `14904f1fc60b254455b7089f32e9764d67fffd95`, C17's single-parent direct
 child. Unreleased custody-transition commit C19 is
 `aa613e86f874efa089a375231a9506e5934973f0`, C18's single-parent direct
-child. The final C20 candidate and annotated `v0.1.16` tag must descend through
-one exact C19-to-C20 edge. P16 is C20's contract-only child, followed by the
-single Q16 archive surface.
+child. Zombie-aware host-fence commit C20 is
+`0c2feb8fa39b1a5141a44930a6ed0b5a913f8256`, C19's single-parent direct
+child. Accepted reading commits
+`f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9` and
+`cd3df81438cd54cfe997162116a92e4e9730f1f9` are the next two single-parent
+children. The final C21 candidate and annotated `v0.1.16` tag must be the
+second reading commit's single-parent direct child. P16 is C21's exact
+contract-only child, followed by the single Q16 archive surface.
 
 ## Develop HRA v0
 
