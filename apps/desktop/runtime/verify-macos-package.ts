@@ -1904,6 +1904,52 @@ export async function probePackagedCustodyStatus(
   await inspectCandidate(appPath, exactAuthority);
 }
 
+export type PackagedCustodyProbeMode =
+  | "authorize-without-keychain"
+  | "status-and-authorize";
+
+export type PackagedCustodyProbeOperations = Readonly<{
+  authorize(
+    appPath: string,
+    authority: CustodyProbeSupervisorAuthorityEvidence,
+  ): Promise<void>;
+  status(
+    appPath: string,
+    authority: CustodyProbeSupervisorAuthorityEvidence,
+  ): Promise<void>;
+}>;
+
+const defaultPackagedCustodyProbeOperations: PackagedCustodyProbeOperations = {
+  authorize: (appPath, authority) =>
+    probePackagedCustodyAuthorization(appPath, authority),
+  status: (appPath, authority) =>
+    probePackagedCustodyStatus(appPath, authority),
+};
+
+/**
+ * Keeps the pre-install proof structurally incapable of reaching Keychain.
+ * The full probe remains status-first so post-migration app and DMG smoke
+ * proves both the enrolled item and the candidate's pathless authorization.
+ */
+export async function probePackagedCustody(
+  appPath: string,
+  authority: CustodyProbeSupervisorAuthorityEvidence,
+  mode: PackagedCustodyProbeMode,
+  operations: PackagedCustodyProbeOperations =
+    defaultPackagedCustodyProbeOperations,
+): Promise<void> {
+  switch (mode) {
+    case "authorize-without-keychain":
+      break;
+    case "status-and-authorize":
+      await operations.status(appPath, authority);
+      break;
+    default:
+      throw new Error("Packaged custody probe mode is unsupported.");
+  }
+  await operations.authorize(appPath, authority);
+}
+
 async function verifyMacOSDmgSnapshot(
   dmgPath: string,
   options: Readonly<{
@@ -1941,13 +1987,10 @@ async function verifyMacOSDmgSnapshot(
     const mountedApp = join(mountPoint, "HRA.app");
     evidence = await verifyMacOSApp(mountedApp);
     if (options.custodyAuthorizationProbe === true) {
-      await probePackagedCustodyStatus(
+      await probePackagedCustody(
         mountedApp,
         evidence.custodyProbeSupervisor,
-      );
-      await probePackagedCustodyAuthorization(
-        mountedApp,
-        evidence.custodyProbeSupervisor,
+        "status-and-authorize",
       );
     }
     if (options.launchSmoke === true) {
@@ -2123,7 +2166,7 @@ export async function verifyMacOSCoreArtifacts(
 type VerificationArguments = Readonly<{
   app: string | undefined;
   coreReleaseDirectory: string | undefined;
-  custodyAuthorizationProbe: boolean;
+  custodyProbe: PackagedCustodyProbeMode | "none";
   dmg: string | undefined;
   launchSmoke: boolean;
   releaseDirectory: string | undefined;
@@ -2142,6 +2185,7 @@ export function parseVerificationArguments(
     "--release-directory",
   ]);
   const flagOptions = new Set([
+    "--custody-authorize-without-keychain-probe",
     "--custody-authorization-probe",
     "--launch-smoke",
     "--structural",
@@ -2171,10 +2215,21 @@ export function parseVerificationArguments(
     }
     throw new Error(`Verifier argument is unsupported: ${argument}`);
   }
+  const authorizeWithoutKeychain = flags.has(
+    "--custody-authorize-without-keychain-probe",
+  );
+  const statusAndAuthorize = flags.has("--custody-authorization-probe");
+  if (authorizeWithoutKeychain && statusAndAuthorize) {
+    throw new Error("Verifier custody probe modes are mutually exclusive.");
+  }
   const parsed: VerificationArguments = {
     app: values.get("--app"),
     coreReleaseDirectory: values.get("--core-release-directory"),
-    custodyAuthorizationProbe: flags.has("--custody-authorization-probe"),
+    custodyProbe: authorizeWithoutKeychain
+      ? "authorize-without-keychain"
+      : statusAndAuthorize
+      ? "status-and-authorize"
+      : "none",
     dmg: values.get("--dmg"),
     launchSmoke: flags.has("--launch-smoke"),
     releaseDirectory: values.get("--release-directory"),
@@ -2192,9 +2247,17 @@ export function parseVerificationArguments(
   if (
     (parsed.coreReleaseDirectory !== undefined
       || parsed.releaseDirectory !== undefined)
-    && (parsed.custodyAuthorizationProbe || parsed.launchSmoke)
+    && (parsed.custodyProbe !== "none" || parsed.launchSmoke)
   ) {
     throw new Error("Release-directory verification cannot include executable probes.");
+  }
+  if (
+    parsed.custodyProbe === "authorize-without-keychain"
+    && (parsed.app === undefined || parsed.launchSmoke || parsed.structural)
+  ) {
+    throw new Error(
+      "Authorize-without-Keychain verification requires only one explicit app path.",
+    );
   }
   if (
     parsed.structural
@@ -2203,7 +2266,7 @@ export function parseVerificationArguments(
       || parsed.coreReleaseDirectory !== undefined
       || parsed.dmg !== undefined
       || parsed.releaseDirectory !== undefined
-      || parsed.custodyAuthorizationProbe
+      || parsed.custodyProbe !== "none"
       || parsed.launchSmoke
     )
   ) {
@@ -2217,7 +2280,7 @@ async function main(): Promise<void> {
   const appPath = resolve(arguments_.app ?? macosPackage.appBundlePath);
   const {
     coreReleaseDirectory,
-    custodyAuthorizationProbe,
+    custodyProbe,
     dmg,
     launchSmoke,
     releaseDirectory,
@@ -2249,14 +2312,11 @@ async function main(): Promise<void> {
   }
   if (dmg === undefined) {
     const evidence = await verifyMacOSApp(appPath);
-    if (custodyAuthorizationProbe) {
-      await probePackagedCustodyStatus(
+    if (custodyProbe !== "none") {
+      await probePackagedCustody(
         appPath,
         evidence.custodyProbeSupervisor,
-      );
-      await probePackagedCustodyAuthorization(
-        appPath,
-        evidence.custodyProbeSupervisor,
+        custodyProbe,
       );
     }
     if (launchSmoke) {
@@ -2273,7 +2333,10 @@ async function main(): Promise<void> {
   if (basename(dmgPath) !== `${macosPackage.artifactBaseName}.dmg`) {
     throw new Error(`Unexpected DMG name: ${basename(dmgPath)}`);
   }
-  await verifyMacOSDmg(dmgPath, { custodyAuthorizationProbe, launchSmoke });
+  await verifyMacOSDmg(dmgPath, {
+    custodyAuthorizationProbe: custodyProbe === "status-and-authorize",
+    launchSmoke,
+  });
   process.stdout.write(`${dmgPath}\n`);
 }
 

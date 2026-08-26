@@ -85,9 +85,11 @@ download contract exposes no artifact URL. Compatibility commit C16
 `443448b79e9016e00d52501f047fce3a408de092`'s single-parent direct child, and
 native timeout-cap commit C17
 `112175bfdbcd6be0e3cca7ed43dd57e79453c00a` must be C16's single-parent direct
-child. The final C18 candidate must be C17's single-parent direct child. After
+child. Unreleased cold-custody-timeout commit C18
+`14904f1fc60b254455b7089f32e9764d67fffd95` must be C17's single-parent direct
+child. The final C19 candidate must be C18's single-parent direct child. After
 local production packaging and exact installed-state acceptance, the annotated
-`v0.1.16` tag must point directly to C18 and publication P16 must be C18's exact
+`v0.1.16` tag must point directly to C19 and publication P16 must be C19's exact
 `release-download.json`-only child. Until those immutable remote
 records exist and Q16 promotes generation 2, the checked history,
 `/.well-known/hra.json`, and provider allowlists remain the generation-1

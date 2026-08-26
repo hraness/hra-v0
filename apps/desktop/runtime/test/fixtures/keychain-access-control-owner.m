@@ -24,6 +24,8 @@ static NSString *const HRAFixtureAccessDescription =
     @"HRA Harness installation key";
 static NSString *const HRAV015PreparedCustodianCodeDirectoryHash =
     @"cbcee12b447830e5be86177dffdfa1e69b73bc84";
+static NSString *const HRAC17InstalledCustodianCodeDirectoryHash =
+    @"b253f5d9d52fa12beb486f8f9a35d4e8430b86ab";
 
 static NSDictionary *HRAFixtureQuery(SecKeychainRef keychain) {
   CFDictionaryRef query = hra_macos_copy_no_ui_generic_password_query(
@@ -401,41 +403,74 @@ HRACopyPreparedMigrationProjectionAccess(NSString *codeDirectoryHash) {
       @[codeDirectoryHash]);
 }
 
-static bool HRAPreparedMigrationPartitionIsPinnedToV015(void) {
-  SecAccessRef released = HRACopyPreparedMigrationProjectionAccess(
+static bool HRAPreparedMigrationSourcesAreExactlyAudited(void) {
+  SecAccessRef v015 = HRACopyPreparedMigrationProjectionAccess(
       HRAV015PreparedCustodianCodeDirectoryHash);
+  SecAccessRef c17 = HRACopyPreparedMigrationProjectionAccess(
+      HRAC17InstalledCustodianCodeDirectoryHash);
   SecAccessRef wrongValidHash = HRACopyPreparedMigrationProjectionAccess(
       @"0000000000000000000000000000000000000000");
-  bool exact = released != NULL && wrongValidHash != NULL &&
+  SecAccessRef predecessorPair =
+      HRACopyPreparedMigrationProjectionAccessForHashes(@[
+        HRAV015PreparedCustodianCodeDirectoryHash,
+        HRAC17InstalledCustodianCodeDirectoryHash,
+      ]);
+  bool exact = v015 != NULL && c17 != NULL && wrongValidHash != NULL &&
+      predecessorPair != NULL &&
       hra_macos_install_envelope_access_is_prepared_migration_source(
-          released) &&
-      !hra_macos_install_envelope_access_is_strict(released) &&
+          v015) &&
+      hra_macos_install_envelope_access_is_prepared_migration_source(c17) &&
+      !hra_macos_install_envelope_access_is_strict(v015) &&
+      !hra_macos_install_envelope_access_is_strict(c17) &&
+      !hra_macos_install_envelope_access_is_prepared_migration_transition(
+          v015) &&
+      !hra_macos_install_envelope_access_is_prepared_migration_transition(
+          c17) &&
       !hra_macos_install_envelope_access_is_prepared_migration_source(
-          wrongValidHash);
+          wrongValidHash) &&
+      !hra_macos_install_envelope_access_is_prepared_migration_source(
+          predecessorPair) &&
+      !hra_macos_install_envelope_access_is_prepared_migration_transition(
+          predecessorPair);
+  if (predecessorPair != NULL) CFRelease(predecessorPair);
   if (wrongValidHash != NULL) CFRelease(wrongValidHash);
-  if (released != NULL) CFRelease(released);
+  if (c17 != NULL) CFRelease(c17);
+  if (v015 != NULL) CFRelease(v015);
   return exact;
 }
 
 static bool HRAPreparedMigrationTransitionPolicyIsExact(void) {
   NSString *current = HRAFixtureCurrentCodeDirectoryHashHex();
-  NSString *released = HRAV015PreparedCustodianCodeDirectoryHash;
+  NSString *v015 = HRAV015PreparedCustodianCodeDirectoryHash;
+  NSString *c17 = HRAC17InstalledCustodianCodeDirectoryHash;
   NSString *wrong = @"0000000000000000000000000000000000000000";
   NSString *nonHex = @"gggggggggggggggggggggggggggggggggggggggg";
-  if (current == nil || [current isEqualToString:released] ||
-      [current isEqualToString:wrong]) return false;
+  if (current == nil || [current isEqualToString:v015] ||
+      [current isEqualToString:c17] || [current isEqualToString:wrong]) {
+    return false;
+  }
   NSArray<NSArray<NSString *> *> *accepted = @[
-    @[released, current],
-    @[current, released],
+    @[v015, current],
+    @[current, v015],
+    @[c17, current],
+    @[current, c17],
   ];
   NSArray<NSArray<NSString *> *> *rejected = @[
-    @[released],
+    @[v015],
+    @[c17],
     @[current],
-    @[released, wrong],
+    @[v015, c17],
+    @[v015, wrong],
+    @[c17, wrong],
     @[current, wrong],
-    @[released, released],
-    @[released, current, wrong],
-    @[released.uppercaseString, current],
+    @[v015, v015],
+    @[c17, c17],
+    @[current, current],
+    @[v015, c17, current],
+    @[v015, current, wrong],
+    @[c17, current, wrong],
+    @[v015.uppercaseString, current],
+    @[c17.uppercaseString, current],
     @[nonHex, current],
   ];
   for (NSArray<NSString *> *hashes in accepted) {
@@ -443,7 +478,10 @@ static bool HRAPreparedMigrationTransitionPolicyIsExact(void) {
         HRACopyPreparedMigrationProjectionAccessForHashes(hashes);
     bool exact = access != NULL &&
         hra_macos_install_envelope_access_is_prepared_migration_transition(
-            access);
+            access) &&
+        !hra_macos_install_envelope_access_is_prepared_migration_source(
+            access) &&
+        !hra_macos_install_envelope_access_is_strict(access);
     if (access != NULL) CFRelease(access);
     if (!exact) return false;
   }
@@ -456,6 +494,16 @@ static bool HRAPreparedMigrationTransitionPolicyIsExact(void) {
     if (access != NULL) CFRelease(access);
     if (!exact) return false;
   }
+  SecAccessRef currentOnly =
+      HRACopyPreparedMigrationProjectionAccess(current);
+  bool finalStrictOnly = currentOnly != NULL &&
+      hra_macos_install_envelope_access_is_strict(currentOnly) &&
+      !hra_macos_install_envelope_access_is_prepared_migration_source(
+          currentOnly) &&
+      !hra_macos_install_envelope_access_is_prepared_migration_transition(
+          currentOnly);
+  if (currentOnly != NULL) CFRelease(currentOnly);
+  if (!finalStrictOnly) return false;
   return true;
 }
 
@@ -814,8 +862,8 @@ static uint8_t HRAMalformedAccessFailure(
     HRA_FIXTURE_DEBUG("same-path-different-requirement-not-rejected");
     return 8;
   }
-  if (!HRAPreparedMigrationPartitionIsPinnedToV015()) {
-    HRA_FIXTURE_DEBUG("prepared-migration-partition-not-pinned-to-v15");
+  if (!HRAPreparedMigrationSourcesAreExactlyAudited()) {
+    HRA_FIXTURE_DEBUG("prepared-migration-sources-not-exactly-audited");
     return 9;
   }
   if (!HRAPreparedMigrationTransitionPolicyIsExact()) {

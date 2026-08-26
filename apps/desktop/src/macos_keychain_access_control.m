@@ -6,10 +6,13 @@
 
 static NSString *const HRAInstallEnvelopeAccessDescription =
     @"HRA Harness installation key";
-// Audited from the signed v0.1.15/build-16 custodian used by the only
-// prepared-sidecar migration this release supports.
+// Audited from the signed custodians that may own the prepared-sidecar item
+// when this correction runs. These hashes are accepted only as singleton
+// migration sources or as one half of the transient current-helper transition.
 static NSString *const HRAV015PreparedCustodianCodeDirectoryHash =
     @"cbcee12b447830e5be86177dffdfa1e69b73bc84";
+static NSString *const HRAC17InstalledCustodianCodeDirectoryHash =
+    @"b253f5d9d52fa12beb486f8f9a35d4e8430b86ab";
 
 CFDictionaryRef _Nullable hra_macos_copy_no_ui_generic_password_query(
     SecKeychainRef keychain,
@@ -296,9 +299,15 @@ static NSArray<NSString *> *_Nullable HRAExactPartitionCodeDirectoryHashes(
 
 typedef NS_ENUM(NSUInteger, HRAPartitionPayloadPolicy) {
   HRAPartitionPayloadCurrent = 0,
-  HRAPartitionPayloadPreparedV015 = 1,
-  HRAPartitionPayloadV015ToCurrentTransition = 2,
+  HRAPartitionPayloadAuditedPreparedSource = 1,
+  HRAPartitionPayloadAuditedToCurrentTransition = 2,
 };
+
+static bool HRAIsAuditedPreparedCustodianCodeDirectoryHash(
+    NSString *hash) {
+  return [hash isEqualToString:HRAV015PreparedCustodianCodeDirectoryHash] ||
+      [hash isEqualToString:HRAC17InstalledCustodianCodeDirectoryHash];
+}
 
 static bool HRAPartitionDescriptionMatchesPolicy(
     CFStringRef description,
@@ -310,14 +319,15 @@ static bool HRAPartitionDescriptionMatchesPolicy(
   if (policy == HRAPartitionPayloadCurrent) {
     return actual.count == 1 && [actual[0] isEqualToString:current];
   }
-  if (policy == HRAPartitionPayloadPreparedV015) {
+  if (policy == HRAPartitionPayloadAuditedPreparedSource) {
     return actual.count == 1 &&
-        [actual[0] isEqualToString:
-            HRAV015PreparedCustodianCodeDirectoryHash];
+        ![actual[0] isEqualToString:current] &&
+        HRAIsAuditedPreparedCustodianCodeDirectoryHash(actual[0]);
   }
   return actual.count == 2 &&
       [actual containsObject:current] &&
-      [actual containsObject:HRAV015PreparedCustodianCodeDirectoryHash];
+      HRAIsAuditedPreparedCustodianCodeDirectoryHash(
+          [actual[0] isEqualToString:current] ? actual[1] : actual[0]);
 }
 
 static bool HRAInstallEnvelopeAccessHasExactShape(
@@ -496,7 +506,7 @@ bool hra_macos_install_envelope_item_access_is_strict(
 bool hra_macos_install_envelope_access_is_prepared_migration_source(
     SecAccessRef access) {
   return HRAInstallEnvelopeAccessMatchesCurrentExactHelper(
-      access, false, true, HRAPartitionPayloadPreparedV015);
+      access, false, true, HRAPartitionPayloadAuditedPreparedSource);
 }
 
 bool hra_macos_install_envelope_access_is_prepared_migration_transition(
@@ -505,7 +515,7 @@ bool hra_macos_install_envelope_access_is_prepared_migration_transition(
       access,
       false,
       true,
-      HRAPartitionPayloadV015ToCurrentTransition);
+      HRAPartitionPayloadAuditedToCurrentTransition);
 }
 
 bool hra_macos_install_envelope_item_access_is_prepared_migration_source(

@@ -765,7 +765,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-C18-to-P16-to-Q16 path", async () => {
+  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-C18-to-C19-to-P16-to-Q16 path", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v016-publication-")),
     );
@@ -814,17 +814,31 @@ describe("release and download convergence", () => {
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
     await writeFile(
+      join(repositoryRoot, "cold-custody-timeout.txt"),
+      "cold custody timeout correction\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "cold-custody-timeout.txt"]);
+    await runSetupGit(repositoryRoot, [
+      "commit",
+      "-m",
+      "cold custody timeout C18",
+    ]);
+    const c18Commit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
       join(repositoryRoot, "latency.txt"),
-      "native custody latency correction\n",
+      "audited custody transition\n",
     );
     await runSetupGit(repositoryRoot, ["add", "latency.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C18"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C19"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
     expect(await verifyReleaseSourceState(candidateContractFixture, {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
+      candidateC18Commit: c18Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -894,6 +908,7 @@ describe("release and download convergence", () => {
       {
         expectedC16Commit: c16Commit,
         expectedC17Commit: c17Commit,
+        expectedC18Commit: c18Commit,
         expectedQ15Commit: q15Commit,
       },
     );
@@ -906,6 +921,7 @@ describe("release and download convergence", () => {
     expect(await verifyReleaseSourceState(published, {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
+      candidateC18Commit: c18Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -937,6 +953,7 @@ describe("release and download convergence", () => {
       {
         expectedC16Commit: c16Commit,
         expectedC17Commit: c17Commit,
+        expectedC18Commit: c18Commit,
         expectedQ15Commit: q15Commit,
         historyContract: generationTwo,
         publicationCommit,
@@ -950,6 +967,7 @@ describe("release and download convergence", () => {
     expect(await verifyReleaseSourceState(published, {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
+      candidateC18Commit: c18Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       historyContract: generationTwo,
@@ -963,6 +981,7 @@ describe("release and download convergence", () => {
       verifyReleaseSourceState(published, {
         candidateC16Commit: c16Commit,
         candidateC17Commit: c17Commit,
+        candidateC18Commit: c18Commit,
         candidateQ15Commit: q15Commit,
         environment: {},
         historyContract: readReleaseHistoryContract(),

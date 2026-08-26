@@ -108,8 +108,10 @@ Reviewed archive surface Q15 is
 `4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb`, Q15's single-parent direct
 child. Native timeout-cap commit C17 is
 `112175bfdbcd6be0e3cca7ed43dd57e79453c00a`, C16's single-parent direct
-child. The final C18 candidate and annotated `v0.1.16` tag must descend through
-one exact C17-to-C18 edge. P16 is C18's contract-only child, followed by the
+child. Unreleased cold-custody-timeout commit C18 is
+`14904f1fc60b254455b7089f32e9764d67fffd95`, C17's single-parent direct
+child. The final C19 candidate and annotated `v0.1.16` tag must descend through
+one exact C18-to-C19 edge. P16 is C19's contract-only child, followed by the
 single Q16 archive surface.
 
 ## Develop HRA v0
