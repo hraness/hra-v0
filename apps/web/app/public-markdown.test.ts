@@ -5,6 +5,7 @@ import { hraComparisons } from "./alternatives/comparisons";
 import { GET as getLlmsTxt, HEAD as headLlmsTxt } from "./llms.txt/route";
 import {
   createDownloadMarkdown,
+  createHeadlongReadingMarkdown,
   createLandingMarkdown,
   createNotFoundMarkdown,
   createPrivacyMarkdown,
@@ -16,6 +17,7 @@ import {
   publicDocumentMarkdown,
   resolvePublicDiscovery,
 } from "./public-markdown";
+import { HRA_HEADLONG_READING_PATH, HRA_HEADLONG_READING_TITLE } from "./reading";
 import { HRA_RELEASE, hraSearchSite } from "./site";
 
 describe("HRA public markdown representations", () => {
@@ -34,6 +36,7 @@ describe("HRA public markdown representations", () => {
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/security.txt");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/hra.json");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/alternatives");
+    expect(HRA_LLMS_TXT).toContain(`https://hra-weld.vercel.app${HRA_HEADLONG_READING_PATH}`);
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/llms.txt");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/sitemap.xml");
     for (const comparison of hraComparisons) {
@@ -89,6 +92,18 @@ describe("HRA public markdown representations", () => {
     expect(publicDocumentMarkdown("/releases")).toBe(markdown);
   });
 
+  test("serves the Headlong reading take as a complete Markdown document", () => {
+    const markdown = createHeadlongReadingMarkdown();
+    expect(markdown).toContain(`# ${HRA_HEADLONG_READING_TITLE}.`);
+    expect(markdown).toContain("never asleep");
+    expect(markdown).toContain("A harness runs an agent.");
+    expect(markdown).toContain("https://hraness.com/reading/headlong-a-microharness-for-persistent-agents");
+    expect(markdown).toContain("https://hraness.com/writing/what-is-an-agent-harness");
+    expect(publicDocumentMarkdown(`${HRA_HEADLONG_READING_PATH}/`)).toBe(markdown);
+    expect(publicDocumentMarkdown("/reading")).toBeNull();
+    expect(publicDocumentMarkdown("/reading/missing")).toBeNull();
+  });
+
   test("serves the privacy boundary as a complete Markdown document", () => {
     const markdown = createPrivacyMarkdown();
     expect(markdown).toContain("# Privacy at the HRA v0 archive");
@@ -120,7 +135,10 @@ describe("HRA public discovery decisions", () => {
     expect(isPublicHtmlDocumentPath("/releases")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/privacy/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/codex-app")).toBeTrue();
+    expect(isPublicHtmlDocumentPath(`${HRA_HEADLONG_READING_PATH}/`)).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/missing")).toBeFalse();
+    expect(isPublicHtmlDocumentPath("/reading")).toBeFalse();
+    expect(isPublicHtmlDocumentPath("/reading/missing")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/app")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/llms.txt")).toBeFalse();
     expect(isAuthProtectedTree("/app/private")).toBeTrue();

@@ -42,6 +42,8 @@ describe("HRA proxy routing", () => {
       "/opengraph-image",
       "/privacy",
       "/privacy/",
+      "/reading/headlong-always-on-loop",
+      "/reading/headlong-always-on-loop/",
       "/robots.txt",
       "/sitemap.xml",
     ]) {
@@ -59,6 +61,9 @@ describe("HRA proxy routing", () => {
       "/design",
       "/download/private",
       "/privacy/private",
+      "/reading",
+      "/reading/missing",
+      "/reading/headlong-always-on-loop/private",
       "/downloader",
       "/artifacts/HRA.dmg",
     ]) {
