@@ -40,6 +40,8 @@ describe("HRA analytics route boundary", () => {
       "/download/private",
       "/releases",
       "/privacy",
+      "/reading/headlong-always-on-loop",
+      "/reading",
       "/.well-known/security.txt",
       "/.well-known/hra.json",
       "//",

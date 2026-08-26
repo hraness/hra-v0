@@ -37,7 +37,9 @@ describe("HRA shared appearance and shell contract", () => {
     expect(providers).toContain('pathname === "/releases"');
     expect(providers).toContain('pathname === "/releases/"');
     expect(providers).toContain("isHraPublicComparisonPath(pathname)");
+    expect(providers).toContain("isHraPublicReadingPath(pathname)");
     expect(providers).not.toContain('pathname.startsWith("/alternatives/")');
+    expect(providers).not.toContain('pathname.startsWith("/reading/")');
     expect(providers).toContain("standalonePublicRoute || !authConfigured");
     expect(providers).not.toContain('pathname.startsWith("/download")');
   });

@@ -11,6 +11,7 @@ import {
   isNextInternalNavigation,
   resolvePublicDiscovery,
 } from "./app/public-markdown";
+import { isHraPublicReadingPath } from "./app/reading";
 import { isWorkOSEnvironmentConfigured } from "./app/workos-configuration";
 import { hraSecurityHeaders } from "./response-headers";
 
@@ -50,6 +51,7 @@ function isPathAtOrBelow(pathname: string, root: string): boolean {
 export function shouldApplyConfiguredAuthProxy(pathname: string): boolean {
   return !AUTH_PROXY_EXCLUDED_EXACT_PATHS.has(pathname)
     && !isHraPublicComparisonPath(pathname)
+    && !isHraPublicReadingPath(pathname)
     && !AUTH_PROXY_EXCLUDED_PATH_TREES.some((root) =>
       isPathAtOrBelow(pathname, root));
 }

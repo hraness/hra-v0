@@ -10,6 +10,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 
+import { HRA_HEADLONG_READING_PATH } from "./reading";
 import {
   CURRENT_HRA_REPOSITORY,
   CURRENT_HRA_SITE,
@@ -152,6 +153,7 @@ export default function LandingPage() {
           <a href="#how-it-works">How it works</a>
           <Link href="/releases">History</Link>
           <Link href="/alternatives">Compare</Link>
+          <Link href={HRA_HEADLONG_READING_PATH}>Reading</Link>
         </nav>
         <div className="landing-header-actions">
           <a className="landing-text-link" href={HRA_V0_REPOSITORY}>v0 source</a>

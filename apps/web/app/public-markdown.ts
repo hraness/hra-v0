@@ -16,6 +16,11 @@ import {
   HRA_DEPLOYMENT_IDENTITY_PATH,
 } from "./deployment-identity";
 import {
+  createHeadlongReadingMarkdown as createHeadlongReadingMarkdownBody,
+  HRA_HEADLONG_READING_PATH,
+  isHraPublicReadingPath,
+} from "./reading";
+import {
   HRA_RELEASE_HISTORY,
   hraCommitUrl,
   hraReleaseAssetUrl,
@@ -75,7 +80,8 @@ export function isPublicHtmlDocumentPath(pathname: string): boolean {
     || canonicalPath === "/download"
     || canonicalPath === HRA_PRIVACY_PATH
     || canonicalPath === "/releases"
-    || isHraPublicComparisonPath(canonicalPath);
+    || isHraPublicComparisonPath(canonicalPath)
+    || isHraPublicReadingPath(canonicalPath);
 }
 
 export function isAgentDiscoveryPath(pathname: string): boolean {
@@ -116,6 +122,7 @@ export function createHraLlmsTxt(): string {
     `- [HRA v0 release history](${absoluteUrl("/releases")}): Exact tags, commits, releases, assets, sizes, checksums, and download links`,
     `- [HRA v0 privacy](${absoluteUrl(HRA_PRIVACY_PATH)}): Public analytics, hosted coordination data, local execution data, retention, and provider boundaries`,
     `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
+    `- [Headlong's always-on loop next to HRA v0](${absoluteUrl(HRA_HEADLONG_READING_PATH)}): Reading take contrasting Headlong's persistent-agency loop with the archived Codex metaharness job`,
     ...hraComparisons.map((comparison) =>
       `- [HRA vs ${comparison.shortName}](${absoluteUrl(`/alternatives/${comparison.slug}`)}): ${comparison.description}`),
   ];
@@ -222,6 +229,7 @@ export function createLandingMarkdown(): string {
     `- [Download for macOS](${absoluteUrl("/download")})`,
     `- [Release history](${absoluteUrl("/releases")})`,
     `- [Compare HRA](${absoluteUrl("/alternatives")})`,
+    `- [Headlong's always-on loop](${absoluteUrl(HRA_HEADLONG_READING_PATH)})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
     `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
@@ -506,6 +514,10 @@ export function createComparisonMarkdown(comparison: HraComparison): string {
   ].join("\n");
 }
 
+export function createHeadlongReadingMarkdown(): string {
+  return createHeadlongReadingMarkdownBody(origin);
+}
+
 export function createNotFoundMarkdown(): string {
   return [
     "# Not found",
@@ -518,6 +530,7 @@ export function createNotFoundMarkdown(): string {
     `- [Download for macOS](${absoluteUrl("/download")})`,
     `- [Release history](${absoluteUrl("/releases")})`,
     `- [Comparisons](${absoluteUrl("/alternatives")})`,
+    `- [Headlong's always-on loop](${absoluteUrl(HRA_HEADLONG_READING_PATH)})`,
     `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
@@ -533,6 +546,7 @@ export function publicDocumentMarkdown(pathname: string): string | null {
   if (canonicalPath === "/releases") return createReleaseHistoryMarkdown();
   if (canonicalPath === HRA_PRIVACY_PATH) return createPrivacyMarkdown();
   if (canonicalPath === "/alternatives") return createAlternativesIndexMarkdown();
+  if (isHraPublicReadingPath(canonicalPath)) return createHeadlongReadingMarkdown();
   if (canonicalPath.startsWith("/alternatives/")) {
     const comparison = comparisonForSlug(canonicalPath.slice("/alternatives/".length));
     return comparison === undefined ? null : createComparisonMarkdown(comparison);
