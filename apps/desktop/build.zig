@@ -56,6 +56,11 @@ pub fn build(b: *std.Build) void {
     const cef_dir_override = b.option([]const u8, "cef-dir", "Override CEF root directory for Chromium builds");
     const cef_auto_install_override = b.option(bool, "cef-auto-install", "Override app.zon CEF auto-install setting");
     const package_target = b.option(PackageTarget, "package-target", "Package target: macos, windows, linux") orelse .macos;
+    const exact_custody_normalization = b.option(
+        bool,
+        "exact-custody-normalization",
+        "Restore the three production custody artifacts to their reviewed C19 bytes",
+    ) orelse false;
     const native_sdk_path = b.option([]const u8, "native-sdk-path", "Path to the Native SDK framework checkout") orelse default_native_sdk_path;
     const package_optimize_name = @tagName(package_optimize);
     const selected_platform: PlatformOption = switch (platform_option) {
@@ -73,6 +78,9 @@ pub fn build(b: *std.Build) void {
     }
     if (selected_platform == .windows and target.result.os.tag != .windows) {
         @panic("-Dplatform=windows requires a Windows target");
+    }
+    if (exact_custody_normalization and (selected_platform != .macos or package_target != .macos or package_optimize != .ReleaseFast)) {
+        @panic("-Dexact-custody-normalization=true is restricted to ReleaseFast macOS production packaging");
     }
     const app_config = appManifestBuildConfig(b);
     const package_output_path = if (package_target == .macos)
@@ -388,16 +396,34 @@ pub fn build(b: *std.Build) void {
         b.addInstallArtifact(helper, .{})
     else
         null;
-    const keychain_custodian_install = if (keychain_custodian) |helper|
-        b.addInstallArtifact(helper, .{})
+    const keychain_custodian_install: ?*std.Build.Step = if (keychain_custodian) |helper|
+        addCustodyArtifactInstall(
+            b,
+            helper,
+            exact_custody_normalization,
+            "custodian",
+            "oprte-keychain-custodian",
+        )
     else
         null;
-    const custody_probe_supervisor_install = if (custody_probe_supervisor) |helper|
-        b.addInstallArtifact(helper, .{})
+    const custody_probe_supervisor_install: ?*std.Build.Step = if (custody_probe_supervisor) |helper|
+        addCustodyArtifactInstall(
+            b,
+            helper,
+            exact_custody_normalization,
+            "verifier",
+            "hra-custody-probe-supervisor",
+        )
     else
         null;
-    const candidate_custody_probe_supervisor_install = if (candidate_custody_probe_supervisor) |helper|
-        b.addInstallArtifact(helper, .{})
+    const candidate_custody_probe_supervisor_install: ?*std.Build.Step = if (candidate_custody_probe_supervisor) |helper|
+        addCustodyArtifactInstall(
+            b,
+            helper,
+            exact_custody_normalization,
+            "candidate",
+            "hra-custody-probe-supervisor-candidate",
+        )
     else
         null;
     const custody_probe_supervisor_test_install = if (custody_probe_supervisor_test) |helper|
@@ -442,13 +468,13 @@ pub fn build(b: *std.Build) void {
         b.getInstallStep().dependOn(&install.step);
     }
     if (keychain_custodian_install) |install| {
-        b.getInstallStep().dependOn(&install.step);
+        b.getInstallStep().dependOn(install);
     }
     if (custody_probe_supervisor_install) |install| {
-        b.getInstallStep().dependOn(&install.step);
+        b.getInstallStep().dependOn(install);
     }
     if (candidate_custody_probe_supervisor_install) |install| {
-        b.getInstallStep().dependOn(&install.step);
+        b.getInstallStep().dependOn(install);
     }
     if (custody_probe_supervisor_test_install) |install| {
         b.getInstallStep().dependOn(&install.step);
@@ -533,13 +559,13 @@ pub fn build(b: *std.Build) void {
         package.step.dependOn(&install.step);
     }
     if (keychain_custodian_install) |install| {
-        package.step.dependOn(&install.step);
+        package.step.dependOn(install);
     }
     if (custody_probe_supervisor_install) |install| {
-        package.step.dependOn(&install.step);
+        package.step.dependOn(install);
     }
     if (candidate_custody_probe_supervisor_install) |install| {
-        package.step.dependOn(&install.step);
+        package.step.dependOn(install);
     }
     if (custody_probe_fixture_install) |install| {
         package.step.dependOn(&install.step);
@@ -580,11 +606,19 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = app_mod });
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&b.addRunArtifact(tests).step);
+    if (selected_platform == .macos) {
+        const native_retirement_boundary = addGatewayRetirementOwnershipCompileCheck(
+            b,
+            target,
+            "hra-gateway-attestation-native-ownership-test",
+        );
+        test_step.dependOn(&b.addRunArtifact(native_retirement_boundary).step);
+    }
     if (image_normalizer_install) |install| {
         test_step.dependOn(&install.step);
     }
     if (candidate_custody_probe_supervisor_install) |install| {
-        test_step.dependOn(&install.step);
+        test_step.dependOn(install);
     }
     const runtime_host_test_mod = localModule(
         b,
@@ -650,6 +684,30 @@ pub fn build(b: *std.Build) void {
         });
         test_step.dependOn(&b.addRunArtifact(helper_tests).step);
     }
+}
+
+fn addCustodyArtifactInstall(
+    b: *std.Build,
+    artifact: *std.Build.Step.Compile,
+    exact_normalization: bool,
+    kind: []const u8,
+    installed_name: []const u8,
+) *std.Build.Step {
+    if (!exact_normalization) {
+        return &b.addInstallArtifact(artifact, .{}).step;
+    }
+    const normalize = b.addSystemCommand(&.{
+        "bun",
+        "run",
+        "runtime/normalize-c19-custody-binary.ts",
+        "--kind",
+        kind,
+        "--input",
+    });
+    normalize.addArtifactArg(artifact);
+    normalize.addArg("--output");
+    const normalized = normalize.addOutputFileArg(installed_name);
+    return &b.addInstallBinFile(normalized, installed_name).step;
 }
 
 // Resolve the optimize mode for one exe role (mirrors the Native SDK
@@ -939,6 +997,38 @@ fn addCustodyProbeSupervisorTest(
     });
 }
 
+fn addGatewayRetirementOwnershipCompileCheck(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    name: []const u8,
+) *std.Build.Step.Compile {
+    const module = b.createModule(.{
+        .target = target,
+        .optimize = .Debug,
+    });
+    module.link_libc = true;
+    const sdk_include = if (b.sysroot) |sysroot|
+        b.fmt("-I{s}/usr/include", .{sysroot})
+    else
+        "";
+    const flags: []const []const u8 = if (b.sysroot) |sysroot|
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-mmacosx-version-min=13.0", "-isysroot", sysroot, sdk_include }
+    else
+        &.{ "-std=c17", "-Wall", "-Wextra", "-Werror", "-mmacosx-version-min=13.0" };
+    module.addCSourceFile(.{
+        .file = b.path("src/macos_gateway_retirement_ownership_compile.c"),
+        .flags = flags,
+    });
+    if (b.sysroot != null) {
+        module.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
+    }
+    module.linkSystemLibrary("c", .{});
+    return b.addExecutable(.{
+        .name = name,
+        .root_module = module,
+    });
+}
+
 fn addCustodyProbeFixture(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -1071,6 +1161,7 @@ fn linkPlatform(b: *std.Build, target: std.Build.ResolvedTarget, app_mod: *std.B
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_application_lifecycle.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_code_identity.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_gateway_attestation.m"), .flags = directory_picker_flags });
+        app_mod.addCSourceFile(.{ .file = b.path("src/macos_gateway_retirement.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_renderer_authority.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_keychain_custodian.m"), .flags = directory_picker_flags });
         app_mod.addCSourceFile(.{ .file = b.path("src/macos_custody_probe_parent_gate.c"), .flags = directory_picker_flags });

@@ -23,6 +23,7 @@ import {
   HRA_V0_C17_TIMEOUT_CAP_COMMIT,
   HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
   HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+  HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
@@ -30,6 +31,8 @@ import {
   HRA_V0_PUBLICATION_SURFACE_FETCH_DEPTHS,
   HRA_V0_Q14_SURFACE_COMMIT,
   HRA_V0_Q15_SURFACE_COMMIT,
+  HRA_V0_R20_HEADLONG_READING_COMMIT,
+  HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
   inspectArchiveReleaseSurface,
   inspectReleaseCandidateLineage,
   inspectReleaseHotfixCandidateLineage,
@@ -329,7 +332,7 @@ describe("hermetic release provenance", () => {
     })).toBe(candidateCommit);
   });
 
-  test("resolves and binds the unique linear C20 child of exact C19, C18, C17, C16, and Q15", async () => {
+  test("resolves and binds dynamic C21 after exact C20 and the two accepted reading commits", async () => {
     const repositoryRoot = await createRepository();
     const q15Commit = (await runSetupGit(
       repositoryRoot,
@@ -372,16 +375,12 @@ describe("hermetic release provenance", () => {
       repositoryRoot,
       ["rev-parse", "HEAD"],
     )).trim();
-    await writeFile(
-      join(repositoryRoot, "zombie-fence.txt"),
-      "zombie-aware gateway fencing\n",
-    );
-    await runSetupGit(repositoryRoot, ["add", "zombie-fence.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C20"]);
-    const candidateCommit = (await runSetupGit(
-      repositoryRoot,
-      ["rev-parse", "HEAD"],
-    )).trim();
+    const {
+      c20Commit,
+      candidateCommit,
+      headlongReadingCommit,
+      notACodexTuiReadingCommit,
+    } = await commitC20ToC21Fixture(repositoryRoot);
 
     let repository = await inspectReleaseSourceRepository({
       environment: {},
@@ -392,6 +391,9 @@ describe("hermetic release provenance", () => {
       expectedC17Commit: c17Commit,
       expectedC18Commit: c18Commit,
       expectedC19Commit: c19Commit,
+      expectedC20Commit: c20Commit,
+      expectedHeadlongReadingCommit: headlongReadingCommit,
+      expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       expectedQ15Commit: q15Commit,
     })).toBe(candidateCommit);
     expect(await inspectReleaseHotfixCandidateLineage(repository, {
@@ -400,15 +402,21 @@ describe("hermetic release provenance", () => {
       expectedC17Commit: c17Commit,
       expectedC18Commit: c18Commit,
       expectedC19Commit: c19Commit,
+      expectedC20Commit: c20Commit,
+      expectedHeadlongReadingCommit: headlongReadingCommit,
+      expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       expectedQ15Commit: q15Commit,
     })).toEqual({
       c16Commit,
       c17Commit,
       c18Commit,
       c19Commit,
+      c20Commit,
       candidateCommit,
+      headlongReadingCommit,
+      notACodexTuiReadingCommit,
       q15Commit,
-      status: "exact_q15_c16_c17_c18_c19_c20_candidate_chain",
+      status: "exact_q15_c16_c17_c18_c19_c20_headlong_reading_not_a_codex_tui_reading_c21_candidate_chain",
     });
 
     await writeFile(join(repositoryRoot, "publication.txt"), "descendant\n");
@@ -423,11 +431,14 @@ describe("hermetic release provenance", () => {
       expectedC17Commit: c17Commit,
       expectedC18Commit: c18Commit,
       expectedC19Commit: c19Commit,
+      expectedC20Commit: c20Commit,
+      expectedHeadlongReadingCommit: headlongReadingCommit,
+      expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       expectedQ15Commit: q15Commit,
     })).toBe(candidateCommit);
   }, 10_000);
 
-  test("retains the C16-to-Q15 edge across sequential Q16 and C20 shallow fetches", async () => {
+  test("retains the C16-to-Q15 edge across sequential Q16 and C21 shallow fetches", async () => {
     const canonicalRoot = await createRepository();
     const q15Commit = (await runSetupGit(
       canonicalRoot,
@@ -449,16 +460,31 @@ describe("hermetic release provenance", () => {
       "transition.txt",
       "custody transition C19",
     );
-    const c20Commit = await commitFixture(
+    await commitFixture(
       canonicalRoot,
       "zombie-fence.txt",
-      "candidate C20",
+      "zombie fence C20",
+    );
+    await commitFixture(
+      canonicalRoot,
+      "headlong-reading.txt",
+      "accepted Headlong reading",
+    );
+    await commitFixture(
+      canonicalRoot,
+      "not-a-codex-tui-reading.txt",
+      "final accepted reading",
+    );
+    const c21Commit = await commitFixture(
+      canonicalRoot,
+      "candidate.txt",
+      "candidate C21",
     );
     await runSetupGit(canonicalRoot, [
       "tag",
       "-a",
       "v0.1.16",
-      c20Commit,
+      c21Commit,
       "-m",
       "HRA v0.1.16",
     ]);
@@ -588,22 +614,23 @@ describe("hermetic release provenance", () => {
       "transition.txt",
       "custody transition C19",
     );
-    const wrongC16Candidate = await commitFixture(
-      wrongC16Root,
-      "candidate.txt",
-      "candidate C20",
-    );
+    const wrongC16Corridor = await commitC20ToC21Fixture(wrongC16Root);
     const wrongC16Repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot: wrongC16Root,
     });
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(wrongC16Repository, {
-        candidateCommit: wrongC16Candidate,
+        candidateCommit: wrongC16Corridor.candidateCommit,
         expectedC16Commit: wrongC16,
         expectedC17Commit: wrongC16C17,
         expectedC18Commit: wrongC16C18,
         expectedC19Commit: wrongC16C19,
+        expectedC20Commit: wrongC16Corridor.c20Commit,
+        expectedHeadlongReadingCommit:
+          wrongC16Corridor.headlongReadingCommit,
+        expectedNotACodexTuiReadingCommit:
+          wrongC16Corridor.notACodexTuiReadingCommit,
         expectedQ15Commit: wrongC16Q15,
       }),
       "C16 compatibility commit must have exact Q15 as its only direct parent",
@@ -637,22 +664,23 @@ describe("hermetic release provenance", () => {
       "transition.txt",
       "custody transition C19",
     );
-    const wrongC17Candidate = await commitFixture(
-      wrongC17Root,
-      "candidate.txt",
-      "candidate C20",
-    );
+    const wrongC17Corridor = await commitC20ToC21Fixture(wrongC17Root);
     const wrongC17Repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot: wrongC17Root,
     });
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(wrongC17Repository, {
-        candidateCommit: wrongC17Candidate,
+        candidateCommit: wrongC17Corridor.candidateCommit,
         expectedC16Commit: wrongC17C16,
         expectedC17Commit: wrongC17,
         expectedC18Commit: wrongC17C18,
         expectedC19Commit: wrongC17C19,
+        expectedC20Commit: wrongC17Corridor.c20Commit,
+        expectedHeadlongReadingCommit:
+          wrongC17Corridor.headlongReadingCommit,
+        expectedNotACodexTuiReadingCommit:
+          wrongC17Corridor.notACodexTuiReadingCommit,
         expectedQ15Commit: wrongC17Q15,
       }),
       "C17 timeout-cap commit must have exact C16 as its only direct parent",
@@ -686,22 +714,23 @@ describe("hermetic release provenance", () => {
       "transition.txt",
       "custody transition C19",
     );
-    const wrongC18Candidate = await commitFixture(
-      wrongC18Root,
-      "candidate.txt",
-      "candidate C20",
-    );
+    const wrongC18Corridor = await commitC20ToC21Fixture(wrongC18Root);
     const wrongC18Repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot: wrongC18Root,
     });
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(wrongC18Repository, {
-        candidateCommit: wrongC18Candidate,
+        candidateCommit: wrongC18Corridor.candidateCommit,
         expectedC16Commit: wrongC18C16,
         expectedC17Commit: wrongC18C17,
         expectedC18Commit: wrongC18,
         expectedC19Commit: wrongC18C19,
+        expectedC20Commit: wrongC18Corridor.c20Commit,
+        expectedHeadlongReadingCommit:
+          wrongC18Corridor.headlongReadingCommit,
+        expectedNotACodexTuiReadingCommit:
+          wrongC18Corridor.notACodexTuiReadingCommit,
         expectedQ15Commit: wrongC18Q15,
       }),
       "C18 cold-custody timeout commit must have exact C17 as its only direct parent",
@@ -735,29 +764,133 @@ describe("hermetic release provenance", () => {
       "transition.txt",
       "custody transition C19",
     );
-    const wrongC19Candidate = await commitFixture(
-      wrongC19Root,
-      "candidate.txt",
-      "candidate C20",
-    );
+    const wrongC19Corridor = await commitC20ToC21Fixture(wrongC19Root);
     const wrongC19Repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot: wrongC19Root,
     });
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(wrongC19Repository, {
-        candidateCommit: wrongC19Candidate,
+        candidateCommit: wrongC19Corridor.candidateCommit,
         expectedC16Commit: wrongC19C16,
         expectedC17Commit: wrongC19C17,
         expectedC18Commit: wrongC19C18,
         expectedC19Commit: wrongC19,
+        expectedC20Commit: wrongC19Corridor.c20Commit,
+        expectedHeadlongReadingCommit:
+          wrongC19Corridor.headlongReadingCommit,
+        expectedNotACodexTuiReadingCommit:
+          wrongC19Corridor.notACodexTuiReadingCommit,
         expectedQ15Commit: wrongC19Q15,
       }),
       "C19 custody-transition commit must have exact C18 as its only direct parent",
     );
   });
 
-  test("rejects merge-child and multiple-child C20 topologies", async () => {
+  test("rejects drift in the fixed C20 and accepted-reading edges", async () => {
+    const cases = [
+      {
+        driftBefore: "c20",
+        message:
+          "C20 zombie-fence commit must have exact C19 as its only direct parent",
+      },
+      {
+        driftBefore: "headlong",
+        message:
+          "accepted Headlong reading commit must have exact C20 as its only direct parent",
+      },
+      {
+        driftBefore: "final-reading",
+        message:
+          "final accepted reading commit must have the accepted Headlong reading commit as its only direct parent",
+      },
+    ] as const;
+
+    for (const fixture of cases) {
+      const repositoryRoot = await createRepository();
+      const q15Commit = (await runSetupGit(
+        repositoryRoot,
+        ["rev-parse", "HEAD"],
+      )).trim();
+      const c16Commit = await commitFixture(
+        repositoryRoot,
+        "compatibility.txt",
+        "compatibility C16",
+      );
+      const c17Commit = await commitFixture(
+        repositoryRoot,
+        "timeout-cap.txt",
+        "timeout cap C17",
+      );
+      const c18Commit = await commitFixture(
+        repositoryRoot,
+        "latency.txt",
+        "timeout correction C18",
+      );
+      const c19Commit = await commitFixture(
+        repositoryRoot,
+        "transition.txt",
+        "custody transition C19",
+      );
+      if (fixture.driftBefore === "c20") {
+        await commitFixture(repositoryRoot, "c20-intermediate.txt", "drift");
+      }
+      const c20Commit = await commitFixture(
+        repositoryRoot,
+        "zombie-fence.txt",
+        "zombie fence C20",
+      );
+      if (fixture.driftBefore === "headlong") {
+        await commitFixture(
+          repositoryRoot,
+          "headlong-intermediate.txt",
+          "drift",
+        );
+      }
+      const headlongReadingCommit = await commitFixture(
+        repositoryRoot,
+        "headlong-reading.txt",
+        "accepted Headlong reading",
+      );
+      if (fixture.driftBefore === "final-reading") {
+        await commitFixture(
+          repositoryRoot,
+          "final-reading-intermediate.txt",
+          "drift",
+        );
+      }
+      const notACodexTuiReadingCommit = await commitFixture(
+        repositoryRoot,
+        "not-a-codex-tui-reading.txt",
+        "final accepted reading",
+      );
+      const candidateCommit = await commitFixture(
+        repositoryRoot,
+        "candidate.txt",
+        "candidate C21",
+      );
+      const repository = await inspectReleaseSourceRepository({
+        environment: {},
+        repositoryRoot,
+      });
+      await expectRejection(
+        inspectReleaseHotfixCandidateLineage(repository, {
+          candidateCommit,
+          expectedC16Commit: c16Commit,
+          expectedC17Commit: c17Commit,
+          expectedC18Commit: c18Commit,
+          expectedC19Commit: c19Commit,
+          expectedC20Commit: c20Commit,
+          expectedHeadlongReadingCommit: headlongReadingCommit,
+          expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
+          expectedQ15Commit: q15Commit,
+        }),
+        fixture.message,
+      );
+    }
+  }, 10_000);
+
+  test("rejects merge-child and multiple-child dynamic C21 topologies", async () => {
     const forkedRoot = await createRepository();
     const forkQ15 = (await runSetupGit(
       forkedRoot,
@@ -783,41 +916,56 @@ describe("hermetic release provenance", () => {
       "transition.txt",
       "custody transition C19",
     );
-    await runSetupGit(forkedRoot, ["switch", "-c", "other-c20"]);
-    await commitFixture(forkedRoot, "other.txt", "other C20 child");
+    const forkC20 = await commitFixture(
+      forkedRoot,
+      "zombie-fence.txt",
+      "zombie fence C20",
+    );
+    const forkHeadlong = await commitFixture(
+      forkedRoot,
+      "headlong-reading.txt",
+      "accepted Headlong reading",
+    );
+    const forkFinalReading = await commitFixture(
+      forkedRoot,
+      "not-a-codex-tui-reading.txt",
+      "final accepted reading",
+    );
+    await runSetupGit(forkedRoot, ["switch", "-c", "other-c21"]);
+    await commitFixture(forkedRoot, "other.txt", "other C21 child");
     await runSetupGit(forkedRoot, ["switch", "main"]);
-    await commitFixture(forkedRoot, "candidate.txt", "candidate C20 child");
+    await commitFixture(forkedRoot, "candidate.txt", "candidate C21 child");
     await runSetupGit(forkedRoot, [
       "merge",
       "--no-ff",
-      "other-c20",
+      "other-c21",
       "-m",
-      "merge two C20 children",
+      "merge two C21 children",
     ]);
     const forkedRepository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot: forkedRoot,
     });
+    const expectations = {
+      expectedC16Commit: forkC16,
+      expectedC17Commit: forkC17,
+      expectedC18Commit: forkC18,
+      expectedC19Commit: forkC19,
+      expectedC20Commit: forkC20,
+      expectedHeadlongReadingCommit: forkHeadlong,
+      expectedNotACodexTuiReadingCommit: forkFinalReading,
+      expectedQ15Commit: forkQ15,
+    } as const;
     await expectRejection(
-      resolveReleaseHotfixCandidateCommit(forkedRepository, {
-        expectedC16Commit: forkC16,
-        expectedC17Commit: forkC17,
-        expectedC18Commit: forkC18,
-        expectedC19Commit: forkC19,
-        expectedQ15Commit: forkQ15,
-      }),
-      "C20 candidate must have exact C19 as its only direct parent",
+      resolveReleaseHotfixCandidateCommit(forkedRepository, expectations),
+      "C21 candidate must have the final accepted reading commit as its only direct parent",
     );
     await expectRejection(
       inspectReleaseHotfixCandidateLineage(forkedRepository, {
         candidateCommit: forkedRepository.commit,
-        expectedC16Commit: forkC16,
-        expectedC17Commit: forkC17,
-        expectedC18Commit: forkC18,
-        expectedC19Commit: forkC19,
-        expectedQ15Commit: forkQ15,
+        ...expectations,
       }),
-      "C20 candidate must have exact C19 as its only direct parent",
+      "C21 candidate must have the final accepted reading commit as its only direct parent",
     );
   }, 10_000);
 
@@ -1961,7 +2109,7 @@ describe("hermetic release provenance", () => {
     );
   });
 
-  test("pins the fixed C15/P15/U/M/Q15/C16/C17/C18/C19 release objects", () => {
+  test("pins the fixed C15/P15/U/M/Q15/C16/C17/C18/C19/C20/reading release objects", () => {
     expect(HRA_V0_C15_CANDIDATE_COMMIT).toBe(
       "0c7764da0dea0a71bbccca817539a02d8e4284d0",
     );
@@ -1988,6 +2136,15 @@ describe("hermetic release provenance", () => {
     );
     expect(HRA_V0_C19_CUSTODY_TRANSITION_COMMIT).toBe(
       "aa613e86f874efa089a375231a9506e5934973f0",
+    );
+    expect(HRA_V0_C20_ZOMBIE_FENCE_COMMIT).toBe(
+      "0c2feb8fa39b1a5141a44930a6ed0b5a913f8256",
+    );
+    expect(HRA_V0_R20_HEADLONG_READING_COMMIT).toBe(
+      "f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9",
+    );
+    expect(HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT).toBe(
+      "cd3df81438cd54cfe997162116a92e4e9730f1f9",
     );
   });
 
@@ -2293,6 +2450,44 @@ describe("hermetic release provenance", () => {
     );
   });
 });
+
+type C20ToC21Fixture = Readonly<{
+  c20Commit: string;
+  candidateCommit: string;
+  headlongReadingCommit: string;
+  notACodexTuiReadingCommit: string;
+}>;
+
+async function commitC20ToC21Fixture(
+  repositoryRoot: string,
+): Promise<C20ToC21Fixture> {
+  const c20Commit = await commitFixture(
+    repositoryRoot,
+    "zombie-fence.txt",
+    "zombie-aware gateway fence C20",
+  );
+  const headlongReadingCommit = await commitFixture(
+    repositoryRoot,
+    "headlong-reading.txt",
+    "accepted Headlong reading",
+  );
+  const notACodexTuiReadingCommit = await commitFixture(
+    repositoryRoot,
+    "not-a-codex-tui-reading.txt",
+    "final accepted reading",
+  );
+  const candidateCommit = await commitFixture(
+    repositoryRoot,
+    "candidate.txt",
+    "candidate C21",
+  );
+  return Object.freeze({
+    c20Commit,
+    candidateCommit,
+    headlongReadingCommit,
+    notACodexTuiReadingCommit,
+  });
+}
 
 type LinearPublicationTopology = Readonly<{
   candidateCommit: string;

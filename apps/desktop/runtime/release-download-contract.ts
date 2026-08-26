@@ -42,12 +42,15 @@ import {
   HRA_V0_C17_TIMEOUT_CAP_COMMIT,
   HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
   HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+  HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P15_PUBLICATION_COMMIT,
   HRA_V0_Q14_SURFACE_COMMIT,
   HRA_V0_Q15_SURFACE_COMMIT,
+  HRA_V0_R20_HEADLONG_READING_COMMIT,
+  HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
   inspectArchiveReleaseSurface,
   inspectCanonicalArchiveRelease,
   inspectCanonicalReleasePublication,
@@ -334,6 +337,9 @@ type ReleaseSourceStateOptions = Readonly<{
   candidateC17Commit?: string;
   candidateC18Commit?: string;
   candidateC19Commit?: string;
+  candidateC20Commit?: string;
+  candidateHeadlongReadingCommit?: string;
+  candidateNotACodexTuiReadingCommit?: string;
   candidateCustodyRepairCommit?: string;
   candidateHostTrustCommit?: string;
   candidateQ14Commit?: string;
@@ -678,6 +684,9 @@ export async function verifyVercelReleaseSourceState(
     inspectCanonicalReleasePublicationIntegrationSurface,
   inspectCanonicalSurface: (options: Readonly<{
     candidateCommit: string;
+    expectedC20Commit: string;
+    expectedHeadlongReadingCommit: string;
+    expectedNotACodexTuiReadingCommit: string;
     publicationCommit: string;
     surfaceCommit: string;
     tag: string;
@@ -753,6 +762,10 @@ export async function verifyVercelReleaseSourceState(
     );
     const canonical = await inspectCanonicalSurface({
       candidateCommit: publishedContract.release.source.commit,
+      expectedC20Commit: HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+      expectedHeadlongReadingCommit: HRA_V0_R20_HEADLONG_READING_COMMIT,
+      expectedNotACodexTuiReadingCommit:
+        HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
       publicationCommit,
       surfaceCommit,
       tag: publishedContract.release.tag,
@@ -916,6 +929,14 @@ export async function verifyReleaseSourceState(
         ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT;
       const expectedC19Commit = options.candidateC19Commit
         ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT;
+      const expectedC20Commit = options.candidateC20Commit
+        ?? HRA_V0_C20_ZOMBIE_FENCE_COMMIT;
+      const expectedHeadlongReadingCommit =
+        options.candidateHeadlongReadingCommit
+        ?? HRA_V0_R20_HEADLONG_READING_COMMIT;
+      const expectedNotACodexTuiReadingCommit =
+        options.candidateNotACodexTuiReadingCommit
+        ?? HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT;
       const expectedQ15Commit = options.candidateQ15Commit
         ?? HRA_V0_Q15_SURFACE_COMMIT;
       const candidateCommit = await resolveReleaseHotfixCandidateCommit(
@@ -925,6 +946,9 @@ export async function verifyReleaseSourceState(
           expectedC17Commit,
           expectedC18Commit,
           expectedC19Commit,
+          expectedC20Commit,
+          expectedHeadlongReadingCommit,
+          expectedNotACodexTuiReadingCommit,
           expectedQ15Commit,
         },
       );
@@ -934,6 +958,9 @@ export async function verifyReleaseSourceState(
         expectedC17Commit,
         expectedC18Commit,
         expectedC19Commit,
+        expectedC20Commit,
+        expectedHeadlongReadingCommit,
+        expectedNotACodexTuiReadingCommit,
         expectedQ15Commit,
       });
       return Object.freeze({
@@ -1029,6 +1056,15 @@ export async function verifyReleaseSourceState(
               expectedC19Commit:
                 options.candidateC19Commit ??
                 HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+              expectedC20Commit:
+                options.candidateC20Commit ??
+                HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+              expectedHeadlongReadingCommit:
+                options.candidateHeadlongReadingCommit ??
+                HRA_V0_R20_HEADLONG_READING_COMMIT,
+              expectedNotACodexTuiReadingCommit:
+                options.candidateNotACodexTuiReadingCommit ??
+                HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
               expectedQ15Commit:
                 options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
               historyContract,
@@ -1049,6 +1085,15 @@ export async function verifyReleaseSourceState(
               expectedC19Commit:
                 options.candidateC19Commit ??
                 HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+              expectedC20Commit:
+                options.candidateC20Commit ??
+                HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+              expectedHeadlongReadingCommit:
+                options.candidateHeadlongReadingCommit ??
+                HRA_V0_R20_HEADLONG_READING_COMMIT,
+              expectedNotACodexTuiReadingCommit:
+                options.candidateNotACodexTuiReadingCommit ??
+                HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
               expectedQ15Commit:
                 options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
             },
@@ -1220,6 +1265,9 @@ export async function verifyPublishedReleaseSurfaceEvidence(
     expectedC17Commit?: string;
     expectedC18Commit?: string;
     expectedC19Commit?: string;
+    expectedC20Commit?: string;
+    expectedHeadlongReadingCommit?: string;
+    expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
     historyContract?: ReleaseHistoryContract;
     publicationCommit: string;
@@ -1251,6 +1299,14 @@ export async function verifyPublishedReleaseSurfaceEvidence(
       expectations.expectedC18Commit ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
     expectedC19Commit:
       expectations.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+    expectedC20Commit:
+      expectations.expectedC20Commit ?? HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+    expectedHeadlongReadingCommit:
+      expectations.expectedHeadlongReadingCommit ??
+      HRA_V0_R20_HEADLONG_READING_COMMIT,
+    expectedNotACodexTuiReadingCommit:
+      expectations.expectedNotACodexTuiReadingCommit ??
+      HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
     expectedQ15Commit:
       expectations.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
   });
@@ -1284,6 +1340,9 @@ export async function verifyPublishedReleaseSourceEvidence(
     expectedC17Commit?: string;
     expectedC18Commit?: string;
     expectedC19Commit?: string;
+    expectedC20Commit?: string;
+    expectedHeadlongReadingCommit?: string;
+    expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<PublishedReleaseSourceEvidence> {
@@ -1327,6 +1386,15 @@ export async function verifyPublishedReleaseSourceEvidence(
       expectedC19Commit:
         expectations.expectedC19Commit ??
         HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+      expectedC20Commit:
+        expectations.expectedC20Commit ??
+        HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
+      expectedHeadlongReadingCommit:
+        expectations.expectedHeadlongReadingCommit ??
+        HRA_V0_R20_HEADLONG_READING_COMMIT,
+      expectedNotACodexTuiReadingCommit:
+        expectations.expectedNotACodexTuiReadingCommit ??
+        HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
       expectedQ15Commit:
         expectations.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
     });

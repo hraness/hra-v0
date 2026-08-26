@@ -3,7 +3,7 @@
 This directory preserves the archived HRA v0 macOS application. Its
 generation-1 release ledger currently ends at the immutable v0.1.15 recovery
 release. HRA v0.1.16 build 17 is the checked native compatibility correction
-candidate C20. The current HRA is at
+candidate C21. The current HRA is at
 [hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
@@ -278,6 +278,8 @@ bun run --cwd apps/desktop package:macos
 
 `package:macos` requires the exact locally provisioned HRA release authority pinned by public root and leaf certificate hashes. It applies self-managed CMS signatures to the outer app, native host, and custody-authorizing helpers. Other HRA-owned nested executables retain exact pinned ad-hoc signatures, including the runtime/JIT gateway. The command verifies the package and adversarial replacement matrix before creating these full clean-tree release artifacts:
 
+C21 production packaging also runs a narrow historical custody bridge. It parses the three thin arm64 custody binaries, accepts differences only in LC_UUID, four-byte N_OSO mtimes, 32-lowercase-hex N_OSO cache keys, and the ad-hoc signature, and first proves a stable digest over every other byte. Separate normalized copies must then match raw SHA-256 values `838624f22d9fbd4a7761aca9473663f925737560a8f0d70ceb0a56bd24913d0a`, `a2c9fee285f71861b30f32e34218d95b4305a2713b0d77c9f0d622f1c6e7c9c9`, and `a96fae9dceae4fe476bc34fdbff3f374ae654da1b38715ec13c60ebd54e54316`. Production signing must restore the enrolled custodian CDHash `6cde8d3c2d173f8c6cb346370539b1d0e960ddaa`. The raw oracle proves bytes; the existing Keychain ACL proves the packaged CDHash. This bridge is coupled to the historical build root, makes no portable-build claim, and is excluded from default, test, and structural builds. Remove it only as part of an explicit Keychain ACL migration.
+
 ```text
 zig-out/release/macos/arm64/
   HRA-0.1.16-17-macos-arm64.dmg
@@ -292,7 +294,7 @@ zig-out/release/macos/arm64/
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
 The root `release-download.json` is the strict HRA v0.1.16 build 17 download
-and publication contract for `https://github.com/hraness/hra-v0`. C20 keeps
+and publication contract for `https://github.com/hraness/hra-v0`. C21 keeps
 artifact hashes and source identities null, so the website exposes no v0.1.16
 download. The immutable v0.1.15 release remains the current frozen ledger
 entry and the v0.1.14 origin remains available for its bounded forward
@@ -324,9 +326,15 @@ child. Unreleased cold-custody-timeout commit C18
 `14904f1fc60b254455b7089f32e9764d67fffd95` is C17's single-parent direct
 child. Unreleased custody-transition commit C19
 `aa613e86f874efa089a375231a9506e5934973f0` is C18's single-parent direct
-child. The final C20 candidate must be C19's single-parent direct child. P16
-must be C20's exact contract-only child, and Q16 must be P16's single direct
-archive-surface child without changing the published contract.
+child. Zombie-aware host-fence commit C20
+`0c2feb8fa39b1a5141a44930a6ed0b5a913f8256` is C19's single-parent direct
+child. Accepted reading commits
+`f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9` and
+`cd3df81438cd54cfe997162116a92e4e9730f1f9` are the next two single-parent
+children. The final C21 candidate must be the second reading commit's
+single-parent direct child. P16 must be C21's exact contract-only child, and
+Q16 must be P16's single direct archive-surface child without changing the
+published contract.
 
 C17 exists because C16's runtime requests a 240-second interactive ACL
 validation and migration budget while its Objective-C admission boundary still
@@ -343,20 +351,26 @@ before authorization. Installed C19 acceptance then exposed a latent native
 fence error: terminated launchd-owned zombie descendants kept the gateway
 process-group identifier alive after every executable member was gone. C20
 distinguishes those inert zombies from live descendants while preserving
-fail-closed handling for ambiguous or executable group members. These
-corrections do not change the 240-second migration budget, v0.1.16 version, or
-build 17 identity.
+fail-closed handling for ambiguous or executable group members. C21 retains
+that host fence while restoring the exact C19 custody-authorizing helper bytes,
+so the already accepted strict Keychain ACL does not need another helper-code
+transition. These corrections do not change the 240-second migration budget,
+v0.1.16 version, or build 17 identity.
 
 The active `main` rulesets require a pull request, the strict `Required` status
 check on an up-to-date head, resolved review threads, and linear history; only
 squash and rebase merges are allowed. `Required` verifies both the pull-request
 head and the resulting `main` push. C17 is the fixed canonical direct child of
 exact C16, C18 is the fixed canonical direct child of exact C17, and C19 is the
-fixed canonical direct child of exact C18. Keep C20 based on exact C19 and
-integrate it as one direct child. If a squash or rebase changes C20's object ID,
-build, package, verify, and tag only a clean checkout of the resulting `main`
-commit. A concurrent `main` commit after C19 requires a reviewed
-provenance-contract change rather than merging around the C19 edge.
+fixed canonical direct child of exact C18. C20 is the fixed direct child of
+exact C19. The two accepted reading commits are fixed direct children in their
+recorded order. Integrate C21 as one direct child of the second reading commit.
+The provenance resolver derives C21 from that edge, so it does not hardcode the
+candidate's not-yet-created object ID. If a squash or rebase changes C21's
+object ID, build, package, verify, and tag only a clean checkout of the
+resulting `main` commit. Another concurrent `main` commit after the second
+reading commit requires a reviewed provenance-contract change rather than
+merging around the C21 edge.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -372,7 +386,7 @@ C14 and P14 record the repository's historical name,
 contract byte remains fixed. C15 descends from the maintained archive surface,
 so its new candidate and publication contracts use `hraness/hra-v0` directly.
 
-Run candidate checks from a clean standalone C20 checkout:
+Run candidate checks from a clean standalone C21 checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
@@ -385,13 +399,13 @@ tree, and no submodules, alternates, grafts, replacement refs, shallow history,
 included local Git configuration, or inherited `GIT_*` steering.
 
 The candidate command verifies the exact
-Q15-to-C16-to-C17-to-C18-to-C19-to-C20 chain,
+Q15-to-C16-to-C17-to-C18-to-C19-to-C20-to-accepted-readings-to-C21 chain,
 collision-free tag state, the DMG, checksum, manifest, runtime tree, and exact
 production signing authority. It emits the exact evidence for P16. Historical
 tags, releases, and assets remain immutable inputs and are never rewritten.
 
 After the full package and candidate verifier pass, create the new direct
-annotated tag and immutable prerelease from the clean standalone C20 checkout.
+annotated tag and immutable prerelease from the clean standalone C21 checkout.
 Do not use `--clobber`, a glob, or an existing release:
 
 ```sh

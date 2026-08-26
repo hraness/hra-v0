@@ -8,6 +8,8 @@
 - `macos_image_normalizer.{h,m}` – entitlement-free ImageIO/CoreGraphics attachment normalizer with descriptor-relative input/output authority, bounded single-frame decoding, and receipt-only JSON output.
 - `macos_application_lifecycle.{h,m}` – immediately reverified helper recovery/spawn plus an independent one-shot graceful-then-forced termination watchdog.
 - `macos_code_identity.{h,m}` – effective-user path validation plus sealed-bundle, exact-CDHash suspended helper launch and dynamic child attestation.
+- `macos_gateway_attestation.{h,m}` – the custody-stable C19 gateway/helper attestation boundary shared by Native and signed helpers.
+- `macos_gateway_retirement.{h,m}` – native-host-only Darwin gateway-group retirement proof that accepts only absent or inert zombie members.
 - `macos_instance_guard.{h,m}` – process-lifetime singleton lock stored outside the removable application-data root.
 - `macos_updater.{h,m}` – release-key-gated dynamic Sparkle startup and the native Check for Updates command.
 
@@ -16,6 +18,7 @@
 - Keep product-specific native composition in `main.zig`; keep `runner.zig` aligned with the pinned Native SDK scaffold unless a documented platform requirement forces a divergence.
 - Preserve the macOS 13 minimum imposed by the compiled Bun gateway and the system-WebView path in the build graph.
 - Keep gateway process I/O off the UI thread and call Native SDK responders or window-event APIs only while draining `.effects_wake` on the UI loop.
+- Keep gateway retirement code linked only into the native host. Preserve the shared gateway-attestation sources byte-for-byte with C19 while an enrolled Keychain item authorizes that exact helper CDHash; a helper rebuild requires an explicit custody-migration design and live acceptance.
 - Keep renderer bridge command names and allowed origins identical in `runtime_host.zig`, `app.zon`, and the renderer contract. Native-only gateway commands must stay absent from every renderer command policy.
 - Keep Native responsible for transport limits, protected ordered delivery of scoped task invalidations, and lifecycle—not Codex/task semantics, account state, credential access, or process-generation decisions.
 - Do not expose filesystem, process, clipboard, or network privileges to the renderer without a typed capability and an explicit product requirement.

@@ -50,6 +50,7 @@ import {
   trustedThirdPartyTeams,
 } from "./macos-package-config";
 import { inspectReleaseSourceRepository } from "./release-provenance";
+import { C19_PACKAGED_CUSTODIAN_CDHASH } from "./normalize-c19-custody-binary";
 import runtimeVersions from "./runtime-versions.json";
 import {
   createShippedJavaScriptLicenseInventory,
@@ -1971,6 +1972,15 @@ export async function packageMacOS(
     "oprte-keychain-custodian",
     signingContext,
   );
+  const keychainCustodianSignature = await codeSignature(keychainCustodianPath);
+  if (
+    signingContext.label === "production"
+    && keychainCustodianSignature.cdHash !== C19_PACKAGED_CUSTODIAN_CDHASH
+  ) {
+    throw new Error(
+      "The production Keychain custodian CodeDirectory differs from the enrolled C19 ACL.",
+    );
+  }
   const custodyProbeSupervisorPath = join(
     runtimeRoot,
     custodyProbeSupervisorPackageContract.runtimeRelativePath,

@@ -83,6 +83,7 @@ import {
 } from "./resident-custody-probe-adapter";
 import { loadGcmDependencyLicenseInventory } from "./gcm-dependency-licenses";
 import { exactGatewayFileSha256 } from "./generate-gateway-file-authority";
+import { C19_PACKAGED_CUSTODIAN_CDHASH } from "./normalize-c19-custody-binary";
 import runtimeVersions from "./runtime-versions.json";
 import {
   assertReleaseStrictVerification,
@@ -1648,6 +1649,11 @@ export async function verifyMacOSApp(
   const custodian = await codeSignature(join(runtimeRoot, "bin/oprte-keychain-custodian"));
   if (custodian.identifier !== "oprte-keychain-custodian") {
     throw new Error("Keychain custodian code identifier differs.");
+  }
+  if (profile === "production" && custodian.cdHash !== C19_PACKAGED_CUSTODIAN_CDHASH) {
+    throw new Error(
+      "Packaged Keychain custodian CodeDirectory differs from the enrolled C19 ACL.",
+    );
   }
   await verifyReleaseCodeIdentity(
     join(runtimeRoot, "bin/oprte-keychain-custodian"),
