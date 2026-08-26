@@ -18,6 +18,7 @@ describe("HRA public and control-plane route boundary", () => {
       "/opengraph-image",
       "/releases",
       "/reading/headlong-always-on-loop",
+      "/reading/not-a-codex-tui",
       "/robots.txt",
       "/sitemap.xml",
     ]) {

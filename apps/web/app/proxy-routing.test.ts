@@ -44,6 +44,8 @@ describe("HRA proxy routing", () => {
       "/privacy/",
       "/reading/headlong-always-on-loop",
       "/reading/headlong-always-on-loop/",
+      "/reading/not-a-codex-tui",
+      "/reading/not-a-codex-tui/",
       "/robots.txt",
       "/sitemap.xml",
     ]) {
@@ -64,6 +66,7 @@ describe("HRA proxy routing", () => {
       "/reading",
       "/reading/missing",
       "/reading/headlong-always-on-loop/private",
+      "/reading/not-a-codex-tui/private",
       "/downloader",
       "/artifacts/HRA.dmg",
     ]) {

@@ -17,7 +17,9 @@ import {
 } from "./deployment-identity";
 import {
   createHeadlongReadingMarkdown as createHeadlongReadingMarkdownBody,
+  createNotACodexTuiReadingMarkdown as createNotACodexTuiReadingMarkdownBody,
   HRA_HEADLONG_READING_PATH,
+  HRA_NOT_A_CODEX_TUI_READING_PATH,
   isHraPublicReadingPath,
 } from "./reading";
 import {
@@ -123,6 +125,7 @@ export function createHraLlmsTxt(): string {
     `- [HRA v0 privacy](${absoluteUrl(HRA_PRIVACY_PATH)}): Public analytics, hosted coordination data, local execution data, retention, and provider boundaries`,
     `- [HRA v0 alternatives](${absoluteUrl("/alternatives")}): Historical first-party-sourced comparisons`,
     `- [Headlong's always-on loop next to HRA v0](${absoluteUrl(HRA_HEADLONG_READING_PATH)}): Reading take contrasting Headlong's persistent-agency loop with the archived Codex metaharness job`,
+    `- [HRA v0 is not a Codex TUI](${absoluteUrl(HRA_NOT_A_CODEX_TUI_READING_PATH)}): Reading take contrasting TUI habit with the archived Codex metaharness job`,
     ...hraComparisons.map((comparison) =>
       `- [HRA vs ${comparison.shortName}](${absoluteUrl(`/alternatives/${comparison.slug}`)}): ${comparison.description}`),
   ];
@@ -230,6 +233,7 @@ export function createLandingMarkdown(): string {
     `- [Release history](${absoluteUrl("/releases")})`,
     `- [Compare HRA](${absoluteUrl("/alternatives")})`,
     `- [Headlong's always-on loop](${absoluteUrl(HRA_HEADLONG_READING_PATH)})`,
+    `- [HRA v0 is not a Codex TUI](${absoluteUrl(HRA_NOT_A_CODEX_TUI_READING_PATH)})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
     `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
@@ -518,6 +522,10 @@ export function createHeadlongReadingMarkdown(): string {
   return createHeadlongReadingMarkdownBody(origin);
 }
 
+export function createNotACodexTuiReadingMarkdown(): string {
+  return createNotACodexTuiReadingMarkdownBody(origin);
+}
+
 export function createNotFoundMarkdown(): string {
   return [
     "# Not found",
@@ -531,6 +539,7 @@ export function createNotFoundMarkdown(): string {
     `- [Release history](${absoluteUrl("/releases")})`,
     `- [Comparisons](${absoluteUrl("/alternatives")})`,
     `- [Headlong's always-on loop](${absoluteUrl(HRA_HEADLONG_READING_PATH)})`,
+    `- [HRA v0 is not a Codex TUI](${absoluteUrl(HRA_NOT_A_CODEX_TUI_READING_PATH)})`,
     `- [Privacy](${absoluteUrl(HRA_PRIVACY_PATH)})`,
     `- [Agent guide](${absoluteUrl(HRA_LLMS_TXT_PATH)})`,
     `- [XML sitemap](${absoluteUrl("/sitemap.xml")})`,
@@ -546,7 +555,10 @@ export function publicDocumentMarkdown(pathname: string): string | null {
   if (canonicalPath === "/releases") return createReleaseHistoryMarkdown();
   if (canonicalPath === HRA_PRIVACY_PATH) return createPrivacyMarkdown();
   if (canonicalPath === "/alternatives") return createAlternativesIndexMarkdown();
-  if (isHraPublicReadingPath(canonicalPath)) return createHeadlongReadingMarkdown();
+  if (canonicalPath === HRA_HEADLONG_READING_PATH) return createHeadlongReadingMarkdown();
+  if (canonicalPath === HRA_NOT_A_CODEX_TUI_READING_PATH) {
+    return createNotACodexTuiReadingMarkdown();
+  }
   if (canonicalPath.startsWith("/alternatives/")) {
     const comparison = comparisonForSlug(canonicalPath.slice("/alternatives/".length));
     return comparison === undefined ? null : createComparisonMarkdown(comparison);
