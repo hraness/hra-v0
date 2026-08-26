@@ -147,6 +147,15 @@ const legacy_oprte_removal_helper_state_directory_name =
     "OPRTE Removal";
 
 extern "c" fn getpgid(process_id: c_int) c_int;
+const macos_gateway_group_retirement_ambiguous: c_int = 0;
+const macos_gateway_group_retirement_pending: c_int = 1;
+const macos_gateway_group_retirement_quiescent: c_int = 2;
+extern fn hra_macos_gateway_process_group_retirement_state(
+    group_leader: c_int,
+) c_int;
+extern fn hra_macos_gateway_retained_child_is_zombie(
+    process_identifier: c_int,
+) bool;
 
 fn gatewayGroupMatchesUnreapedChild(
     process_id: c_int,
@@ -158,10 +167,32 @@ fn gatewayGroupMatchesUnreapedChild(
         observed_process_group == process_id;
 }
 
-const GroupRetirementPollPreparation = struct {
-    context: ?*anyopaque,
-    run_fn: *const fn (context: ?*anyopaque, io: std.Io) bool,
-};
+fn waitForProcessGroupAbsence(
+    process_id: c_int,
+    io: std.Io,
+) bool {
+    if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) {
+        return true;
+    }
+    // Signal delivery is not exit evidence. Observe only after the one
+    // generation-wide SIGKILL and fail closed until the old group ID has
+    // disappeared. Never signal again while polling: if the numeric ID is
+    // later reused by a foreign group, recovery stops instead of targeting a
+    // process Native did not launch.
+    var remaining = generation_fence_wait_ms;
+    while (remaining > 0) : (remaining -= shutdown_poll_ms) {
+        std.posix.kill(-process_id, @enumFromInt(0)) catch |err| switch (err) {
+            error.ProcessNotFound => return true,
+            error.PermissionDenied, error.Unexpected => return false,
+        };
+        std.Io.sleep(
+            io,
+            .fromMilliseconds(shutdown_poll_ms),
+            .awake,
+        ) catch return false;
+    }
+    return false;
+}
 
 fn gatewayStderrForMode(
     mode: std.builtin.OptimizeMode,
@@ -7075,18 +7106,6 @@ pub const RuntimeHost = struct {
         child: *std.process.Child,
         io: std.Io,
     ) bool {
-        return terminateGatewayProcessTreeWithPollPreparation(
-            child,
-            io,
-            null,
-        );
-    }
-
-    fn terminateGatewayProcessTreeWithPollPreparation(
-        child: *std.process.Child,
-        io: std.Io,
-        poll_preparation: ?GroupRetirementPollPreparation,
-    ) bool {
         // std.process.Child retains this exact, unreaped birth until kill/wait
         // returns and clears `id`. POSIX cannot reuse its PID, or create an
         // unrelated group with that numeric ID, while the leader is live or a
@@ -7106,45 +7125,78 @@ pub const RuntimeHost = struct {
                 // unreaped leader still reserves both numeric identities.
                 std.posix.kill(-process_id, .KILL) catch |err| switch (err) {
                     error.ProcessNotFound => {},
-                    error.PermissionDenied, error.Unexpected => contained = false,
+                    // Darwin reports EPERM when only the unreaped zombie
+                    // leader remains. It is admissible only as input to the
+                    // exact WNOWAIT/nonlive-member proof below; every other
+                    // platform retains the existing fail-closed behavior.
+                    error.PermissionDenied => if (comptime !std.mem.eql(
+                        u8,
+                        build_options.platform,
+                        "macos",
+                    )) {
+                        contained = false;
+                    },
+                    error.Unexpected => contained = false,
                 };
             }
         }
-        // Reap the gateway even when the group signal failed. The false return
-        // prevents Native from starting a second provider generation whose
-        // effects could overlap an uncontained descendant.
+
+        if (comptime std.mem.eql(u8, build_options.platform, "macos")) {
+            if (!contained) {
+                // Retire the directly owned child even though the false return
+                // prevents a replacement generation from starting.
+                child.kill(io);
+                return false;
+            }
+
+            // Keep the exact leader WNOWAIT-unreaped while Darwin proves that
+            // it is terminal and that every nonleader left in the process
+            // group is absent or a zombie with no executable state. launchd
+            // may retain an orphaned zombie for longer than this recovery
+            // budget, so numeric PGID visibility alone is not live evidence.
+            var group_quiescent = false;
+            var remaining = generation_fence_wait_ms;
+            while (remaining > 0) : (remaining -= shutdown_poll_ms) {
+                switch (hra_macos_gateway_process_group_retirement_state(
+                    process_id,
+                )) {
+                    macos_gateway_group_retirement_quiescent => {
+                        group_quiescent = true;
+                        break;
+                    },
+                    macos_gateway_group_retirement_pending => {},
+                    macos_gateway_group_retirement_ambiguous => break,
+                    else => break,
+                }
+                std.Io.sleep(
+                    io,
+                    .fromMilliseconds(shutdown_poll_ms),
+                    .awake,
+                ) catch break;
+            }
+            if (!group_quiescent) {
+                child.kill(io);
+                return false;
+            }
+
+            // The retained WNOWAIT lease proved this exact child terminal, so
+            // Child.wait now performs the one reap without another signal.
+            _ = child.wait(io) catch {
+                child.kill(io);
+                return false;
+            };
+            return true;
+        }
+
+        // Non-macOS hosts retain the existing group-absence oracle. Reap the
+        // gateway even when the group signal failed; false prevents Native
+        // from starting a generation whose effects could overlap descendants.
         child.kill(io);
         if (!contained) return false;
         if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) {
             return true;
         }
-
-        // Tests may synchronously reap another directly owned group member
-        // here, after the real group SIGKILL and before the first real kernel
-        // absence poll. Production passes null and retains the exact signal,
-        // timeout, and fail-closed oracle below.
-        if (poll_preparation) |preparation| {
-            if (!preparation.run_fn(preparation.context, io)) return false;
-        }
-
-        // Signal delivery is not exit evidence. Observe only after the one
-        // generation-wide SIGKILL and fail closed until the old group ID has
-        // disappeared. Never signal again while polling: if the numeric ID is
-        // later reused by a foreign group, recovery stops instead of targeting
-        // a process Native did not launch.
-        var remaining = generation_fence_wait_ms;
-        while (remaining > 0) : (remaining -= shutdown_poll_ms) {
-            std.posix.kill(-process_id, @enumFromInt(0)) catch |err| switch (err) {
-                error.ProcessNotFound => return true,
-                error.PermissionDenied, error.Unexpected => return false,
-            };
-            std.Io.sleep(
-                io,
-                .fromMilliseconds(shutdown_poll_ms),
-                .awake,
-            ) catch return false;
-        }
-        return false;
+        return waitForProcessGroupAbsence(process_id, io);
     }
 
     /// A spawn and a syntactically successful gateway response prove only that
@@ -12943,11 +12995,207 @@ test "forced transport retry fences one live-wedged generation without replay" {
     };
 }
 
-test "generation fencing reaps a retained stubborn group member after abrupt gateway exit" {
-    if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) return;
+test "Darwin zombie-only group permission denial proceeds to the retirement proof" {
+    if (comptime !std.mem.eql(u8, build_options.platform, "macos")) return;
 
     var child = try std.process.spawn(std.testing.io, .{
+        .argv = &.{"/usr/bin/true"},
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .pgid = 0,
+    });
+    var terminated = false;
+    defer if (!terminated) {
+        _ = RuntimeHost.terminateGatewayProcessTree(&child, std.testing.io);
+    };
+    const leader_process_id = child.id.?;
+
+    var leader_is_terminal = false;
+    for (0..200) |_| {
+        const retirement_state =
+            hra_macos_gateway_process_group_retirement_state(
+                leader_process_id,
+            );
+        if (retirement_state ==
+            macos_gateway_group_retirement_quiescent)
+        {
+            leader_is_terminal = true;
+            break;
+        }
+        if (retirement_state != macos_gateway_group_retirement_pending) {
+            break;
+        }
+        std.Io.sleep(
+            std.testing.io,
+            .fromMilliseconds(5),
+            .awake,
+        ) catch return error.TestUnexpectedResult;
+    }
+    try std.testing.expect(leader_is_terminal);
+
+    // Darwin rejects a group signal once this retained zombie is its only
+    // member. That EPERM is not retirement evidence, but it must not prevent
+    // the exact leader/nonleader oracle from authorizing the subsequent reap.
+    var observed_permission_denial = false;
+    std.posix.kill(-leader_process_id, .KILL) catch |err| switch (err) {
+        error.PermissionDenied => observed_permission_denial = true,
+        error.ProcessNotFound, error.Unexpected => {},
+    };
+    try std.testing.expect(observed_permission_denial);
+    try std.testing.expect(RuntimeHost.terminateGatewayProcessTree(
+        &child,
+        std.testing.io,
+    ));
+    terminated = true;
+    try std.testing.expect(child.id == null);
+    try std.testing.expect(!processExistsForTest(leader_process_id));
+}
+
+test "Darwin retirement accepts a retained nonleader zombie without reaping it" {
+    if (comptime !std.mem.eql(u8, build_options.platform, "macos")) return;
+
+    var leader = try std.process.spawn(std.testing.io, .{
         .argv = &.{ "/bin/sleep", "60" },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .pgid = 0,
+    });
+    var leader_terminated = false;
+    defer if (!leader_terminated) {
+        _ = RuntimeHost.terminateGatewayProcessTree(
+            &leader,
+            std.testing.io,
+        );
+    };
+    const leader_process_id = leader.id.?;
+    try std.testing.expectEqual(
+        leader_process_id,
+        getpgid(leader_process_id),
+    );
+
+    // This direct child exits inside the leader's PGID. The test deliberately
+    // retains its Child handle so the zombie and process group cannot depend
+    // on launchd timing or an injected retirement reaper.
+    var group_member = try std.process.spawn(std.testing.io, .{
+        .argv = &.{ "/bin/sleep", "60" },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .pgid = leader_process_id,
+    });
+    defer if (group_member.id != null) group_member.kill(std.testing.io);
+    const group_member_process_id = group_member.id.?;
+    try std.testing.expectEqual(
+        leader_process_id,
+        getpgid(group_member_process_id),
+    );
+    try std.posix.kill(group_member_process_id, .KILL);
+    var member_is_zombie = false;
+    for (0..200) |_| {
+        if (hra_macos_gateway_retained_child_is_zombie(
+            group_member_process_id,
+        )) {
+            member_is_zombie = true;
+            break;
+        }
+        std.Io.sleep(
+            std.testing.io,
+            .fromMilliseconds(5),
+            .awake,
+        ) catch return error.TestUnexpectedResult;
+    }
+    try std.testing.expect(member_is_zombie);
+    try std.testing.expectEqual(
+        macos_gateway_group_retirement_pending,
+        hra_macos_gateway_process_group_retirement_state(
+            leader_process_id,
+        ),
+    );
+
+    try std.posix.kill(leader_process_id, .KILL);
+    var group_is_quiescent = false;
+    for (0..200) |_| {
+        const retirement_state =
+            hra_macos_gateway_process_group_retirement_state(
+                leader_process_id,
+            );
+        if (retirement_state ==
+            macos_gateway_group_retirement_quiescent)
+        {
+            group_is_quiescent = true;
+            break;
+        }
+        if (retirement_state != macos_gateway_group_retirement_pending) {
+            break;
+        }
+        std.Io.sleep(
+            std.testing.io,
+            .fromMilliseconds(5),
+            .awake,
+        ) catch return error.TestUnexpectedResult;
+    }
+    try std.testing.expect(group_is_quiescent);
+    try std.testing.expect(
+        hra_macos_gateway_retained_child_is_zombie(
+            group_member_process_id,
+        ),
+    );
+
+    var group_still_exists = true;
+    std.posix.kill(-leader_process_id, @enumFromInt(0)) catch |err| switch (err) {
+        error.PermissionDenied => {},
+        error.ProcessNotFound => group_still_exists = false,
+        error.Unexpected => return error.TestUnexpectedResult,
+    };
+    try std.testing.expect(group_still_exists);
+    try std.testing.expect(RuntimeHost.terminateGatewayProcessTree(
+        &leader,
+        std.testing.io,
+    ));
+    leader_terminated = true;
+    try std.testing.expect(leader.id == null);
+    // Native reaped only its gateway leader. The exact nonleader zombie is
+    // still retained by the test until this postcondition has been proven.
+    try std.testing.expect(
+        hra_macos_gateway_retained_child_is_zombie(
+            group_member_process_id,
+        ),
+    );
+    try std.testing.expectEqual(
+        std.process.Child.Term{ .signal = .KILL },
+        try group_member.wait(std.testing.io),
+    );
+}
+
+test "generation fencing accepts an orphaned zombie and rejects live or ambiguous members" {
+    if (comptime !std.mem.eql(u8, build_options.platform, "macos")) return;
+
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root_length = try temporary.dir.realPath(
+        std.testing.io,
+        &root_buffer,
+    );
+    const descendant_path = try std.fs.path.join(
+        std.testing.allocator,
+        &.{ root_buffer[0..root_length], "descendant.pid" },
+    );
+    defer std.testing.allocator.free(descendant_path);
+
+    // This is the production topology: Native directly owns only the gateway
+    // leader, while the leader owns a provider descendant in the same process
+    // group. Killing the leader first reparents that descendant to launchd.
+    var child = try std.process.spawn(std.testing.io, .{
+        .argv = &.{
+            "/bin/sh",
+            "-c",
+            "sleep 60 & echo $! > \"$1\"; wait",
+            "gateway-fixture",
+            descendant_path,
+        },
         .stdin = .ignore,
         .stdout = .ignore,
         .stderr = .ignore,
@@ -12963,57 +13211,85 @@ test "generation fencing reaps a retained stubborn group member after abrupt gat
         leader_process_id,
         getpgid(leader_process_id),
     );
-
-    // Keep the group member as a direct child of the test process. A shell-
-    // spawned orphan becomes launchd's zombie after SIGKILL, making group
-    // disappearance depend on unrelated runner load.
-    var group_member = try std.process.spawn(std.testing.io, .{
-        .argv = &.{
-            "/bin/sh",
-            "-c",
-            "trap '' TERM; exec sleep 60",
-        },
-        .stdin = .ignore,
-        .stdout = .ignore,
-        .stderr = .ignore,
-        .pgid = leader_process_id,
-    });
-    defer if (group_member.id != null) group_member.kill(std.testing.io);
-    const group_member_process_id = group_member.id.?;
+    var descendant_bytes: ?[]u8 = null;
+    for (0..200) |_| {
+        descendant_bytes = temporary.dir.readFileAlloc(
+            std.testing.io,
+            "descendant.pid",
+            std.testing.allocator,
+            .limited(64),
+        ) catch null;
+        if (descendant_bytes != null) break;
+        std.Io.sleep(
+            std.testing.io,
+            .fromMilliseconds(5),
+            .awake,
+        ) catch return error.TestUnexpectedResult;
+    }
+    const raw_descendant = descendant_bytes orelse
+        return error.TestUnexpectedResult;
+    defer std.testing.allocator.free(raw_descendant);
+    const descendant_process_id = try std.fmt.parseInt(
+        c_int,
+        std.mem.trim(u8, raw_descendant, " \r\n\t"),
+        10,
+    );
+    try std.testing.expect(descendant_process_id > 1);
     try std.testing.expectEqual(
         leader_process_id,
-        getpgid(group_member_process_id),
+        getpgid(descendant_process_id),
     );
-    const OwnedGroupMember = struct {
-        child: *std.process.Child,
-        termination: ?std.process.Child.Term = null,
-
-        fn reap(context: ?*anyopaque, io: std.Io) bool {
-            const self: *@This() = @ptrCast(@alignCast(
-                context orelse return false,
-            ));
-            self.termination = self.child.wait(io) catch return false;
-            return self.child.id == null;
-        }
-    };
-    var owned_group_member: OwnedGroupMember = .{ .child = &group_member };
-
-    // The gateway leader exits first while its owned group member remains.
-    // Retaining the unreaped Child keeps the exact PID/PGID birth fenced until
-    // terminateGatewayProcessTree has signalled the whole generation.
-    try std.posix.kill(leader_process_id, .KILL);
-
-    try std.testing.expect(
-        RuntimeHost.terminateGatewayProcessTreeWithPollPreparation(
-            &child,
-            std.testing.io,
-            .{
-                .context = &owned_group_member,
-                .run_fn = OwnedGroupMember.reap,
-            },
+    try std.testing.expectEqual(
+        macos_gateway_group_retirement_pending,
+        hra_macos_gateway_process_group_retirement_state(
+            leader_process_id,
         ),
     );
+    // A PID that is not our retained direct child cannot supply the WNOWAIT
+    // lease, even if it names a real process or process group.
+    try std.testing.expectEqual(
+        macos_gateway_group_retirement_ambiguous,
+        hra_macos_gateway_process_group_retirement_state(
+            std.c.getpid(),
+        ),
+    );
+
+    // Model the abrupt gateway exit that triggers recovery. Once getpgid no
+    // longer reports the retained zombie leader, its still-live descendant is
+    // an orphan in the reserved generation group and must remain PENDING.
+    try std.posix.kill(leader_process_id, .KILL);
+    var leader_is_terminal = false;
+    for (0..200) |_| {
+        if (getpgid(leader_process_id) == -1) {
+            leader_is_terminal = true;
+            break;
+        }
+        std.Io.sleep(
+            std.testing.io,
+            .fromMilliseconds(5),
+            .awake,
+        ) catch return error.TestUnexpectedResult;
+    }
+    try std.testing.expect(leader_is_terminal);
+    try std.testing.expectEqual(
+        leader_process_id,
+        getpgid(descendant_process_id),
+    );
+    try std.testing.expectEqual(
+        macos_gateway_group_retirement_pending,
+        hra_macos_gateway_process_group_retirement_state(
+            leader_process_id,
+        ),
+    );
+
+    const started = std.Io.Clock.awake.now(std.testing.io);
+    try std.testing.expect(RuntimeHost.terminateGatewayProcessTree(
+        &child,
+        std.testing.io,
+    ));
+    const elapsed = started.untilNow(std.testing.io, .awake);
     terminated = true;
+    try std.testing.expect(elapsed.toMilliseconds() < 1_000);
     try std.testing.expect(child.id == null);
     // The owned birth was reaped. A repeated cleanup is a no-op and therefore
     // cannot signal a later process that reuses the old numeric PID/PGID.
@@ -13022,12 +13298,30 @@ test "generation fencing reaps a retained stubborn group member after abrupt gat
         std.testing.io,
     ));
     try std.testing.expect(!processExistsForTest(leader_process_id));
-    try std.testing.expect(group_member.id == null);
+}
+
+test "portable process-group absence oracle accepts a reaped group" {
+    if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) return;
+
+    var child = try std.process.spawn(std.testing.io, .{
+        .argv = &.{ "/bin/sleep", "60" },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+        .pgid = 0,
+    });
+    const leader_process_id = child.id.?;
     try std.testing.expectEqual(
-        std.process.Child.Term{ .signal = .KILL },
-        owned_group_member.termination.?,
+        leader_process_id,
+        getpgid(leader_process_id),
     );
-    try std.testing.expect(!processExistsForTest(group_member_process_id));
+    child.kill(std.testing.io);
+    try std.testing.expect(child.id == null);
+    try std.testing.expect(!processExistsForTest(leader_process_id));
+    try std.testing.expect(waitForProcessGroupAbsence(
+        leader_process_id,
+        std.testing.io,
+    ));
 }
 
 test "removal recovery helper wait is bounded, exact, and single-owner" {

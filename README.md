@@ -110,8 +110,10 @@ child. Native timeout-cap commit C17 is
 `112175bfdbcd6be0e3cca7ed43dd57e79453c00a`, C16's single-parent direct
 child. Unreleased cold-custody-timeout commit C18 is
 `14904f1fc60b254455b7089f32e9764d67fffd95`, C17's single-parent direct
-child. The final C19 candidate and annotated `v0.1.16` tag must descend through
-one exact C18-to-C19 edge. P16 is C19's contract-only child, followed by the
+child. Unreleased custody-transition commit C19 is
+`aa613e86f874efa089a375231a9506e5934973f0`, C18's single-parent direct
+child. The final C20 candidate and annotated `v0.1.16` tag must descend through
+one exact C19-to-C20 edge. P16 is C20's contract-only child, followed by the
 single Q16 archive surface.
 
 ## Develop HRA v0

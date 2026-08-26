@@ -87,9 +87,11 @@ native timeout-cap commit C17
 `112175bfdbcd6be0e3cca7ed43dd57e79453c00a` must be C16's single-parent direct
 child. Unreleased cold-custody-timeout commit C18
 `14904f1fc60b254455b7089f32e9764d67fffd95` must be C17's single-parent direct
-child. The final C19 candidate must be C18's single-parent direct child. After
+child. Unreleased custody-transition commit C19
+`aa613e86f874efa089a375231a9506e5934973f0` must be C18's single-parent direct
+child. The final C20 candidate must be C19's single-parent direct child. After
 local production packaging and exact installed-state acceptance, the annotated
-`v0.1.16` tag must point directly to C19 and publication P16 must be C19's exact
+`v0.1.16` tag must point directly to C20 and publication P16 must be C20's exact
 `release-download.json`-only child. Until those immutable remote
 records exist and Q16 promotes generation 2, the checked history,
 `/.well-known/hra.json`, and provider allowlists remain the generation-1

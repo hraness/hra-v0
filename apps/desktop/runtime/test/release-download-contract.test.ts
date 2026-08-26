@@ -765,7 +765,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-C18-to-C19-to-P16-to-Q16 path", async () => {
+  test("binds v0.1.16 to the linear Q15-to-C16-to-C17-to-C18-to-C19-to-C20-to-P16-to-Q16 path", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v016-publication-")),
     );
@@ -831,7 +831,16 @@ describe("release and download convergence", () => {
       "audited custody transition\n",
     );
     await runSetupGit(repositoryRoot, ["add", "latency.txt"]);
-    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C19"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "custody transition C19"]);
+    const c19Commit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await writeFile(
+      join(repositoryRoot, "zombie-fence.txt"),
+      "zombie-aware gateway fencing\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "zombie-fence.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "candidate C20"]);
     const candidateCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
@@ -839,6 +848,7 @@ describe("release and download convergence", () => {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
+      candidateC19Commit: c19Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -846,6 +856,18 @@ describe("release and download convergence", () => {
       availability: "candidate",
       status: "valid_candidate_contract",
     });
+    await expectRejection(
+      verifyReleaseSourceState(candidateContractFixture, {
+        candidateC16Commit: c16Commit,
+        candidateC17Commit: c17Commit,
+        candidateC18Commit: c18Commit,
+        candidateC19Commit: c18Commit,
+        candidateQ15Commit: q15Commit,
+        environment: {},
+        repositoryRoot,
+      }),
+      "C19 custody-transition commit must have exact C18 as its only direct parent",
+    );
 
     await runSetupGit(repositoryRoot, [
       "tag",
@@ -909,6 +931,7 @@ describe("release and download convergence", () => {
         expectedC16Commit: c16Commit,
         expectedC17Commit: c17Commit,
         expectedC18Commit: c18Commit,
+        expectedC19Commit: c19Commit,
         expectedQ15Commit: q15Commit,
       },
     );
@@ -922,6 +945,7 @@ describe("release and download convergence", () => {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
+      candidateC19Commit: c19Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       repositoryRoot,
@@ -954,6 +978,7 @@ describe("release and download convergence", () => {
         expectedC16Commit: c16Commit,
         expectedC17Commit: c17Commit,
         expectedC18Commit: c18Commit,
+        expectedC19Commit: c19Commit,
         expectedQ15Commit: q15Commit,
         historyContract: generationTwo,
         publicationCommit,
@@ -968,6 +993,7 @@ describe("release and download convergence", () => {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
+      candidateC19Commit: c19Commit,
       candidateQ15Commit: q15Commit,
       environment: {},
       historyContract: generationTwo,
@@ -982,6 +1008,7 @@ describe("release and download convergence", () => {
         candidateC16Commit: c16Commit,
         candidateC17Commit: c17Commit,
         candidateC18Commit: c18Commit,
+        candidateC19Commit: c19Commit,
         candidateQ15Commit: q15Commit,
         environment: {},
         historyContract: readReleaseHistoryContract(),
