@@ -2152,7 +2152,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "e4a64210480e178c91bc3cd7f38c8081d83a598433912df453a5109a9dfa26c2",
+      "matchingLinesSha256": "c77c6aef48dbf77c428d716a3750a3419c9c2548f368919d1e3246076b5de52b",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
