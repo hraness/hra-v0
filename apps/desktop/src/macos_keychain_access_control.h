@@ -38,23 +38,24 @@ bool hra_macos_install_envelope_access_is_strict(
 bool hra_macos_install_envelope_item_access_is_strict(
     SecKeychainItemRef _Nullable item);
 
-/// Public-projection classifier used by deterministic native fixtures for the
-/// exact v0.1.15 prepared migration source. Production uses the item API.
+/// Public-projection classifier used by deterministic native fixtures for an
+/// exact singleton audited prepared migration source. Production uses the item
+/// API.
 bool hra_macos_install_envelope_access_is_prepared_migration_source(
     SecAccessRef _Nullable access);
 
-/// Classifies only the transient exact semantic partition set containing the
-/// unique audited v0.1.15 and current-helper CDHashes in a bounded
-/// lowercase-hex XML plist. It exists for the explicit user-authorized
+/// Classifies only a transient exact semantic partition set containing the
+/// current-helper CDHash and exactly one audited predecessor CDHash in a
+/// bounded lowercase-hex XML plist. It exists for the explicit user-authorized
 /// migration and is never a final strict state.
 bool hra_macos_install_envelope_access_is_prepared_migration_transition(
     SecAccessRef _Nullable access);
 
 /// Requires the exact persisted five-ACL source shape accepted solely by the
-/// prepared v0.1.15 migration. Core ACLs must name the current helper by exact
-/// path and exact designated-requirement bytes. System metadata remains
-/// strict, while the exact semantic partition set in its bounded
-/// lowercase-hex XML plist may still name the authorized prior build.
+/// prepared migration. Core ACLs must name the current helper by exact path and
+/// exact designated-requirement bytes. System metadata remains strict, while
+/// the exact singleton semantic partition set in its bounded lowercase-hex XML
+/// plist may still name one authorized prior build.
 bool hra_macos_install_envelope_item_access_is_prepared_migration_source(
     SecKeychainItemRef _Nullable item);
 

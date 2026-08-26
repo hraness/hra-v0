@@ -40,6 +40,7 @@ import {
   HRA_V0_C15_SIGNED_RELEASE_PROBE_REPAIR_COMMIT,
   HRA_V0_C16_COMPATIBILITY_COMMIT,
   HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+  HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
   HRA_V0_CURRENT_REPOSITORY,
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
@@ -330,6 +331,7 @@ type ReleaseSourceStateOptions = Readonly<{
   candidateBundleCodeAuthorityCommit?: string;
   candidateC16Commit?: string;
   candidateC17Commit?: string;
+  candidateC18Commit?: string;
   candidateCustodyRepairCommit?: string;
   candidateHostTrustCommit?: string;
   candidateQ14Commit?: string;
@@ -908,16 +910,24 @@ export async function verifyReleaseSourceState(
         ?? HRA_V0_C16_COMPATIBILITY_COMMIT;
       const expectedC17Commit = options.candidateC17Commit
         ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT;
+      const expectedC18Commit = options.candidateC18Commit
+        ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT;
       const expectedQ15Commit = options.candidateQ15Commit
         ?? HRA_V0_Q15_SURFACE_COMMIT;
       const candidateCommit = await resolveReleaseHotfixCandidateCommit(
         repository,
-        { expectedC16Commit, expectedC17Commit, expectedQ15Commit },
+        {
+          expectedC16Commit,
+          expectedC17Commit,
+          expectedC18Commit,
+          expectedQ15Commit,
+        },
       );
       await inspectReleaseHotfixCandidateLineage(repository, {
         candidateCommit,
         expectedC16Commit,
         expectedC17Commit,
+        expectedC18Commit,
         expectedQ15Commit,
       });
       return Object.freeze({
@@ -1007,6 +1017,9 @@ export async function verifyReleaseSourceState(
                 options.candidateC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
               expectedC17Commit:
                 options.candidateC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+              expectedC18Commit:
+                options.candidateC18Commit ??
+                HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
               expectedQ15Commit:
                 options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
               historyContract,
@@ -1021,6 +1034,9 @@ export async function verifyReleaseSourceState(
                 options.candidateC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
               expectedC17Commit:
                 options.candidateC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+              expectedC18Commit:
+                options.candidateC18Commit ??
+                HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
               expectedQ15Commit:
                 options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
             },
@@ -1190,6 +1206,7 @@ export async function verifyPublishedReleaseSurfaceEvidence(
   expectations: Readonly<{
     expectedC16Commit?: string;
     expectedC17Commit?: string;
+    expectedC18Commit?: string;
     expectedQ15Commit?: string;
     historyContract?: ReleaseHistoryContract;
     publicationCommit: string;
@@ -1217,6 +1234,8 @@ export async function verifyPublishedReleaseSurfaceEvidence(
       expectations.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
     expectedC17Commit:
       expectations.expectedC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+    expectedC18Commit:
+      expectations.expectedC18Commit ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
     expectedQ15Commit:
       expectations.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
   });
@@ -1248,6 +1267,7 @@ export async function verifyPublishedReleaseSourceEvidence(
     expectedSurfaceCommit?: string;
     expectedC16Commit?: string;
     expectedC17Commit?: string;
+    expectedC18Commit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<PublishedReleaseSourceEvidence> {
@@ -1285,6 +1305,9 @@ export async function verifyPublishedReleaseSourceEvidence(
         expectations.expectedC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
       expectedC17Commit:
         expectations.expectedC17Commit ?? HRA_V0_C17_TIMEOUT_CAP_COMMIT,
+      expectedC18Commit:
+        expectations.expectedC18Commit ??
+        HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
       expectedQ15Commit:
         expectations.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
     });

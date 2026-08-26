@@ -25,8 +25,10 @@ import {
 } from "../renderer-authority";
 import {
   launchSmokeMacOSApp,
+  probePackagedCustody,
   probePackagedCustodyAuthorization,
   probePackagedCustodyStatus,
+  type PackagedCustodyProbeOperations,
   type MacOSPackageResidentProbeDependencies,
 } from "../verify-macos-package";
 import { assertReleaseStrictVerification } from "../package-macos";
@@ -126,6 +128,52 @@ function delayedFifoWriter(path: string): ReturnType<typeof Bun.spawn> {
 }
 
 describe("macOS package resident probe integration", () => {
+  test("preinstall authorization cannot inspect Keychain while full smoke remains status-first", async () => {
+    const calls: Array<Readonly<{
+      app: string;
+      authority: CustodyProbeSupervisorAuthorityEvidence;
+      operation: "authorize" | "status";
+    }>> = [];
+    const operations: PackagedCustodyProbeOperations = {
+      authorize(app, authority) {
+        calls.push({ app, authority, operation: "authorize" });
+        return Promise.resolve();
+      },
+      status(app, authority) {
+        calls.push({ app, authority, operation: "status" });
+        return Promise.resolve();
+      },
+    };
+
+    await probePackagedCustody(
+      "/Applications/HRA.app",
+      testCustodyProbeSupervisorAuthority,
+      "authorize-without-keychain",
+      operations,
+    );
+    expect(calls.map(call => call.operation)).toEqual(["authorize"]);
+    expect(calls[0]).toMatchObject({
+      app: "/Applications/HRA.app",
+      authority: testCustodyProbeSupervisorAuthority,
+    });
+
+    calls.length = 0;
+    await probePackagedCustody(
+      "/Volumes/HRA/HRA.app",
+      testCustodyProbeSupervisorAuthority,
+      "status-and-authorize",
+      operations,
+    );
+    expect(calls.map(call => call.operation)).toEqual([
+      "status",
+      "authorize",
+    ]);
+    expect(calls.every(call =>
+      call.app === "/Volumes/HRA/HRA.app"
+      && call.authority === testCustodyProbeSupervisorAuthority
+    )).toBeTrue();
+  });
+
   test("inspects signed custody status with the exact candidate authority", async () => {
     const fixture = await packageProbeFixture();
     try {

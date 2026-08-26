@@ -556,7 +556,7 @@ describe("macOS package contract", () => {
     expect(parseVerificationArguments([])).toEqual({
       app: undefined,
       coreReleaseDirectory: undefined,
-      custodyAuthorizationProbe: false,
+      custodyProbe: "none",
       dmg: undefined,
       launchSmoke: false,
       releaseDirectory: undefined,
@@ -568,9 +568,18 @@ describe("macOS package contract", () => {
       "--custody-authorization-probe",
       "--launch-smoke",
     ])).toMatchObject({
-      custodyAuthorizationProbe: true,
+      custodyProbe: "status-and-authorize",
       dmg: "/tmp/HRA.dmg",
       launchSmoke: true,
+    });
+    expect(parseVerificationArguments([
+      "--app",
+      "/tmp/HRA.app",
+      "--custody-authorize-without-keychain-probe",
+    ])).toMatchObject({
+      app: "/tmp/HRA.app",
+      custodyProbe: "authorize-without-keychain",
+      launchSmoke: false,
     });
     expect(parseVerificationArguments([
       "--structural",
@@ -590,9 +599,39 @@ describe("macOS package contract", () => {
       ["--release-directory", "/tmp/release", "--launch-smoke"],
       ["--structural"],
       ["--structural", "--app", "/tmp/a", "--custody-authorization-probe"],
+      ["--custody-authorize-without-keychain-probe"],
+      ["--dmg", "/tmp/a.dmg", "--custody-authorize-without-keychain-probe"],
+      [
+        "--app",
+        "/tmp/a",
+        "--launch-smoke",
+        "--custody-authorize-without-keychain-probe",
+      ],
+      [
+        "--app",
+        "/tmp/a",
+        "--custody-authorization-probe",
+        "--custody-authorize-without-keychain-probe",
+      ],
     ]) {
       expect(() => parseVerificationArguments(invalid)).toThrow();
     }
+  });
+
+  test("production packaging uses only the explicit app-only no-Keychain probe", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { scripts?: Record<string, unknown> };
+    const command = packageJson.scripts?.["package:macos:uncoordinated"];
+    if (typeof command !== "string") {
+      throw new Error("Missing package:macos:uncoordinated script.");
+    }
+    expect(command).toContain(
+      "runtime/verify-macos-package.ts --app " +
+      "zig-out/package/HRA-0.1.16-17-macos-arm64.app " +
+      "--custody-authorize-without-keychain-probe",
+    );
+    expect(command).not.toContain("--custody-authorization-probe");
   });
 
   test("streams large archive listings with bounded line memory", async () => {
