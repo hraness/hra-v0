@@ -14,6 +14,12 @@ typedef struct {
   uint64_t start_microseconds;
 } HRAMacOSAttestedGateway;
 
+typedef enum {
+  HRA_MACOS_GATEWAY_GROUP_RETIREMENT_AMBIGUOUS = 0,
+  HRA_MACOS_GATEWAY_GROUP_RETIREMENT_PENDING = 1,
+  HRA_MACOS_GATEWAY_GROUP_RETIREMENT_QUIESCENT = 2,
+} HRAMacOSGatewayGroupRetirementState;
+
 /// Establishes the host thread's child-process lease policy before any child
 /// can be spawned. SIGCHLD must use its default disposition without
 /// SA_NOCLDWAIT and must be unblocked on the spawning thread so WNOWAIT keeps
@@ -23,6 +29,19 @@ bool hra_macos_establish_child_process_policy(void);
 /// Rechecks the established policy without overwriting a later incompatible
 /// SIGCHLD owner or thread mask.
 bool hra_macos_child_process_policy_is_exact(void);
+
+/// Observes one still-unreaped direct-child gateway after its process group
+/// has been signalled. Quiescence requires an exact terminal WNOWAIT lease for
+/// the leader and every remaining nonleader to be absent or a Darwin zombie.
+/// Enumeration, lease, or process-information ambiguity is reported
+/// separately so the host can fail closed instead of polling through it.
+HRAMacOSGatewayGroupRetirementState
+hra_macos_gateway_process_group_retirement_state(pid_t group_leader);
+
+/// Exact diagnostic for a retained direct child. A terminal WNOWAIT lease
+/// proves the child is an unreaped zombie while reserving its PID; every other
+/// observation returns false.
+bool hra_macos_gateway_retained_child_is_zombie(pid_t process_identifier);
 
 /// Uses Darwin POSIX_SPAWN_START_SUSPENDED, authenticates the post-exec image,
 /// stores its exact PID generation, and resumes it only after every static and

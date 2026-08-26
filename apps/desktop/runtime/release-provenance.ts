@@ -82,10 +82,14 @@ export const HRA_V0_C17_TIMEOUT_CAP_COMMIT =
 export const HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT =
   "14904f1fc60b254455b7089f32e9764d67fffd95" as const;
 
-/** Shallow depths that retain Q15 across the sequential Q16 and C19 fetches. */
+/** Canonical C19 Keychain custody transition immediately before C20. */
+export const HRA_V0_C19_CUSTODY_TRANSITION_COMMIT =
+  "aa613e86f874efa089a375231a9506e5934973f0" as const;
+
+/** Shallow depths that retain Q15 across the sequential Q16 and C20 fetches. */
 export const HRA_V0_PUBLICATION_SURFACE_FETCH_DEPTHS = Object.freeze({
-  surface: 7,
-  tag: 5,
+  surface: 8,
+  tag: 6,
 });
 
 const fullObjectIdPattern = /^[0-9a-f]{40}$/u;
@@ -146,9 +150,10 @@ export interface ReleaseHotfixCandidateLineageEvidence {
   readonly c16Commit: string;
   readonly c17Commit: string;
   readonly c18Commit: string;
+  readonly c19Commit: string;
   readonly candidateCommit: string;
   readonly q15Commit: string;
-  readonly status: "exact_q15_c16_c17_c18_c19_candidate_chain";
+  readonly status: "exact_q15_c16_c17_c18_c19_c20_candidate_chain";
 }
 
 /** A Q16 surface that is the sole direct child of exact publication P16. */
@@ -163,7 +168,7 @@ export interface CanonicalReleasePublicationEvidence {
   readonly tag: ReleaseTagEvidence;
 }
 
-/** Canonical remote evidence for the linear Q15/C16/C17/C18/C19/P16/Q16 topology. */
+/** Canonical remote evidence for the linear Q15/C16/C17/C18/C19/C20/P16/Q16 topology. */
 export interface CanonicalReleasePublicationSurfaceEvidence
   extends CanonicalReleasePublicationEvidence {
   readonly surface: ReleasePublicationSurfaceEvidence;
@@ -405,9 +410,9 @@ export async function resolveReleaseCandidateCommit(
 }
 
 /**
- * Find the unique C19 candidate on the linear path from exact C18 to HEAD.
+ * Find the unique C20 candidate on the linear path from exact C19 to HEAD.
  * HEAD may be the candidate or a later CI descendant. The fixed Q15-to-C16-to-
- * C17-to-C18 chain must remain exact, and the candidate must be C18's
+ * C17-to-C18-to-C19 chain must remain exact, and the candidate must be C19's
  * sole-parent child.
  */
 export async function resolveReleaseHotfixCandidateCommit(
@@ -416,6 +421,7 @@ export async function resolveReleaseHotfixCandidateCommit(
     expectedC16Commit?: string;
     expectedC17Commit?: string;
     expectedC18Commit?: string;
+    expectedC19Commit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<string> {
@@ -435,12 +441,17 @@ export async function resolveReleaseHotfixCandidateCommit(
     options.expectedC18Commit ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
     "HRA v0.1.16 C18 cold-custody timeout commit",
   );
+  const expectedC19Commit = requireObjectId(
+    options.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+    "HRA v0.1.16 C19 custody-transition commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
   );
-  await inspectReleaseC18LineageWithRunner(
+  await inspectReleaseC19LineageWithRunner(
     runner,
+    expectedC19Commit,
     expectedC18Commit,
     expectedC17Commit,
     expectedC16Commit,
@@ -449,42 +460,42 @@ export async function resolveReleaseHotfixCandidateCommit(
   let mergeBase: string;
   try {
     mergeBase = requireObjectId(
-      await runner.run(["merge-base", expectedC18Commit, repository.commit]),
-      "HRA v0.1.16 C18 merge base",
+      await runner.run(["merge-base", expectedC19Commit, repository.commit]),
+      "HRA v0.1.16 C19 merge base",
     );
   } catch {
     throw new Error(
-      "The HRA v0.1.16 C19 candidate must have exact C18 as its only direct parent.",
+      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
     );
   }
-  if (mergeBase !== expectedC18Commit) {
+  if (mergeBase !== expectedC19Commit) {
     throw new Error(
-      "The HRA v0.1.16 C19 candidate must have exact C18 as its only direct parent.",
+      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
     );
   }
   const historyOutput = (await runner.run([
     "rev-list",
     "--parents",
     "--ancestry-path",
-    `${expectedC18Commit}..${repository.commit}`,
+    `${expectedC19Commit}..${repository.commit}`,
   ])).trim();
-  const c18Children: string[] = [];
+  const c19Children: string[] = [];
   for (const line of historyOutput.length === 0 ? [] : historyOutput.split("\n")) {
     const objectIds = line.trim().split(/\s+/u);
     const commit = objectIds[0] ?? "";
     const parents = objectIds.slice(1);
-    if (parents.length === 1 && parents[0] === expectedC18Commit) {
-      c18Children.push(
-        requireObjectId(commit, "HRA v0.1.16 C19 candidate commit"),
+    if (parents.length === 1 && parents[0] === expectedC19Commit) {
+      c19Children.push(
+        requireObjectId(commit, "HRA v0.1.16 C20 candidate commit"),
       );
     }
   }
-  if (c18Children.length !== 1) {
+  if (c19Children.length !== 1) {
     throw new Error(
-      "The HRA v0.1.16 C19 candidate must have exact C18 as its only direct parent.",
+      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
     );
   }
-  return c18Children[0] ?? "";
+  return c19Children[0] ?? "";
 }
 
 export async function inspectReleaseHotfixCandidateLineage(
@@ -494,6 +505,7 @@ export async function inspectReleaseHotfixCandidateLineage(
     expectedC16Commit?: string;
     expectedC17Commit?: string;
     expectedC18Commit?: string;
+    expectedC19Commit?: string;
     expectedQ15Commit?: string;
   }> = {},
 ): Promise<ReleaseHotfixCandidateLineageEvidence> {
@@ -517,6 +529,10 @@ export async function inspectReleaseHotfixCandidateLineage(
     options.expectedC18Commit ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
     "HRA v0.1.16 C18 cold-custody timeout commit",
   );
+  const expectedC19Commit = requireObjectId(
+    options.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+    "HRA v0.1.16 C19 custody-transition commit",
+  );
   const runner = releaseGitRunner(
     repository.repositoryRoot,
     repository.gitDirectory,
@@ -524,6 +540,7 @@ export async function inspectReleaseHotfixCandidateLineage(
   return await inspectReleaseHotfixCandidateLineageWithRunner(
     runner,
     candidateCommit,
+    expectedC19Commit,
     expectedC18Commit,
     expectedC17Commit,
     expectedC16Commit,
@@ -614,9 +631,43 @@ async function inspectReleaseC18LineageWithRunner(
   );
 }
 
+async function inspectReleaseC19LineageWithRunner(
+  runner: ReleaseGitRunner,
+  expectedC19Commit: string,
+  expectedC18Commit: string,
+  expectedC17Commit: string,
+  expectedC16Commit: string,
+  expectedQ15Commit: string,
+): Promise<void> {
+  const ancestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    expectedC19Commit,
+  ])).trim().split(/\s+/u);
+  if (
+    ancestry.length !== 2
+    || ancestry[0] !== expectedC19Commit
+    || ancestry[1] !== expectedC18Commit
+  ) {
+    throw new Error(
+      "The HRA v0.1.16 C19 custody-transition commit must have exact C18 as its only direct parent.",
+    );
+  }
+  await inspectReleaseC18LineageWithRunner(
+    runner,
+    expectedC18Commit,
+    expectedC17Commit,
+    expectedC16Commit,
+    expectedQ15Commit,
+  );
+}
+
 async function inspectReleaseHotfixCandidateLineageWithRunner(
   runner: ReleaseGitRunner,
   candidateCommit: string,
+  expectedC19Commit: string,
   expectedC18Commit: string,
   expectedC17Commit: string,
   expectedC16Commit: string,
@@ -632,14 +683,15 @@ async function inspectReleaseHotfixCandidateLineageWithRunner(
   if (
     ancestry.length !== 2
     || ancestry[0] !== candidateCommit
-    || ancestry[1] !== expectedC18Commit
+    || ancestry[1] !== expectedC19Commit
   ) {
     throw new Error(
-      "The HRA v0.1.16 C19 candidate must have exact C18 as its only direct parent.",
+      "The HRA v0.1.16 C20 candidate must have exact C19 as its only direct parent.",
     );
   }
-  await inspectReleaseC18LineageWithRunner(
+  await inspectReleaseC19LineageWithRunner(
     runner,
+    expectedC19Commit,
     expectedC18Commit,
     expectedC17Commit,
     expectedC16Commit,
@@ -649,9 +701,10 @@ async function inspectReleaseHotfixCandidateLineageWithRunner(
     c16Commit: expectedC16Commit,
     c17Commit: expectedC17Commit,
     c18Commit: expectedC18Commit,
+    c19Commit: expectedC19Commit,
     candidateCommit,
     q15Commit: expectedQ15Commit,
-    status: "exact_q15_c16_c17_c18_c19_candidate_chain",
+    status: "exact_q15_c16_c17_c18_c19_c20_candidate_chain",
   });
 }
 
@@ -1700,7 +1753,7 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
 }
 
 /**
- * Fetch and verify the exact linear Q15/C16/C17/C18/C19/P16/Q16 publication
+ * Fetch and verify the exact linear Q15/C16/C17/C18/C19/C20/P16/Q16 publication
  * topology from the canonical HRA v0 repository without trusting a provider
  * checkout.
  */
@@ -1710,6 +1763,7 @@ export async function inspectCanonicalReleasePublicationSurface(
     expectedC16Commit?: string;
     expectedC17Commit?: string;
     expectedC18Commit?: string;
+    expectedC19Commit?: string;
     expectedQ15Commit?: string;
     publicationCommit: string;
     surfaceCommit: string;
@@ -1743,6 +1797,10 @@ export async function inspectCanonicalReleasePublicationSurface(
   const expectedC18Commit = requireObjectId(
     options.expectedC18Commit ?? HRA_V0_C18_COLD_CUSTODY_TIMEOUT_COMMIT,
     "HRA v0.1.16 C18 cold-custody timeout commit",
+  );
+  const expectedC19Commit = requireObjectId(
+    options.expectedC19Commit ?? HRA_V0_C19_CUSTODY_TRANSITION_COMMIT,
+    "HRA v0.1.16 C19 custody-transition commit",
   );
   if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options.tag)) {
     throw new Error("Release tag is invalid.");
@@ -1796,6 +1854,7 @@ export async function inspectCanonicalReleasePublicationSurface(
     await inspectReleaseHotfixCandidateLineageWithRunner(
       runner,
       candidateCommit,
+      expectedC19Commit,
       expectedC18Commit,
       expectedC17Commit,
       expectedC16Commit,
