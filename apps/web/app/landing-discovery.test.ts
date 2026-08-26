@@ -16,7 +16,13 @@ import OpenGraphImage from "./opengraph-image";
 import { metadata as homepageMetadata } from "./page";
 import { metadata as privacyMetadata } from "./privacy/page";
 import { metadata as readingMetadata } from "./reading/headlong-always-on-loop/page";
-import { HRA_HEADLONG_READING_PATH, HRA_HEADLONG_READING_TITLE } from "./reading";
+import { metadata as tuiReadingMetadata } from "./reading/not-a-codex-tui/page";
+import {
+  HRA_HEADLONG_READING_PATH,
+  HRA_HEADLONG_READING_TITLE,
+  HRA_NOT_A_CODEX_TUI_READING_PATH,
+  HRA_NOT_A_CODEX_TUI_READING_TITLE,
+} from "./reading";
 import { HRA_LLMS_TXT } from "./public-markdown";
 import robots from "./robots";
 import {
@@ -119,6 +125,19 @@ describe("HRA public discovery contract", () => {
     );
     expect(readingMetadata.openGraph?.title).toBe(`${HRA_HEADLONG_READING_TITLE} · HRA v0`);
     expect(readingMetadata.twitter?.title).toBe(`${HRA_HEADLONG_READING_TITLE} · HRA v0`);
+    expect(tuiReadingMetadata.title).toEqual({
+      default: HRA_NOT_A_CODEX_TUI_READING_TITLE,
+      template: "%s · HRA v0",
+    });
+    expect(tuiReadingMetadata.alternates?.canonical).toBe(
+      `https://hra-weld.vercel.app${HRA_NOT_A_CODEX_TUI_READING_PATH}`,
+    );
+    expect(tuiReadingMetadata.openGraph?.title).toBe(
+      `${HRA_NOT_A_CODEX_TUI_READING_TITLE} · HRA v0`,
+    );
+    expect(tuiReadingMetadata.twitter?.title).toBe(
+      `${HRA_NOT_A_CODEX_TUI_READING_TITLE} · HRA v0`,
+    );
   });
 
   test("keeps comparison titles aligned with Open Graph titles", async () => {
@@ -201,6 +220,11 @@ describe("HRA public discovery contract", () => {
         changeFrequency: "monthly",
         priority: 0.6,
         url: `https://hra-weld.vercel.app${HRA_HEADLONG_READING_PATH}`,
+      },
+      {
+        changeFrequency: "monthly",
+        priority: 0.6,
+        url: `https://hra-weld.vercel.app${HRA_NOT_A_CODEX_TUI_READING_PATH}`,
       },
       ...hraComparisons.map(({ slug }) => ({
         changeFrequency: "monthly" as const,

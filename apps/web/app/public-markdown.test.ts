@@ -7,6 +7,7 @@ import {
   createDownloadMarkdown,
   createHeadlongReadingMarkdown,
   createLandingMarkdown,
+  createNotACodexTuiReadingMarkdown,
   createNotFoundMarkdown,
   createPrivacyMarkdown,
   createReleaseHistoryMarkdown,
@@ -17,7 +18,12 @@ import {
   publicDocumentMarkdown,
   resolvePublicDiscovery,
 } from "./public-markdown";
-import { HRA_HEADLONG_READING_PATH, HRA_HEADLONG_READING_TITLE } from "./reading";
+import {
+  HRA_HEADLONG_READING_PATH,
+  HRA_HEADLONG_READING_TITLE,
+  HRA_NOT_A_CODEX_TUI_READING_PATH,
+  HRA_NOT_A_CODEX_TUI_READING_TITLE,
+} from "./reading";
 import { HRA_RELEASE, hraSearchSite } from "./site";
 
 describe("HRA public markdown representations", () => {
@@ -37,6 +43,7 @@ describe("HRA public markdown representations", () => {
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/.well-known/hra.json");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/alternatives");
     expect(HRA_LLMS_TXT).toContain(`https://hra-weld.vercel.app${HRA_HEADLONG_READING_PATH}`);
+    expect(HRA_LLMS_TXT).toContain(`https://hra-weld.vercel.app${HRA_NOT_A_CODEX_TUI_READING_PATH}`);
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/llms.txt");
     expect(HRA_LLMS_TXT).toContain("https://hra-weld.vercel.app/sitemap.xml");
     for (const comparison of hraComparisons) {
@@ -53,6 +60,7 @@ describe("HRA public markdown representations", () => {
     expect(markdown).toContain("A provider limit ends the affected turn.");
     expect(markdown).toContain("https://hra-weld.vercel.app/llms.txt");
     expect(markdown).toContain("https://hra-weld.vercel.app/sitemap.xml");
+    expect(markdown).toContain(`https://hra-weld.vercel.app${HRA_NOT_A_CODEX_TUI_READING_PATH}`);
   });
 
   test("keeps download markdown honest about the current release contract", () => {
@@ -104,6 +112,17 @@ describe("HRA public markdown representations", () => {
     expect(publicDocumentMarkdown("/reading/missing")).toBeNull();
   });
 
+  test("serves the not-a-Codex-TUI reading take as a complete Markdown document", () => {
+    const markdown = createNotACodexTuiReadingMarkdown();
+    expect(markdown).toContain(`# ${HRA_NOT_A_CODEX_TUI_READING_TITLE}.`);
+    expect(markdown).toContain("A metaharness is not ASCII chrome");
+    expect(markdown).toContain("https://sockpuppet.org/blog/2026/08/20/stop-making-tuis/");
+    expect(markdown).toContain("https://hraness.com/reading/stop-making-tuis");
+    expect(markdown).toContain("https://hraness.com/writing/what-is-an-agent-harness");
+    expect(markdown).toContain(`https://hra-weld.vercel.app${HRA_HEADLONG_READING_PATH}`);
+    expect(publicDocumentMarkdown(`${HRA_NOT_A_CODEX_TUI_READING_PATH}/`)).toBe(markdown);
+  });
+
   test("serves the privacy boundary as a complete Markdown document", () => {
     const markdown = createPrivacyMarkdown();
     expect(markdown).toContain("# Privacy at the HRA v0 archive");
@@ -136,6 +155,7 @@ describe("HRA public discovery decisions", () => {
     expect(isPublicHtmlDocumentPath("/privacy/")).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/codex-app")).toBeTrue();
     expect(isPublicHtmlDocumentPath(`${HRA_HEADLONG_READING_PATH}/`)).toBeTrue();
+    expect(isPublicHtmlDocumentPath(`${HRA_NOT_A_CODEX_TUI_READING_PATH}/`)).toBeTrue();
     expect(isPublicHtmlDocumentPath("/alternatives/missing")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/reading")).toBeFalse();
     expect(isPublicHtmlDocumentPath("/reading/missing")).toBeFalse();
