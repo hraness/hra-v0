@@ -121,7 +121,7 @@ describe("HRA v0 not-a-Codex-TUI reading take", () => {
     expect(copy).toContain(HRA_PTACEK_TUI_ORIGINAL_SOURCE);
     expect(copy).toContain(HRA_PTACEK_TUI_READING_SOURCE);
     expect(copy).toContain(HRA_HARNESS_WRITING_SOURCE);
-    expect(copy).toContain(HRA_HEADLONG_READING_PATH);
+    expect(copy).toContain("HRA_HEADLONG_READING_PATH");
     expect(copy).toContain(HRA_DIRECT_SOURCE);
     expect(copy).toContain("We build terminal interfaces because we have to");
     expect(copy).toContain("A metaharness is not ASCII chrome");
