@@ -83,10 +83,12 @@ HRA v0.1.16 build 17 is a native compatibility correction candidate. Its null
 download contract exposes no artifact URL. Compatibility commit C16
 `4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb` must be Q15
 `443448b79e9016e00d52501f047fce3a408de092`'s single-parent direct child, and
-the final C17 candidate must be C16's single-parent direct child. After local
-production packaging and exact installed-state acceptance, the annotated
-`v0.1.16` tag must point directly to C17 and publication P16 must be C17's
-exact `release-download.json`-only child. Until those immutable remote
+native timeout-cap commit C17
+`112175bfdbcd6be0e3cca7ed43dd57e79453c00a` must be C16's single-parent direct
+child. The final C18 candidate must be C17's single-parent direct child. After
+local production packaging and exact installed-state acceptance, the annotated
+`v0.1.16` tag must point directly to C18 and publication P16 must be C18's exact
+`release-download.json`-only child. Until those immutable remote
 records exist and Q16 promotes generation 2, the checked history,
 `/.well-known/hra.json`, and provider allowlists remain the generation-1
 v0.1.15/Q15 authorities below.

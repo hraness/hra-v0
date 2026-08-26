@@ -288,6 +288,106 @@ describe("Harness key enrollment", () => {
     expect(migrateCalls).toBe(1);
   });
 
+  test("committed prepared ACL reconciles after the immediate final inspect fails", async () => {
+    const controlPlanePath = await emptyControlPlanePath();
+    const value = fixtureEnvelope(15);
+    const prepared = await writePrepared(controlPlanePath, value);
+    if (prepared.sidecar.phase !== "prepared") throw new Error("expected prepared");
+    const sidecarPath = harnessKeyEnrollmentSidecarPath(controlPlanePath);
+    const preparedBytes = await readFile(sidecarPath);
+    const authorizationBefore = JSON.stringify(prepared.sidecar.authorization);
+    const expectedDigest = prepared.sidecar.attempt.envelopeSha256;
+    const baseJsonBefore = JSON.stringify({
+      ...prepared.sidecar,
+      phase: undefined,
+    });
+    const events: string[] = [];
+    let inspectCalls = 0;
+    let strict = false;
+    let validateCalls = 0;
+    let migrateCalls = 0;
+    const keychain: HarnessKeyEnrollmentKeychain = {
+      inspectExactNoUi: () => {
+        events.push("inspect");
+        inspectCalls += 1;
+        if (inspectCalls === 1) {
+          return Promise.reject(new Error("old ACL requires interaction"));
+        }
+        if (inspectCalls === 2) {
+          return Promise.reject(
+            new Error("status timed out after committed ACL migration"),
+          );
+        }
+        if (!strict) {
+          return Promise.reject(new Error("strict ACL was not committed"));
+        }
+        return Promise.resolve({
+          state: "present" as const,
+          envelope: value,
+          strictAcl: true as const,
+        });
+      },
+      validatePreparedAcl: (digest) => {
+        events.push("validate");
+        validateCalls += 1;
+        expect(digest).toBe(expectedDigest);
+        return Promise.resolve({ envelopeSha256: digest, validated: true });
+      },
+      migratePreparedAcl: (digest) => {
+        events.push("migrate");
+        migrateCalls += 1;
+        expect(digest).toBe(expectedDigest);
+        strict = true;
+        return Promise.resolve({ envelopeSha256: digest, strictAcl: true });
+      },
+      createExactIfAbsentNoUi: () =>
+        Promise.reject(new Error("prepared migration must not create custody")),
+    };
+
+    let firstFailure: unknown;
+    try {
+      await ensureHarnessKeyEnrollment({
+        allowFreshAuthorization: false,
+        controlPlanePath,
+        keychain,
+      });
+    } catch (error) {
+      firstFailure = error;
+    }
+    expect(firstFailure).toMatchObject({ code: "custody_unavailable" });
+    expect(await readFile(sidecarPath)).toEqual(preparedBytes);
+    expect(await readHarnessKeyEnrollmentSidecar(controlPlanePath))
+      .toEqual(prepared);
+    expect(events).toEqual(["inspect", "validate", "migrate", "inspect"]);
+
+    const enrolled = await ensureHarnessKeyEnrollment({
+      allowFreshAuthorization: false,
+      controlPlanePath,
+      keychain,
+    });
+
+    expect(enrolled.sidecar.phase).toBe("enrolled");
+    expect(events).toEqual([
+      "inspect",
+      "validate",
+      "migrate",
+      "inspect",
+      "inspect",
+    ]);
+    expect(validateCalls).toBe(1);
+    expect(migrateCalls).toBe(1);
+    expect(JSON.stringify(enrolled.sidecar.authorization)).toBe(
+      authorizationBefore,
+    );
+    expect(enrolled.sidecar.phase === "enrolled"
+      ? enrolled.sidecar.attempt.envelopeSha256
+      : null).toBe(expectedDigest);
+    expect(JSON.stringify({
+      ...enrolled.sidecar,
+      phase: undefined,
+    })).toBe(baseJsonBefore);
+  });
+
   test("prepared ACL migration fails closed on sidecar drift at every CAS boundary", async () => {
     for (const cut of [
       "beforeValidate",

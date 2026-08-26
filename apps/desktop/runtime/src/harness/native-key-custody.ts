@@ -309,9 +309,13 @@ export function nativeHarnessCustodyFailureLegacySubstage(
 }
 
 const defaultTimeoutMs = 55_000;
+// deleteBoth owns three sequential signed helpers: delete, absence readback,
+// and marker cleanup. Its reporter stays outside their aggregate Native fence.
+const defaultDeleteTimeoutMs = 165_000;
 const defaultMigrationTimeoutMs = 300_000;
 const maximumTimeoutMs = 60_000;
 const maximumNativeDeadlineMs = 50_000;
+const maximumDeleteNativeDeadlineMs = 150_000;
 const maximumMigrationNativeDeadlineMs = 270_000;
 
 /**
@@ -325,6 +329,8 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
   readonly #writeRequest: NativeHarnessCustodyRequestWriter;
   readonly #timeoutMs: number;
   readonly #nativeDeadlineMs: number;
+  readonly #deleteTimeoutMs: number;
+  readonly #deleteNativeDeadlineMs: number;
   readonly #migrationTimeoutMs: number;
   readonly #migrationNativeDeadlineMs: number;
   readonly #pending = new Map<string, PendingNativeHarnessCustodyOperation>();
@@ -342,6 +348,9 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
       throw new HarnessKeyCustodyError("custody_unavailable");
     }
     this.#timeoutMs = timeoutMs;
+    this.#deleteTimeoutMs = options.timeoutMs === undefined
+      ? defaultDeleteTimeoutMs
+      : timeoutMs;
     this.#migrationTimeoutMs = options.timeoutMs === undefined
       ? defaultMigrationTimeoutMs
       : timeoutMs;
@@ -352,6 +361,14 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
     this.#nativeDeadlineMs = Math.min(
       maximumNativeDeadlineMs,
       timeoutMs - reporterGraceMs,
+    );
+    const deleteReporterGraceMs = Math.min(
+      15_000,
+      Math.max(1, Math.floor(this.#deleteTimeoutMs / 10)),
+    );
+    this.#deleteNativeDeadlineMs = Math.min(
+      maximumDeleteNativeDeadlineMs,
+      this.#deleteTimeoutMs - deleteReporterGraceMs,
     );
     const migrationReporterGraceMs = Math.min(
       30_000,
@@ -611,15 +628,23 @@ export class NativeHarnessKeyCustody implements HarnessSecretStore {
     const binding = `binding_${randomBytes(24).toString("hex")}`;
     const isPreparedMigration = action === "migratePreparedAcl"
       || action === "validatePreparedAcl";
-    const deadlineUnixMilliseconds = Date.now() +
-      (isPreparedMigration
-        ? this.#migrationNativeDeadlineMs
-        : this.#nativeDeadlineMs);
+    const isAuthenticatedDelete = action === "deleteBoth";
+    const nativeDeadlineMs = isPreparedMigration
+      ? this.#migrationNativeDeadlineMs
+      : isAuthenticatedDelete
+      ? this.#deleteNativeDeadlineMs
+      : this.#nativeDeadlineMs;
+    const reporterTimeoutMs = isPreparedMigration
+      ? this.#migrationTimeoutMs
+      : isAuthenticatedDelete
+      ? this.#deleteTimeoutMs
+      : this.#timeoutMs;
+    const deadlineUnixMilliseconds = Date.now() + nativeDeadlineMs;
     const result = new Promise<NativeHarnessCustodyResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
         reject(new HarnessKeyCustodyError("custody_unavailable"));
-      }, isPreparedMigration ? this.#migrationTimeoutMs : this.#timeoutMs);
+      }, reporterTimeoutMs);
       this.#pending.set(id, { action, binding, resolve, reject, timer });
     });
     const request: NativeHarnessCustodyRequestEnvelope = {

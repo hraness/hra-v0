@@ -106,8 +106,10 @@ publication P15 is `d96173c3556799cb203a4d659f29856180838029`.
 Reviewed archive surface Q15 is
 `443448b79e9016e00d52501f047fce3a408de092`. Compatibility commit C16 is
 `4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb`, Q15's single-parent direct
-child. The final C17 candidate and annotated `v0.1.16` tag must descend through
-one exact C16-to-C17 edge. P16 is C17's contract-only child, followed by the
+child. Native timeout-cap commit C17 is
+`112175bfdbcd6be0e3cca7ed43dd57e79453c00a`, C16's single-parent direct
+child. The final C18 candidate and annotated `v0.1.16` tag must descend through
+one exact C17-to-C18 edge. P16 is C18's contract-only child, followed by the
 single Q16 archive surface.
 
 ## Develop HRA v0

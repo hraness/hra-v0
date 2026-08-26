@@ -90,6 +90,7 @@ type FakeOptions = Readonly<{
   restore?: boolean;
   spawnProcessIdentifier?: number;
   stderr?: string;
+  terminalAtMilliseconds?: number;
   timeout?: boolean;
   waitLeaseLoss?: boolean;
   waitLeaseLossAfterRecoverable?: boolean;
@@ -323,7 +324,10 @@ class FakeResidentNative implements MacOSResidentCustodyProbeNative {
 
   private terminalReady(): boolean {
     return (this.killed && this.options.cleanupStall !== true)
-      || (this.admitted && this.options.timeout !== true);
+      || (this.admitted
+        && this.options.timeout !== true
+        && (this.options.terminalAtMilliseconds === undefined
+          || this.now >= this.options.terminalAtMilliseconds));
   }
 }
 
@@ -472,13 +476,45 @@ describe("resident candidate-owned custody supervisor", () => {
   test("times out synchronously, signals the exact group once, then reaps", () => {
     withCandidate(fixture => {
       const native = new FakeResidentNative({ timeout: true });
-      expect(() => runMacOSResidentCustodyProbe({
+      let failure: unknown;
+      try {
+        runMacOSResidentCustodyProbe({
+          authority: fixture.authority,
+          candidateApp: fixture.app,
+          mode: "status",
+        }, dependencies(native));
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(MacOSResidentCustodyProbeError);
+      expect(failure).toMatchObject({
+        code: "probe_failed",
+        leaseLost: false,
+        permanent: false,
+        processTerminal: false,
+      });
+      expect((failure as Error).message).toContain("bounded operation interval");
+      expect(native.gateWrites).toBe(1);
+      expectContained(native);
+    });
+  });
+
+  test("allows a valid nested operation past the former outer deadline", () => {
+    withCandidate(fixture => {
+      const native = new FakeResidentNative({
+        output: presentStatus,
+        terminalAtMilliseconds: 75_000,
+      });
+      const result = runMacOSResidentCustodyProbe({
         authority: fixture.authority,
         candidateApp: fixture.app,
         mode: "status",
-      }, dependencies(native))).toThrow("bounded operation interval");
-      expect(native.gateWrites).toBe(1);
-      expectContained(native);
+      }, dependencies(native));
+      expect(result.stdout).toBe(presentStatus);
+      expect(native.now).toBeGreaterThanOrEqual(75_000);
+      expect(native.killCalls).toBe(0);
+      expect(native.reapCalls).toBe(1);
+      expect(native.restoreCalls).toBe(1);
     });
   });
 

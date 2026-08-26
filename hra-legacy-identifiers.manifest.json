@@ -1192,7 +1192,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "07c6a0e3c7fd96233053f16b0db182724279eecdbf21a5bbffd188e9fae6cc83",
+      "matchingLinesSha256": "9a2c8c3ce3639bf3491006a2ca625b88ce3c70271fbc7f1b1aceb2bcf13195c7",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1312,7 +1312,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "f59cd57cb4014637deb091270a4de80d06c7a998ed544465ab331e5b646b38bc",
+      "matchingLinesSha256": "0cf6c5c32e4680088328b56364eb64b8d58c2cf465965c4c4343a41fcd78b3af",
       "occurrences": {
         "kitchen": 5,
         "operateStylized": 0,
@@ -1332,7 +1332,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "d6f5253afb0b342e36025a8bcbc01784fd2c1669544c5c823236401eaf333403",
+      "matchingLinesSha256": "d34ca9c85e53bd6ffb521da64406c413d5c66df0876048089939c323fe43bbcc",
       "occurrences": {
         "kitchen": 0,
         "operateStylized": 0,
@@ -1732,7 +1732,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "2c6b9d0bc1d9063fc082afbed8b23b2670b96742022da74e47867f3a9cb09d12",
+      "matchingLinesSha256": "13ea81423adfb2881f419d8592095544970bdd0653bcbd227c082961e05c847d",
       "occurrences": {
         "kitchen": 2,
         "operateStylized": 0,
@@ -2092,7 +2092,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "4ca722a060ad73c5a3003c5a3251a3d10fcd0dd9494cfef773f11493907d439c",
+      "matchingLinesSha256": "bbb8f437762d0d7dfabdc90359194a79161a82a2db4d7a58ac0a472c81c95b42",
       "occurrences": {
         "kitchen": 8,
         "operateStylized": 0,
@@ -2112,7 +2112,7 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "8825df615f56c6c7215ae7cf1ba9ea05c7f5a3ed88233172e9fb1b372182397d",
+      "matchingLinesSha256": "3ca82dfee6f96aa9ebffd2b0f127f57175ed5b2350f3543269e31610285aeb1d",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
