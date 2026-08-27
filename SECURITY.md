@@ -1,34 +1,19 @@
 # HRA v0 security policy
 
-## Report a vulnerability
+## Archive status
 
-Report suspected vulnerabilities through [GitHub private vulnerability
-reporting](https://github.com/hraness/hra-v0/security/advisories/new). Do not put
-an exploit, secret, personal data, or other sensitive detail in a public issue
-or discussion.
-
-Include the affected commit or version, the component and configuration, steps
-to reproduce the problem, its likely impact, and any known mitigation. Use
-placeholder credentials and remove local paths, account identifiers, and
-personal data from screenshots or logs.
-
-If private vulnerability reporting is unavailable, open a public issue that
-asks a maintainer to establish a private contact channel. Do not include
-vulnerability details in that issue.
+HRA v0 ended at v0.1.16 build 17. No HRA v0 release is maintained or
+supported, and the hosted Vercel and Convex services were retired on August
+27, 2026. This repository receives no security fixes.
 
 ## Supported versions
 
-HRA v0 is archived at v0.1.14. Maintainers assess reports against the archived
-`main` branch and state any available mitigation in the advisory. No new
-feature release or automatic update channel is promised. Reports about the
-current HRA belong in the separate
-[current repository](https://github.com/hraness/hra).
+No HRA v0 version is supported. Reports that affect the current HRA CLI belong
+in the separate [current repository](https://github.com/hraness/hra). Do not
+assume a report against this archived desktop or web code applies to the
+current CLI.
 
 ## Disclosure
 
-Please allow maintainers time to investigate, reproduce, and prepare a fix
-before public disclosure. Maintainers will coordinate disclosure through the
-private advisory when the report is accepted.
-
-The product trust boundaries and known limits are documented in
+The retired product trust boundaries and known limits are documented in
 [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md).

@@ -14,6 +14,7 @@
 
 # Guidelines
 
+- Treat this repository as a read-only historical archive. Its Vercel and Convex resources were retired on August 27, 2026. Never deploy, recreate, or reconnect HRA v0 provider resources from this source.
 - Treat this directory as the complete HRA Bun workspace. Every source dependency must resolve from this repository, the checked lockfile, or a named public upstream.
 - Follow `WRITING.md` for internal prose and `STYLE.md` for public prose, preserving facts, exact terms, literals, quotations, links, and necessary uncertainty. State compatibility and affiliation accurately, and keep operational credentials, provider mutation, and signing custody out of this repository.
 - Apply unreasonably robust programming when agent work is cheap. Prefer coherent cross-file correctness and focused deterministic evidence while treating production risk, provider coordination, rollout, and observation as real costs.

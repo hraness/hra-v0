@@ -1,28 +1,30 @@
-# HRA v0
-
-[![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)
+# HRA v0 (archived)
 
 > [!IMPORTANT]
-> This repository preserves HRA v0. Its generation-2 release ledger ends at the
-> immutable v0.1.16 build 17 native compatibility release. The current HRA is
-> at [hra.sh](https://hra.sh) with
-> source at [github.com/hraness/hra](https://github.com/hraness/hra).
+> HRA v0 was the retired desktop and hosted-web generation of HRA. This
+> repository is retained as a read-only historical archive. Its Vercel site
+> and Convex backend were shut down on August 27, 2026. Do not deploy or
+> install HRA v0.
+>
+> The current HRA is a CLI maintained at
+> [github.com/hraness/hra](https://github.com/hraness/hra), with documentation
+> at [hra.sh](https://hra.sh).
 
-**The original metaharness for Codex.** HRA v0 turns the Codex accounts you already use into
+The source, tags, GitHub prereleases, checksums, and release assets remain
+available only as historical reference. v0.1.16 build 17 was the final HRA v0
+release.
+
+**The original metaharness for Codex.** HRA v0 turned the Codex accounts its users already had into
 one durable system for planning work, delegating it, running it in parallel,
 and bringing it back for review.
 
-[Download for macOS](https://hra-weld.vercel.app/download) · [Release history](https://hra-weld.vercel.app/releases) · [Website](https://hra-weld.vercel.app) ·
-[Historical comparisons](https://hra-weld.vercel.app/alternatives) · [Current HRA](https://hra.sh)
+[Historical GitHub releases](https://github.com/hraness/hra-v0/releases) · [Current HRA](https://hra.sh)
 
-> The checked release contract publishes HRA 0.1.16 build 17 for Apple Silicon
-> Macs. The download page exposes only the exact source commit, annotated tag,
-> runtime tree, manifest, checksum, and artifact hashes recorded by the
-> contract. The outer
-> app, native host, and custody-authorizing helpers use HRA's self-managed
-> certificate chain. Other HRA-owned nested executables, including the exact
-> runtime/JIT gateway, retain pinned ad-hoc signatures. The package is not Developer ID
-> signed or notarized.
+> The final checked release contract recorded HRA 0.1.16 build 17 for Apple
+> Silicon Macs. Its outer app, native host, and custody-authorizing helpers used
+> HRA's self-managed certificate chain. Other HRA-owned nested executables,
+> including the runtime/JIT gateway, retained pinned ad-hoc signatures. The
+> package was not Developer ID signed or notarized and is no longer supported.
 
 ## Why HRA exists
 
@@ -59,9 +61,8 @@ worktree manager may be a better fit when model choice or workspace isolation
 is the main problem, and a remote client may be better when the main job is
 checking an agent from your phone.
 
-The [comparison pages](https://hra-weld.vercel.app/alternatives) explain those tradeoffs
-using current first-party sources, including Codex app, OpenCode Desktop,
-Paseo, Conductor, Superset, OpenChamber, and Happy Coder.
+The archived source includes comparison pages that recorded those tradeoffs
+using first-party sources available at the time.
 
 ## How it works
 
@@ -84,79 +85,28 @@ one outcome
 See [Security architecture](SECURITY_ARCHITECTURE.md) for the complete trust
 and data boundary.
 
-## Install the prerelease
+## Historical release artifacts
 
-The native app targets Apple Silicon and macOS 13 or newer. The
-[download page](https://hra-weld.vercel.app/download) publishes the exact HRA
-v0.1.16 build 17 DMG, checksum, and manifest. Verify the SHA-256 and follow the
-unknown-developer instructions before installing it.
+The [GitHub Releases archive](https://github.com/hraness/hra-v0/releases)
+retains tags v0.1.7 through v0.1.16 and the associated historical assets.
+v0.1.11 remains tag-only. These packages are unsupported and are preserved for
+provenance and compatibility research. Do not install or redistribute them as
+a current HRA release.
 
-The generation-2 [release history](https://hra-weld.vercel.app/releases)
-records every tag from v0.1.7 through v0.1.16, all nine immutable GitHub
-prereleases, and all 63 assets with their exact byte counts, SHA-256 digests,
-and archive download links. v0.1.11 remains tag-only. Candidate C21 is
-`2947402efe6363bf3bb41aef55c70a2823580c68`; annotated tag object
-`188d8638b8d0cdf7ccaa73e2a0b07a2814f3782a` points directly to it. Publication
-P16 `67e89e7909a56f5bfad1e16bb73801c9cd41503e` and independently accepted U16
-`ce00d829f2097c071766b30cbcb4400e0a4c6be8` are C21's direct children.
-Integration bridge M16 `f5e46ed6c27bcf96c4b13821398a53813505c297`
-has ordered parents `[P16, U16]` and preserves P16's published download contract
-byte for byte. Q16 is M16's single direct archive-surface child and promotes
-the generation-2 ledger without changing that contract.
-
-## Develop HRA v0
-
-Repository development uses Bun 1.3.14 and Node.js 24. Native work additionally
-requires Zig 0.16.0, Xcode Command Line Tools, and an Apple Silicon Mac.
-
-```sh
-bun install --frozen-lockfile
-bun hra
-```
-
-Start the web control plane and its Convex development process with:
-
-```sh
-bun run web:hra
-```
-
-The web workspace needs a local Convex project before its first run. See the
-[web guide](apps/web/README.md), [desktop guide](apps/desktop/README.md), and
-[`taskctl` guide](apps/cli/README.md) for setup and architecture details.
-
-## Verify a change
-
-```sh
-bun run check
-bun run check:complete
-```
-
-On a supported Mac, also run:
-
-```sh
-bun run --cwd apps/desktop test:macos
-bun run --cwd apps/desktop build:macos
-bun run --cwd apps/desktop package:macos:structural
-```
-
-The structural package command uses an isolated ephemeral CMS identity and
-places its signed result under `apps/desktop/zig-out/structural`. It does not
-create a release DMG and cannot satisfy a production release gate. The
-production command, signing-custody requirements, and corresponding-source
-artifacts are documented in the
-[desktop guide](apps/desktop/README.md#verification).
+The checked source retains the final release ledger, artifact hashes, and
+architecture documentation. Provider-bound instructions and identifiers in
+the source describe the retired system. They are not deployment instructions.
 
 ## Project and license
 
-HRA v0 is archived. Security reports and narrowly scoped archival corrections
-remain welcome, but feature development continues in the separate
-[current HRA repository](https://github.com/hraness/hra). HRA v0 is an independent project and is not
+HRA v0 is read-only and receives no fixes, releases, or operational support.
+Development continues in the separate
+[current HRA repository](https://github.com/hraness/hra). HRA v0 was an independent project and was not
 affiliated with, endorsed by, or sponsored by OpenAI. “OpenAI” and “Codex” are
 used only to identify the product HRA interoperates with.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report a
-suspected vulnerability through [SECURITY.md](SECURITY.md), not a public issue.
-HRA-authored source is licensed under [Apache License 2.0](LICENSE). Bundled and
-vendored components retain their own terms in
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) for the
+archive status. HRA-authored source is licensed under
+[Apache License 2.0](LICENSE). Bundled and vendored components retain their own terms in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). See
 [TRADEMARKS.md](TRADEMARKS.md) for mark use.

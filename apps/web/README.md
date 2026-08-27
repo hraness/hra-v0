@@ -1,9 +1,16 @@
 # HRA v0 web control plane
 
-This archived workspace owns HRA v0's Convex task backend and human control
-plane. `taskctl` consumes its versioned HTTP API from the sibling CLI
-workspace. The canonical HRA v0 origin is `https://hra-weld.vercel.app`. The
-current HRA lives at `https://hra.sh` in `https://github.com/hraness/hra`.
+> [!IMPORTANT]
+> This workspace is historical source. The HRA v0 Vercel site and Convex
+> backend were permanently retired on August 27, 2026. Their credentials and
+> hosted data are gone. Do not deploy this workspace or recreate its provider
+> resources.
+
+This archived workspace implemented HRA v0's Convex task backend and human
+control plane. `taskctl` consumed its versioned HTTP API from the sibling CLI
+workspace. Its former canonical origin was `https://hra-weld.vercel.app`. The
+current HRA is a CLI maintained at `https://github.com/hraness/hra`, with
+documentation at `https://hra.sh`.
 
 The task workspace also owns desktop-runner presence and dispatch. A task created from the web surface is committed atomically with its queued run only when a non-expired HRA gateway advertises the selected repository and free capacity. The browser subscribes to server-authenticated readiness and a bounded public display stream: reasoning summaries, assistant messages, content-free tool activity, and lifecycle state. It never connects directly to a desktop app and never receives raw reasoning, tool details, local paths, command output, or Codex credentials.
 
@@ -54,30 +61,34 @@ Configure `WORKOS_WEBHOOK_SECRET` in the Convex deployment and send WorkOS webho
 
 Two leased, paginated Convex jobs run every 15 minutes. One rechecks projected membership IDs, including provider-side deletion; the other enumerates active, inactive, and pending provider memberships for every projected WorkOS organization so a missed create webhook is recoverable. Bounded runs schedule immediate cursor-based continuations instead of waiting for the next interval. Provider calls remain in actions, and projection writes remain in transactions.
 
-The workspace serves the canonical `hra-weld.vercel.app` origin. Local `bun run build`
-compiles the application without provider mutation. Vercel uses the separate
-checked build entry in `vercel.json`: only its exact Production target may
-deploy Convex functions to `benevolent-akita-439`. A generated Preview skips
-Convex deployment and builds an anonymous app-only client of the exact
-`benevolent-akita-439.convex.cloud` and `benevolent-akita-439.convex.site`
-public endpoints. Custom staging and every unrecognized provider target fail
-closed. The Next.js configuration binds every verified Vercel deployment to
-the registered `hra-v0` project and exact Git object through
-`X-Hraness-Delivery-Proof`. It preserves HRA v0's security and private-cache
-headers, and adds `X-Robots-Tag: noindex, nofollow, noarchive` to generated
-Preview responses. Session sync remains fail-closed while
-`HRA_SESSION_SYNC_ENABLED` is absent or `false`; the unchanged
-`OPRTE_SESSION_SYNC_ENABLED` value remains a fallback, and conflicting names
-fail closed. Enable it only after the
-exact WorkOS application, Convex environment, desktop public coordinates, and
-production HTTP route readbacks pass for the same source revision.
+The historical workspace served `hra-weld.vercel.app`. Its checked
+`vercel.json` entry could deploy Convex functions only to
+`benevolent-akita-439`, while Preview builds were app-only clients of the same
+public endpoints. The Vercel project, Convex project, deployment, URLs, data,
+environment values, and deploy key have now been deleted. The configuration
+remains in source to document the retired delivery boundary and must not be
+executed against a provider.
 
-## Archived production continuity
+## Provider retirement
 
-HRA v0 stays available at `https://hra-weld.vercel.app` while current HRA uses
-`https://hra.sh`. Keep the old deployment, data, credentials, storage
-identifiers, release assets, and runtime protocol identities in place. Do not
-copy any of them into current HRA.
+The Vercel project `hra-v0` and its `hra-weld.vercel.app` alias were removed on
+August 27, 2026. Convex project `2680173`, deployment
+`benevolent-akita-439`, its hosted data, environment values, and deploy key
+were permanently deleted the same day. The separate current HRA project,
+deployment, and `hra.sh` domain were not changed.
+
+GitHub source, tags, prereleases, checksums, and release assets remain as
+historical evidence. Provider identifiers in this repository are tombstones
+that distinguish the retired system from current HRA. Do not recreate or reuse
+them.
+
+## Pre-retirement continuity record (superseded)
+
+> [!WARNING]
+> The remainder of this section records the state and release procedure before
+> provider retirement. It is retained for provenance only. Instructions to
+> keep, preserve, rename, deploy, or configure provider resources are
+> superseded and must not be executed.
 
 HRA v0.1.16 build 17 is the final native compatibility release. Candidate C21
 `2947402efe6363bf3bb41aef55c70a2823580c68` is the direct target of annotated
@@ -161,7 +172,7 @@ before exercising authentication. Once current HRA has claimed the GitHub,
 Vercel, Convex, and domain names, rollback must preserve the `hra-v0` names.
 It must never evict the current product.
 
-### v0.1.15 recovery publication
+### Historical v0.1.15 recovery publication (superseded)
 
 The create-only deploy-key and shared-authority procedures above are
 initialization and recovery guidance. They are not v0.1.15 publication steps.
