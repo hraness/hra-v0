@@ -31,6 +31,8 @@ import {
 } from "../release-download-contract";
 import { correspondingSourceSpecs } from "../corresponding-sources";
 import {
+  HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT,
+  HRA_V0_P16_PUBLICATION_COMMIT,
   inspectReleasePublicationObjectStore,
   inspectReleaseSourceRepository,
 } from "../release-provenance";
@@ -1021,6 +1023,7 @@ describe("release and download convergence", () => {
         integrationBridgeCommit,
       },
     });
+    const generationOne = frozenGenerationOneHistoryContract();
     expect(await verifyReleaseSourceState(published, {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
@@ -1032,6 +1035,7 @@ describe("release and download convergence", () => {
       candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       candidateQ15Commit: q15Commit,
       environment: {},
+      historyContract: generationOne,
       publicationCommit,
       repositoryRoot,
     })).toMatchObject({
@@ -1040,7 +1044,6 @@ describe("release and download convergence", () => {
       bridge: { integrationBridgeCommit },
     });
 
-    const generationOne = readReleaseHistoryContract();
     const generationZero = parseReleaseHistoryContract({
       ...generationOne,
       generation: 0,
@@ -1094,6 +1097,7 @@ describe("release and download convergence", () => {
         expectedC20Commit: c20Commit,
         expectedConcurrentMainCommit: concurrentMainCommit,
         expectedHeadlongReadingCommit: headlongReadingCommit,
+        expectedIntegrationBridgeCommit: integrationBridgeCommit,
         expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         expectedQ15Commit: q15Commit,
         historyContract: generationTwo,
@@ -1121,6 +1125,8 @@ describe("release and download convergence", () => {
       candidateQ15Commit: q15Commit,
       environment: {},
       historyContract: generationTwo,
+      integrationBridgeCommit,
+      publicationCommit,
       repositoryRoot,
     })).toMatchObject({
       availability: "published",
@@ -1143,11 +1149,20 @@ describe("release and download convergence", () => {
         candidateQ15Commit: q15Commit,
         environment: {},
         historyContract: readReleaseHistoryContract(),
+        integrationBridgeCommit,
+        publicationCommit,
         repositoryRoot,
       }),
-      "differs from expected P16",
+      "exact generation-2 P16 release ledger",
     );
 
+    const providerPublicationCommit = HRA_V0_P16_PUBLICATION_COMMIT;
+    const providerIntegrationBridgeCommit =
+      HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT;
+    const providerHistory = generationTwoHistoryContract(
+      published,
+      providerPublicationCommit,
+    );
     const providerEnvironment = {
       VERCEL: "1",
       VERCEL_ENV: "production",
@@ -1157,7 +1172,8 @@ describe("release and download convergence", () => {
       VERCEL_GIT_REPO_OWNER: "hraness",
       VERCEL_GIT_REPO_SLUG: "hra-v0",
       VERCEL_TARGET_ENV: "production",
-      [releasePublicationCommitAllowlistEnvironmentVariable]: publicationCommit,
+      [releasePublicationCommitAllowlistEnvironmentVariable]:
+        providerPublicationCommit,
       [releaseSurfaceCommitAllowlistEnvironmentVariable]: surfaceCommit,
     } as const;
     const inspectCanonicalSurface = (options: Readonly<{
@@ -1165,6 +1181,7 @@ describe("release and download convergence", () => {
       expectedConcurrentMainCommit: string;
       expectedC20Commit: string;
       expectedHeadlongReadingCommit: string;
+      expectedIntegrationBridgeCommit: string;
       expectedNotACodexTuiReadingCommit: string;
       publicationCommit: string;
       surfaceCommit: string;
@@ -1178,20 +1195,27 @@ describe("release and download convergence", () => {
           "0c2feb8fa39b1a5141a44930a6ed0b5a913f8256",
         expectedHeadlongReadingCommit:
           "f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9",
+        expectedIntegrationBridgeCommit: providerIntegrationBridgeCommit,
         expectedNotACodexTuiReadingCommit:
           "cd3df81438cd54cfe997162116a92e4e9730f1f9",
-        publicationCommit,
+        publicationCommit: providerPublicationCommit,
         surfaceCommit,
         tag: published.release.tag,
       });
+      const providerPublication = {
+        ...surface.publication,
+        publicationCommit: providerPublicationCommit,
+      } as const;
       const providerBridge = {
         ...surface.bridge,
         concurrentMainCommit:
           "ce00d829f2097c071766b30cbcb4400e0a4c6be8",
+        integrationBridgeCommit: providerIntegrationBridgeCommit,
+        publication: providerPublication,
       } as const;
       return Promise.resolve({
         bridge: providerBridge,
-        publication: surface.publication,
+        publication: providerPublication,
         surface: {
           ...surface.surface,
           bridge: providerBridge,
@@ -1206,11 +1230,11 @@ describe("release and download convergence", () => {
       undefined,
       undefined,
       inspectCanonicalSurface,
-      generationTwo,
+      providerHistory,
     )).toMatchObject({
       availability: "published",
-      integrationBridgeCommit,
-      publicationCommit,
+      integrationBridgeCommit: providerIntegrationBridgeCommit,
+      publicationCommit: providerPublicationCommit,
       status: "verified_vercel_publication_integration_surface_binding",
       surfaceCommit,
     });
@@ -1226,15 +1250,23 @@ describe("release and download convergence", () => {
             ...surface.bridge,
             concurrentMainCommit:
               "ce00d829f2097c071766b30cbcb4400e0a4c6be8",
+            integrationBridgeCommit: providerIntegrationBridgeCommit,
+            publication: {
+              ...surface.publication,
+              publicationCommit: providerPublicationCommit,
+            },
           },
-          publication: surface.publication,
+          publication: {
+            ...surface.publication,
+            publicationCommit: providerPublicationCommit,
+          },
           surface: {
             ...surface.surface,
             surfaceCommit: "f".repeat(40),
           },
           tag: surface.tag,
         }),
-        generationTwo,
+        providerHistory,
       ),
       "differs from provider source",
     );
@@ -1250,7 +1282,7 @@ describe("release and download convergence", () => {
         undefined,
         undefined,
         inspectCanonicalSurface,
-        generationTwo,
+        providerHistory,
       ),
       "singleton allowlisted",
     );
@@ -1262,7 +1294,7 @@ describe("release and download convergence", () => {
         undefined,
         undefined,
         inspectCanonicalSurface,
-        readReleaseHistoryContract(),
+        frozenGenerationOneHistoryContract(),
       ),
       "generation-2 P16 release ledger",
     );
@@ -1551,7 +1583,7 @@ describe("release and download convergence", () => {
           tag: contract.release.tag,
         },
       });
-    })).toMatchObject({
+    }, undefined, frozenGenerationOneHistoryContract())).toMatchObject({
       availability: "published",
       integrationBridgeCommit,
       publicationCommit,
@@ -2011,8 +2043,18 @@ function asPublishedFixture(
   });
 }
 
+function frozenGenerationOneHistoryContract(): ReleaseHistoryContract {
+  const current = readReleaseHistoryContract();
+  return parseReleaseHistoryContract({
+    ...structuredClone(current),
+    generation: 1,
+    publicationCommit: "d96173c3556799cb203a4d659f29856180838029",
+    tags: current.tags.slice(0, 9),
+  });
+}
+
 function frozenPublishedV15Contract(): PublishedReleaseDownloadContract {
-  const history = readReleaseHistoryContract();
+  const history = frozenGenerationOneHistoryContract();
   const entry = history.tags.at(-1);
   if (entry?.tag !== "v0.1.15" || entry.release === null) {
     throw new Error("Expected frozen v0.1.15 history evidence.");
@@ -2046,7 +2088,7 @@ function generationTwoHistoryContract(
   contract: PublishedReleaseDownloadContract,
   publicationCommit: string,
 ): ReleaseHistoryContract {
-  const generationOne = readReleaseHistoryContract();
+  const generationOne = frozenGenerationOneHistoryContract();
   const releaseAssets = [
     contract.release.artifacts.checksum,
     contract.release.artifacts.dmg,
@@ -2247,7 +2289,7 @@ function createRemoteReleaseFixture(
   const dmgUrl = metadataAssets[1]?.browser_download_url ?? "";
   const manifestUrl = metadataAssets[2]?.browser_download_url ?? "";
   const requests: string[] = [];
-  const generationOne = readReleaseHistoryContract();
+  const generationOne = frozenGenerationOneHistoryContract();
   const frozenHistoryContract = options.frozenGenerationTwo === true
     ? parseReleaseHistoryContract({
         ...generationOne,
@@ -2332,16 +2374,16 @@ function createRemoteHistoryFixture(
   requests: string[] = [],
   contractOverride?: ReleaseHistoryContract,
 ) {
-  const currentContract = readReleaseHistoryContract();
+  const generationOne = frozenGenerationOneHistoryContract();
   const contract = contractOverride
     ?? (current?.contract.release.version === "0.1.15"
       ? parseReleaseHistoryContract({
-          ...currentContract,
+          ...generationOne,
           generation: 0,
           publicationCommit: "6221f79b745f154882080936b961ff431569f33e",
-          tags: currentContract.tags.slice(0, 8),
+          tags: generationOne.tags.slice(0, 8),
         })
-      : currentContract);
+      : generationOne);
   const apiRepository = "https://api.github.com/repos/hraness/hra-v0";
   const releases: Record<string, unknown>[] = contract.tags.flatMap((entry) =>
     entry.release === null

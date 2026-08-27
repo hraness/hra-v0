@@ -106,6 +106,10 @@ export const HRA_V0_P16_CONCURRENT_MAIN_COMMIT =
 export const HRA_V0_P16_PUBLICATION_COMMIT =
   "67e89e7909a56f5bfad1e16bb73801c9cd41503e" as const;
 
+/** Exact ordered-[P16, U16] integration bridge immediately before Q16. */
+export const HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT =
+  "f5e46ed6c27bcf96c4b13821398a53813505c297" as const;
+
 /** Shallow depths that retain Q15 across the sequential Q16 and C21 fetches. */
 export const HRA_V0_PUBLICATION_SURFACE_FETCH_DEPTHS = Object.freeze({
   surface: 12,
@@ -2135,6 +2139,7 @@ export async function inspectCanonicalReleasePublicationSurface(
     expectedC19Commit?: string;
     expectedC20Commit?: string;
     expectedHeadlongReadingCommit?: string;
+    expectedIntegrationBridgeCommit?: string;
     expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
     publicationCommit: string;
@@ -2157,6 +2162,11 @@ export async function inspectCanonicalReleasePublicationSurface(
   const expectedConcurrentMainCommit = requireObjectId(
     options.expectedConcurrentMainCommit,
     "Expected concurrent main commit",
+  );
+  const expectedIntegrationBridgeCommit = requireObjectId(
+    options.expectedIntegrationBridgeCommit
+      ?? HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT,
+    "Expected publication integration bridge commit",
   );
   const expectedQ15Commit = requireObjectId(
     options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
@@ -2233,6 +2243,7 @@ export async function inspectCanonicalReleasePublicationSurface(
         {
           candidateCommit,
           expectedConcurrentMainCommit,
+          expectedIntegrationBridgeCommit,
           generation: 2,
           publicationCommit,
           surfaceCommit,

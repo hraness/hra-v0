@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generation": 1,
-  "publicationCommit": "d96173c3556799cb203a4d659f29856180838029",
+  "generation": 2,
+  "publicationCommit": "67e89e7909a56f5bfad1e16bb73801c9cd41503e",
   "repository": "https://github.com/hraness/hra-v0",
   "repositoryId": 1334876494,
   "tags": [
@@ -195,6 +195,29 @@
           { "id": 528477409, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
           { "id": 528477429, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
           { "id": 528477458, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
+        ]
+      }
+    },
+    {
+      "tag": "v0.1.16",
+      "version": "0.1.16",
+      "build": 17,
+      "tagObject": "188d8638b8d0cdf7ccaa73e2a0b07a2814f3782a",
+      "commit": "2947402efe6363bf3bb41aef55c70a2823580c68",
+      "objectKind": "annotated",
+      "release": {
+        "id": 377567675,
+        "immutable": true,
+        "prerelease": true,
+        "publishedAt": "2026-08-27T04:43:36Z",
+        "assets": [
+          { "id": 531751216, "name": "HRA-0.1.16-17-macos-arm64.dmg", "bytes": 214060564, "sha256": "89ca90a73c29f3fef8a6b0dd349464a42f30f9c9b279951de3eff7b7186833cd" },
+          { "id": 531751219, "name": "HRA-0.1.16-17-macos-arm64.dmg.sha256", "bytes": 96, "sha256": "51fd23071d084ac19ca391068af141fac29ec6afd9dc433481eebd06c6763b55" },
+          { "id": 531751220, "name": "HRA-0.1.16-17-release-manifest.json", "bytes": 33790, "sha256": "80f1ce1e9b43a2a9ae396b39cacfdb69ea11a406a5bf5037b408f79bb7726468" },
+          { "id": 531751221, "name": "bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz", "bytes": 168162466, "sha256": "3c349132dee8226d33ec169062064e66cc292a1bcb05ccb19fed84f435eac529" },
+          { "id": 531751217, "name": "bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz", "bytes": 1975795848, "sha256": "797d0f9dd1ba58325e198359a1d55f3070b792d2e70069fbac5c97e784e9a05c" },
+          { "id": 531751229, "name": "dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz", "bytes": 44387, "sha256": "9467050831b32aa3086f8fcb76990f99f081e819c54518cb4cb5e44f3bdd796e" },
+          { "id": 531751228, "name": "git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz", "bytes": 12659571, "sha256": "cc7f69bb55dbfad74a7914a3616a2dd1d50779a6ed483f3e823127a3b6a92977" }
         ]
       }
     }

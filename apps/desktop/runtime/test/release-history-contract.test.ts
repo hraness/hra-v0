@@ -131,7 +131,7 @@ describe("HRA v0 remote release history", () => {
 
     const hotfix = currentHotfixReleaseEntry();
     const hotfixFixture = createRemoteHistoryFixture(
-      readReleaseHistoryContract(),
+      frozenGenerationOneContract(),
       hotfix,
     );
     expect(await verifyRemoteReleaseHistoryState(
@@ -227,7 +227,19 @@ describe("HRA v0 remote release history", () => {
   });
 
   test("parses only the exact ordered generation-0 through generation-2 sequences", () => {
-    const contract = readReleaseHistoryContract();
+    const current = readReleaseHistoryContract();
+    expect(current.generation).toBe(2);
+    expect(current.publicationCommit).toBe(
+      "67e89e7909a56f5bfad1e16bb73801c9cd41503e",
+    );
+    expect(current.tags).toHaveLength(10);
+    expect(current.tags.at(-1)).toMatchObject({
+      build: 17,
+      tag: "v0.1.16",
+      version: "0.1.16",
+    });
+
+    const contract = frozenGenerationOneContract();
     expect(contract.generation).toBe(1);
     expect(contract.publicationCommit).toBe("d96173c3556799cb203a4d659f29856180838029");
     expect(contract.tags.map(({ tag }) => tag)).toEqual([
@@ -288,7 +300,7 @@ describe("HRA v0 remote release history", () => {
 });
 
 function createRemoteHistoryFixture(
-  contract: ReleaseHistoryContract = readReleaseHistoryContract(),
+  contract: ReleaseHistoryContract = frozenGenerationOneContract(),
   current?: CurrentRemoteReleaseHistoryEntry,
 ) {
   const releases: Record<string, unknown>[] = contract.tags.flatMap((entry) => {
@@ -386,10 +398,7 @@ function createRemoteHistoryFixture(
 }
 
 function generationZeroContract(): ReleaseHistoryContract {
-  const current = readReleaseHistoryContract();
-  if (current.generation !== 1) {
-    throw new Error("Expected the checked generation-1 release ledger.");
-  }
+  const current = frozenGenerationOneContract();
   return parseReleaseHistoryContract({
     ...structuredClone(current),
     generation: 0,
@@ -449,7 +458,7 @@ function currentHotfixReleaseEntry(): CurrentRemoteReleaseHistoryEntry {
 function generationTwoContract(
   current: CurrentRemoteReleaseHistoryEntry = currentHotfixReleaseEntry(),
 ): ReleaseHistoryContract {
-  const generationOne = readReleaseHistoryContract();
+  const generationOne = frozenGenerationOneContract();
   return parseReleaseHistoryContract({
     ...generationOne,
     generation: 2,
@@ -472,6 +481,16 @@ function generationTwoContract(
         version: "0.1.16",
       },
     ],
+  });
+}
+
+function frozenGenerationOneContract(): ReleaseHistoryContract {
+  const current = readReleaseHistoryContract();
+  return parseReleaseHistoryContract({
+    ...structuredClone(current),
+    generation: 1,
+    publicationCommit: "d96173c3556799cb203a4d659f29856180838029",
+    tags: current.tags.slice(0, 9),
   });
 }
 

@@ -22,9 +22,9 @@ const tagSchema = z.object({
   commit: objectIdSchema,
   objectKind: z.literal("annotated"),
   release: publishedReleaseSchema.nullable(),
-  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
+  tag: z.string().regex(/^v0\.1\.(?:7|8|9|10|11|12|13|14|15|16)$/u),
   tagObject: objectIdSchema,
-  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14|15)$/u),
+  version: z.string().regex(/^0\.1\.(?:7|8|9|10|11|12|13|14|15|16)$/u),
 }).strict();
 const generationZeroVersions = [
   "0.1.7",
@@ -37,6 +37,7 @@ const generationZeroVersions = [
   "0.1.14",
 ] as const;
 const generationOneVersions = [...generationZeroVersions, "0.1.15"] as const;
+const generationTwoVersions = [...generationOneVersions, "0.1.16"] as const;
 const releaseHistoryBaseSchema = {
   repository: z.literal("https://github.com/hraness/hra-v0"),
   repositoryId: z.literal(1_334_876_494),
@@ -54,13 +55,22 @@ const generationOneReleaseHistorySchema = z.object({
   ...releaseHistoryBaseSchema,
   tags: z.array(tagSchema).length(9),
 }).strict();
+const generationTwoReleaseHistorySchema = z.object({
+  generation: z.literal(2),
+  publicationCommit: z.literal("67e89e7909a56f5bfad1e16bb73801c9cd41503e"),
+  ...releaseHistoryBaseSchema,
+  tags: z.array(tagSchema).length(10),
+}).strict();
 const releaseHistorySchema = z.discriminatedUnion("generation", [
   generationZeroReleaseHistorySchema,
   generationOneReleaseHistorySchema,
+  generationTwoReleaseHistorySchema,
 ]).superRefine((history, context) => {
   const expectedVersions = history.generation === 0
     ? generationZeroVersions
-    : generationOneVersions;
+    : history.generation === 1
+      ? generationOneVersions
+      : generationTwoVersions;
   for (const [index, version] of expectedVersions.entries()) {
     const entry = history.tags[index];
     if (
@@ -72,7 +82,7 @@ const releaseHistorySchema = z.discriminatedUnion("generation", [
     ) {
       context.addIssue({
         code: "custom",
-        message: `Release history must contain the exact ordered v0.1.7–v0.1.${history.generation === 0 ? "14" : "15"} tag and release sequence.`,
+        message: `Release history must contain the exact ordered v0.1.7–v0.1.${history.generation === 0 ? "14" : history.generation === 1 ? "15" : "16"} tag and release sequence.`,
       });
       break;
     }

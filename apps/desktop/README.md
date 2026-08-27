@@ -1,9 +1,8 @@
 # HRA v0 for macOS
 
 This directory preserves the archived HRA v0 macOS application. Its
-generation-1 release ledger currently ends at the immutable v0.1.15 recovery
-release. HRA v0.1.16 build 17 is the checked native compatibility correction
-candidate C21. The current HRA is at
+generation-2 release ledger ends at the immutable v0.1.16 build 17 native
+compatibility release from C21. The current HRA is at
 [hra.sh](https://hra.sh) in the
 [current repository](https://github.com/hraness/hra). HRA v0 is a local-first
 interface for long-running, parallel Codex work. Panes are repository-bound
@@ -158,7 +157,7 @@ Turn off every scheduled chat before creating or restoring a portable backup. A 
 
 HRA keeps the bundle identifier `kitchen.hraness` and the state root `~/Library/Application Support/OPRTE` as compatibility custody. The supported handoff changes the visible application authority from `/Applications/OPRTE.app` to `/Applications/HRA.app`; it does not rename or copy live state into a new product root.
 
-Run the ordinary handoff only after Suite Accounts v0.3.0 is the deployed account authority, the Accounts registry recognizes `hraness:hra:production:v1`, and `release-download.json` contains published v0.1.15 build 16 evidence. The command verifies that published source, the candidate bundle, full state and Keychain continuity, both installed bundle archives, updater quiescence, and ordered AppKit shutdown before making HRA the sole visible application:
+The ordinary OPRTE-to-HRA handoff is a frozen generation-1 operation. Run it only from the exact v0.1.15 source whose `release-download.json` contains published v0.1.15 build 16 evidence, after Suite Accounts v0.3.0 is the deployed account authority and the Accounts registry recognizes `hraness:hra:production:v1`. The current generation-2 source is not that handoff operator. The command verifies the frozen published source, the candidate bundle, full state and Keychain continuity, both installed bundle archives, updater quiescence, and ordered AppKit shutdown before making HRA the sole visible application:
 
 ```sh
 bun run installation:handoff \
@@ -293,48 +292,29 @@ zig-out/release/macos/arm64/
 
 The Bun archive is a deterministic complete-source bundle containing its pinned native build inputs, nested Git sources, Node headers, and locked `lol-html` Cargo closure. Patched WebKit and JavaScriptCore remain in their own archive because it is close to GitHub's 2 GiB asset limit. The Git and Dugite Native archives close the bundled Git source boundary. Full packaging requires network access, a clean source tree, and local production signing custody. CI uses `package:macos:structural` to verify the compiler, runtime, license, package-shape, and signature-policy boundary without production custody, a DMG, or the large source archives.
 
-The root `release-download.json` is the strict HRA v0.1.16 build 17 download
-and publication contract for `https://github.com/hraness/hra-v0`. C21 keeps
-artifact hashes and source identities null, so the website exposes no v0.1.16
-download. The immutable v0.1.15 release remains the current frozen ledger
-entry and the v0.1.14 origin remains available for its bounded forward
-recovery.
+The root `release-download.json` is the strict published HRA v0.1.16 build 17
+download contract for `https://github.com/hraness/hra-v0`. It binds candidate
+C21 `2947402efe6363bf3bb41aef55c70a2823580c68`, annotated tag object
+`188d8638b8d0cdf7ccaa73e2a0b07a2814f3782a`, runtime tree SHA-256
+`afb256e567e5ea97f88b0c276ed07958b8a20f1a0c38733067f29573608f3216`, and
+the exact DMG, checksum, and manifest evidence. The website exposes only those
+published artifacts.
 
-The separate root `release-history.json` is the generation-1 compatibility
-ledger. It fixes the v0.1.7–v0.1.15 annotated tags, eight immutable GitHub
-releases, 56 assets, and v0.1.11 tag-only state. Remote verification requires
-that exact set and preserves the v0.1.15 tag, release, assets, and frozen P15
-publication evidence while v0.1.16 is a candidate.
+The separate root `release-history.json` is the generation-2 compatibility
+ledger. It fixes the v0.1.7–v0.1.16 annotated tags, nine immutable GitHub
+releases, 63 assets, and v0.1.11 tag-only state. Remote verification requires
+that exact set and preserves every historical tag, release, and asset.
 
-Publication uses two commits so no commit must contain its own object ID.
-Candidate C15 `0c7764da0dea0a71bbccca817539a02d8e4284d0`
-retains the null contract; the package, annotated `v0.1.15` tag, manifest, app,
-DMG, and checksum all name C15. Publication P15
-`d96173c3556799cb203a4d659f29856180838029` is C15's exact contract-only child.
-An already accepted repository change U
-`559c272f1bd7a2f1195f1af3c493b4f73a8fb3d2` also descends directly from C15.
-Integration bridge M15 `af3296e59e2173e1e7737dee7a3194592de1105e`
-has ordered parents `[P15, U]`, preserves P15's download contract byte for
-byte, and is followed by the single Q15 archive-surface commit. The verifier
-rejects parent-order drift, candidate drift, a tag that
-does not peel to C15, or artifacts that do not embed C15 and its runtime-tree
-digest. Q15 is `443448b79e9016e00d52501f047fce3a408de092`. Compatibility
-commit C16 is `4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb`, Q15's
-single-parent direct child. Native timeout-cap commit C17
-`112175bfdbcd6be0e3cca7ed43dd57e79453c00a` is C16's single-parent direct
-child. Unreleased cold-custody-timeout commit C18
-`14904f1fc60b254455b7089f32e9764d67fffd95` is C17's single-parent direct
-child. Unreleased custody-transition commit C19
-`aa613e86f874efa089a375231a9506e5934973f0` is C18's single-parent direct
-child. Zombie-aware host-fence commit C20
-`0c2feb8fa39b1a5141a44930a6ed0b5a913f8256` is C19's single-parent direct
-child. Accepted reading commits
-`f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9` and
-`cd3df81438cd54cfe997162116a92e4e9730f1f9` are the next two single-parent
-children. The final C21 candidate must be the second reading commit's
-single-parent direct child. P16 must be C21's exact contract-only child, and
-Q16 must be P16's single direct archive-surface child without changing the
-published contract.
+Publication keeps the candidate, contract authority, accepted parallel work,
+integration bridge, and archive surface distinct. P16
+`67e89e7909a56f5bfad1e16bb73801c9cd41503e` and U16
+`ce00d829f2097c071766b30cbcb4400e0a4c6be8` are direct children of C21. M16
+`f5e46ed6c27bcf96c4b13821398a53813505c297` has ordered parents `[P16, U16]`
+and preserves P16's `release-download.json` bytes exactly. Q16 is M16's single
+direct archive-surface child and promotes generation 2 without changing that
+published contract. The verifier rejects parent-order drift, candidate or tag
+drift, contract drift, and artifacts that do not embed C21 and its runtime-tree
+digest.
 
 C17 exists because C16's runtime requests a 240-second interactive ACL
 validation and migration budget while its Objective-C admission boundary still
@@ -364,13 +344,11 @@ head and the resulting `main` push. C17 is the fixed canonical direct child of
 exact C16, C18 is the fixed canonical direct child of exact C17, and C19 is the
 fixed canonical direct child of exact C18. C20 is the fixed direct child of
 exact C19. The two accepted reading commits are fixed direct children in their
-recorded order. Integrate C21 as one direct child of the second reading commit.
-The provenance resolver derives C21 from that edge, so it does not hardcode the
-candidate's not-yet-created object ID. If a squash or rebase changes C21's
-object ID, build, package, verify, and tag only a clean checkout of the
-resulting `main` commit. Another concurrent `main` commit after the second
-reading commit requires a reviewed provenance-contract change rather than
-merging around the C21 edge.
+recorded order. C21 `2947402efe6363bf3bb41aef55c70a2823580c68` is the fixed
+direct child of the second reading commit, and the annotated v0.1.16 tag peels
+to it. P16 and U16 are C21's fixed direct children, and M16 has ordered parents
+`[P16, U16]`. Rewriting or rebasing any fixed release object invalidates this
+provenance and requires a reviewed provenance-contract change.
 
 The immutable v0.1.14 publication remains separate historical evidence:
 
@@ -386,7 +364,8 @@ C14 and P14 record the repository's historical name,
 contract byte remains fixed. C15 descends from the maintained archive surface,
 so its new candidate and publication contracts use `hraness/hra-v0` directly.
 
-Run candidate checks from a clean standalone C21 checkout:
+The immutable v0.1.16 publication was produced only after these checks passed
+from a clean standalone C21 checkout:
 
 ```sh
 bun run --cwd apps/desktop check:release-contract
@@ -404,42 +383,14 @@ collision-free tag state, the DMG, checksum, manifest, runtime tree, and exact
 production signing authority. It emits the exact evidence for P16. Historical
 tags, releases, and assets remain immutable inputs and are never rewritten.
 
-After the full package and candidate verifier pass, create the new direct
-annotated tag and immutable prerelease from the clean standalone C21 checkout.
-Do not use `--clobber`, a glob, or an existing release:
-
-```sh
-git tag -a v0.1.16 -m "HRA v0.1.16" HEAD
-git push origin refs/tags/v0.1.16
-gh release create v0.1.16 \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.16-17-macos-arm64.dmg \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.16-17-macos-arm64.dmg.sha256 \
-  apps/desktop/zig-out/release/macos/arm64/HRA-0.1.16-17-release-manifest.json \
-  apps/desktop/zig-out/release/macos/arm64/bun-0d9b296af33f2b851fcbf4df3e9ec89751734ba4-source.tar.gz \
-  apps/desktop/zig-out/release/macos/arm64/bun-webkit-5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b-source.tar.gz \
-  apps/desktop/zig-out/release/macos/arm64/git-67ad42147a7acc2af6074753ebd03d904476118f-source.tar.gz \
-  apps/desktop/zig-out/release/macos/arm64/dugite-native-f49d0098409aa243de8b9162127025ab0bb07a88-source.tar.gz \
-  --repo hraness/hra-v0 \
-  --verify-tag \
-  --prerelease \
-  --latest=false \
-  --title "HRA v0.1.16" \
-  --notes-from-tag
-```
-
-GitHub publishes only after every upload succeeds, and repository release
-immutability must report the release immutable. Fill only
-`release-download.json` with the candidate verifier's exact evidence, create
-P16, then run `check:release-source`, `verify:published-release`, and
-`verify:remote-release` from clean P16. The remote gate binds the list and
-per-tag GitHub records, the exact annotated tag, all seven asset IDs, names,
-sizes, and digests, the checksum and manifest, and the four corresponding-source
-records without redownloading the multi-gigabyte DMG.
-
-Only after P16 and the immutable remote release pass may Q16 promote the
-v0.1.16 metadata into generation 2 of `release-history.json` and become the
-new Vercel surface allowlist. Until then, P15 remains the publication
-allowlist and Q15 remains the deployed generation-1 archive surface.
+GitHub release `377567675` is immutable and contains the exact seven assets in
+the generation-2 ledger. P16's published-source and remote gates bind the
+release list, per-tag records, annotated tag, asset IDs, names, sizes, digests,
+checksum, manifest, and four corresponding-source records. Q16 owns the
+generation-2 archive surface. After exact Q16 Required succeeds, keep
+`HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at P16 and set
+`HRA_V0_SURFACE_COMMIT_ALLOWLIST` to the exact Q16 commit before deploying that
+source revision.
 
 The production package uses the locally self-managed HRA release-signing
 authority v2 for the outer app, native host, and custody-authorizing helpers.

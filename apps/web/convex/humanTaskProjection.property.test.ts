@@ -54,11 +54,15 @@ test("preview normalization is one-line, UTF-8 bounded, and code-point safe", ()
 
 test("summary derivation is permutation-invariant and round-trips storage", () => {
   assertProperty(fc.property(
-    fc.array(fc.record({
+    fc.uniqueArray(fc.record({
       id: fc.integer({ min: 0, max: 1_000_000 }),
       createdAt: fc.integer({ min: 0, max: 1_000_000 }),
       prompt: fc.string({ maxLength: 300 }),
-    }), { minLength: 1, maxLength: 32 }),
+    }), {
+      minLength: 1,
+      maxLength: 32,
+      selector: ({ id }) => id,
+    }),
     (values) => {
       const interactions = values.map(({ id, createdAt, prompt }) => ({
         publicId: `interaction_${id}`,

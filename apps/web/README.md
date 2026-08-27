@@ -79,39 +79,24 @@ HRA v0 stays available at `https://hra-weld.vercel.app` while current HRA uses
 identifiers, release assets, and runtime protocol identities in place. Do not
 copy any of them into current HRA.
 
-HRA v0.1.16 build 17 is a native compatibility correction candidate. Its null
-download contract exposes no artifact URL. Compatibility commit C16
-`4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb` must be Q15
-`443448b79e9016e00d52501f047fce3a408de092`'s single-parent direct child, and
-native timeout-cap commit C17
-`112175bfdbcd6be0e3cca7ed43dd57e79453c00a` must be C16's single-parent direct
-child. Unreleased cold-custody-timeout commit C18
-`14904f1fc60b254455b7089f32e9764d67fffd95` must be C17's single-parent direct
-child. Unreleased custody-transition commit C19
-`aa613e86f874efa089a375231a9506e5934973f0` must be C18's single-parent direct
-child. The final C20 candidate must be C19's single-parent direct child. After
-local production packaging and exact installed-state acceptance, the annotated
-`v0.1.16` tag must point directly to C20 and publication P16 must be C20's exact
-`release-download.json`-only child. Until those immutable remote
-records exist and Q16 promotes generation 2, the checked history,
-`/.well-known/hra.json`, and provider allowlists remain the generation-1
-v0.1.15/Q15 authorities below.
+HRA v0.1.16 build 17 is the final native compatibility release. Candidate C21
+`2947402efe6363bf3bb41aef55c70a2823580c68` is the direct target of annotated
+tag object `188d8638b8d0cdf7ccaa73e2a0b07a2814f3782a`. P16
+`67e89e7909a56f5bfad1e16bb73801c9cd41503e` is C21's exact contract-only
+publication child. U16 `ce00d829f2097c071766b30cbcb4400e0a4c6be8` is an
+independently accepted direct child of C21. M16
+`f5e46ed6c27bcf96c4b13821398a53813505c297` has ordered parents `[P16, U16]`
+and preserves P16's `release-download.json` bytes exactly. Q16 is M16's single
+direct archive-surface child and promotes generation 2 without changing the
+published contract.
 
-The immutable v0.1.15 build 16 publication has three fixed Git identities:
-
-- Candidate C15 is `0c7764da0dea0a71bbccca817539a02d8e4284d0`.
-- Publication P15 is `d96173c3556799cb203a4d659f29856180838029`.
-- Annotated tag object `e5bcf5c919e8a7ffcdccc337b8940b60a70f0489`
-  points directly to C15.
-
-The seven-asset GitHub prerelease and P15's release evidence are immutable in
-`hraness/hra-v0`. Generation 1 of `release-history.json` records the published
-v0.1.15 DMG, checksum, manifest, and four corresponding-source archives, and
-`/releases` exposes that frozen entry. The current `release-download.json` is
-the v0.1.16 candidate contract with null evidence, so `/download` exposes no
-v0.1.16 artifact. Keep `HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at
-P15 and `HRA_V0_SURFACE_COMMIT_ALLOWLIST` fixed at the reviewed Q15 commit in
-Vercel Production and Preview. The provider gate strips both records before
+The immutable seven-asset GitHub prerelease and P16's release evidence are
+fixed in `hraness/hra-v0`. Generation 2 of `release-history.json` records the
+published v0.1.16 DMG, checksum, manifest, and four corresponding-source
+archives, and `/releases` exposes that final entry. Keep
+`HRA_RELEASE_PUBLICATION_COMMIT_ALLOWLIST` fixed at P16. After exact Q16
+Required succeeds, set `HRA_V0_SURFACE_COMMIT_ALLOWLIST` to Q16's exact commit
+in Vercel Production and Preview. The provider gate strips both records before
 the Next.js child build after using them to prove publication and archive
 surface authority.
 
@@ -122,13 +107,13 @@ variables enabled because the source gate requires Vercel's own target, Git
 provider, repository, branch, and full commit SHA evidence.
 
 The public `/releases` page is generated from the checked root
-`release-history.json` ledger. The remote gate verifies its nine annotated
-tags, eight immutable releases, 56 assets, and v0.1.11 tag-only state against
+`release-history.json` ledger. The remote gate verifies its ten annotated
+tags, nine immutable releases, 63 assets, and v0.1.11 tag-only state against
 GitHub after the repository rename. It is credential-free outside GitHub
 Actions; Required CI uses only its automatic read-only installation token for
 the four fixed HRA v0 API reads. The public
-`/.well-known/hra.json` marker binds archive generation 1 to the checked
-numeric GitHub repository ID and final v0.1.15 publication identity for domain
+`/.well-known/hra.json` marker binds archive generation 2 to the checked
+numeric GitHub repository ID and final v0.1.16 publication identity for domain
 cutover and rollback checks.
 
 Keep the public `NEXT_PUBLIC_CONVEX_URL` and
@@ -227,10 +212,11 @@ Use this order to deploy and verify the final archive surface:
    acceptance and the bounded rollback window. Their later disposition is a
    separate handoff decision, not part of v0.1.15 publication.
 
-P15 remains the immutable publication authority. Q15 owns the generation-1
-`release-history.json`, `/releases`, and `/.well-known/hra.json` surface.
-The deployment marker reports P15 as the publication commit and Q15 as the
-provider source commit, so rollback and cutover checks can distinguish the two.
+For the historical generation-1 surface, P15 remains the immutable v0.1.15
+publication authority and Q15 owns that generation's `release-history.json`,
+`/releases`, and `/.well-known/hra.json` state. Its deployment marker reports
+P15 as the publication commit and Q15 as the provider source commit, so
+rollback and cutover checks can distinguish the two.
 
 The existing annotated `v0.1.11` tag object
 `e4c171e33e414d74a36791fc8577cbfbcef8e52e` points directly to

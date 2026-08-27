@@ -118,13 +118,13 @@ export default function ReleasesPage() {
 
       <main className="alternatives-shell" id="main-content">
         <section className="alternatives-hero release-history-hero" aria-labelledby="release-history-title">
-          <p className="landing-eyebrow">Compatibility ledger · v0.1.7–v0.1.15</p>
+          <p className="landing-eyebrow">Compatibility ledger · v0.1.7–v0.1.16</p>
           <h1 id="release-history-title">HRA v0 release history</h1>
           <p className="alternatives-lede">
-            This ledger records every preserved tag from v0.1.7 through v0.1.15, every GitHub release that exists, and every attached asset. The checked archive manifest supplies the object IDs, byte counts, checksums, and links below.
+            This ledger records every preserved tag from v0.1.7 through v0.1.16, every GitHub release that exists, and every attached asset. The checked archive manifest supplies the object IDs, byte counts, checksums, and links below.
           </p>
           <p className="alternatives-reviewed">
-            Eight immutable prereleases · nine annotated tags · v0.1.11 tag only
+            Nine immutable prereleases · ten annotated tags · v0.1.11 tag only
           </p>
         </section>
 
@@ -139,7 +139,7 @@ export default function ReleasesPage() {
             <p className="landing-eyebrow">Verification boundary</p>
             <h2 id="release-history-method-title">The archive checks the remote objects.</h2>
             <p>
-              The credential-free remote release gate reads the renamed repository, verifies the exact tag objects and peeled commits, requires v0.1.11 to remain release-free, and compares all 56 immutable release assets with the checked ledger. The final v0.1.15 gate also checks its checksum and release manifest contents.
+              The credential-free remote release gate reads the renamed repository, verifies the exact tag objects and peeled commits, requires v0.1.11 to remain release-free, and compares all 63 immutable release assets with the checked ledger. The final v0.1.16 gate also checks its checksum and release manifest contents.
             </p>
           </div>
         </section>

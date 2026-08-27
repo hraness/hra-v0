@@ -21,6 +21,7 @@ import { z } from "@hra-internal/schema";
 import { correspondingSourceSpecs } from "./corresponding-sources";
 import { macosPackage } from "./macos-package-config";
 import {
+  parseReleaseHistoryContract,
   readReleaseHistoryContract,
   verifyCanonicalRemoteReleaseTags,
   verifyRemoteReleaseHistoryState,
@@ -48,6 +49,7 @@ import {
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P15_PUBLICATION_COMMIT,
   HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
+  HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P16_PUBLICATION_COMMIT,
   HRA_V0_Q14_SURFACE_COMMIT,
   HRA_V0_Q15_SURFACE_COMMIT,
@@ -694,6 +696,7 @@ export async function verifyVercelReleaseSourceState(
     expectedConcurrentMainCommit: string;
     expectedC20Commit: string;
     expectedHeadlongReadingCommit: string;
+    expectedIntegrationBridgeCommit: string;
     expectedNotACodexTuiReadingCommit: string;
     publicationCommit: string;
     surfaceCommit: string;
@@ -745,7 +748,8 @@ export async function verifyVercelReleaseSourceState(
   const publishedContract = asPublishedContract(contract);
   if (publishedContract.release.version === "0.1.16") {
     if (
-      historyContract.generation !== 2
+      publicationCommit !== HRA_V0_P16_PUBLICATION_COMMIT
+      || historyContract.generation !== 2
       || historyContract.publicationCommit !== publicationCommit
     ) {
       throw new Error(
@@ -773,6 +777,8 @@ export async function verifyVercelReleaseSourceState(
       expectedConcurrentMainCommit: HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
       expectedC20Commit: HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
       expectedHeadlongReadingCommit: HRA_V0_R20_HEADLONG_READING_COMMIT,
+      expectedIntegrationBridgeCommit:
+        HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT,
       expectedNotACodexTuiReadingCommit:
         HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
       publicationCommit,
@@ -787,6 +793,8 @@ export async function verifyVercelReleaseSourceState(
     if (
       canonical.bridge.concurrentMainCommit
         !== HRA_V0_P16_CONCURRENT_MAIN_COMMIT
+      || canonical.bridge.integrationBridgeCommit
+        !== HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT
       || canonical.bridge.publication.publicationCommit !== publicationCommit
       || canonical.surface.surfaceCommit !== surfaceCommit
       || canonical.surface.status
@@ -836,7 +844,10 @@ export async function verifyVercelReleaseSourceState(
         "The Q15 provider source must be the singleton allowlisted HRA v0 surface commit.",
       );
     }
-    verifyPublishedContractGenerationOneHistoryBinding(publishedContract);
+    verifyPublishedContractGenerationOneHistoryBinding(
+      publishedContract,
+      historyContract,
+    );
     const canonical = await inspectCanonicalIntegration({
       candidateCommit: publishedContract.release.source.commit,
       concurrentMainCommit: HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
@@ -1020,9 +1031,7 @@ export async function verifyReleaseSourceState(
   const historyContract = options.historyContract ?? readReleaseHistoryContract();
   const v16SurfacePublicationCommit = publishedContract.release.version === "0.1.16"
     ? options.publicationCommit
-      ?? (historyContract.generation === 2
-        ? historyContract.publicationCommit
-        : undefined)
+      ?? HRA_V0_P16_PUBLICATION_COMMIT
     : undefined;
   const lineageExpectations = {
     expectedBaseCommit:
@@ -1085,6 +1094,9 @@ export async function verifyReleaseSourceState(
               expectedHeadlongReadingCommit:
                 options.candidateHeadlongReadingCommit ??
                 HRA_V0_R20_HEADLONG_READING_COMMIT,
+              expectedIntegrationBridgeCommit:
+                options.integrationBridgeCommit ??
+                HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT,
               expectedNotACodexTuiReadingCommit:
                 options.candidateNotACodexTuiReadingCommit ??
                 HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
@@ -1297,6 +1309,7 @@ export async function verifyPublishedReleaseSurfaceEvidence(
     expectedC19Commit?: string;
     expectedC20Commit?: string;
     expectedHeadlongReadingCommit?: string;
+    expectedIntegrationBridgeCommit?: string;
     expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
     historyContract?: ReleaseHistoryContract;
@@ -1318,6 +1331,9 @@ export async function verifyPublishedReleaseSurfaceEvidence(
     expectedConcurrentMainCommit:
       expectations.expectedConcurrentMainCommit
       ?? HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
+    expectedIntegrationBridgeCommit:
+      expectations.expectedIntegrationBridgeCommit
+      ?? HRA_V0_P16_INTEGRATION_BRIDGE_COMMIT,
     generation: 2,
     publicationCommit: expectations.publicationCommit,
   });
@@ -1590,8 +1606,18 @@ function verifyPublishedReleaseHistoryBinding(
 
 function verifyPublishedContractGenerationOneHistoryBinding(
   contract: PublishedReleaseDownloadContract,
+  currentHistory: ReleaseHistoryContract = readReleaseHistoryContract(),
 ): void {
-  const history = readReleaseHistoryContract();
+  const history = currentHistory.generation === 1
+    ? currentHistory
+    : currentHistory.generation === 2
+      ? parseReleaseHistoryContract({
+          ...currentHistory,
+          generation: 1,
+          publicationCommit: HRA_V0_P15_PUBLICATION_COMMIT,
+          tags: currentHistory.tags.slice(0, 9),
+        })
+      : currentHistory;
   const finalEntry = history.tags.at(-1);
   const finalRelease = finalEntry?.release;
   if (finalEntry === undefined || finalRelease === null || finalRelease === undefined) {

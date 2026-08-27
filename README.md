@@ -3,10 +3,8 @@
 [![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)
 
 > [!IMPORTANT]
-> This repository preserves HRA v0. Its generation-1 release ledger currently
-> ends at the immutable v0.1.15 recovery release. HRA v0.1.16 build 17 is a
-> checked native compatibility correction candidate and has no download until its
-> release evidence is published. The current HRA is
+> This repository preserves HRA v0. Its generation-2 release ledger ends at the
+> immutable v0.1.16 build 17 native compatibility release. The current HRA is
 > at [hra.sh](https://hra.sh) with
 > source at [github.com/hraness/hra](https://github.com/hraness/hra).
 
@@ -17,9 +15,8 @@ and bringing it back for review.
 [Download for macOS](https://hra-weld.vercel.app/download) · [Release history](https://hra-weld.vercel.app/releases) · [Website](https://hra-weld.vercel.app) ·
 [Historical comparisons](https://hra-weld.vercel.app/alternatives) · [Current HRA](https://hra.sh)
 
-> The checked release contract declares HRA 0.1.16 build 17 for Apple Silicon
-> Macs as a candidate. The download page exposes no candidate artifact. After
-> publication it may expose only the exact source commit, annotated tag,
+> The checked release contract publishes HRA 0.1.16 build 17 for Apple Silicon
+> Macs. The download page exposes only the exact source commit, annotated tag,
 > runtime tree, manifest, checksum, and artifact hashes recorded by the
 > contract. The outer
 > app, native host, and custody-authorizing helpers use HRA's self-managed
@@ -90,36 +87,22 @@ and data boundary.
 ## Install the prerelease
 
 The native app targets Apple Silicon and macOS 13 or newer. The
-[download page](https://hra-weld.vercel.app/download) keeps HRA v0.1.16 build
-17 closed while its contract is a candidate. The immutable v0.1.15 DMG,
-checksum, manifest, and source archives remain available through the release
-history. Verify the SHA-256 and follow the unknown-developer instructions for
-any published package.
+[download page](https://hra-weld.vercel.app/download) publishes the exact HRA
+v0.1.16 build 17 DMG, checksum, and manifest. Verify the SHA-256 and follow the
+unknown-developer instructions before installing it.
 
-The generation-1 [release history](https://hra-weld.vercel.app/releases)
-currently records every tag from v0.1.7 through v0.1.15, all eight immutable
-GitHub prereleases, and every asset's exact byte count, SHA-256 digest, and
-archive download link. v0.1.11 is preserved as a tag-only candidate. Candidate
-C15 is `0c7764da0dea0a71bbccca817539a02d8e4284d0`; annotated tag object
-`e5bcf5c919e8a7ffcdccc337b8940b60a70f0489` points directly to it, and
-publication P15 is `d96173c3556799cb203a4d659f29856180838029`.
-Reviewed archive surface Q15 is
-`443448b79e9016e00d52501f047fce3a408de092`. Compatibility commit C16 is
-`4766793434e59cfe3fb3e8bf5fe57e2a28e72aeb`, Q15's single-parent direct
-child. Native timeout-cap commit C17 is
-`112175bfdbcd6be0e3cca7ed43dd57e79453c00a`, C16's single-parent direct
-child. Unreleased cold-custody-timeout commit C18 is
-`14904f1fc60b254455b7089f32e9764d67fffd95`, C17's single-parent direct
-child. Unreleased custody-transition commit C19 is
-`aa613e86f874efa089a375231a9506e5934973f0`, C18's single-parent direct
-child. Zombie-aware host-fence commit C20 is
-`0c2feb8fa39b1a5141a44930a6ed0b5a913f8256`, C19's single-parent direct
-child. Accepted reading commits
-`f9ddc33b746b1b740414a1fc7a3c86476e5f2ef9` and
-`cd3df81438cd54cfe997162116a92e4e9730f1f9` are the next two single-parent
-children. The final C21 candidate and annotated `v0.1.16` tag must be the
-second reading commit's single-parent direct child. P16 is C21's exact
-contract-only child, followed by the single Q16 archive surface.
+The generation-2 [release history](https://hra-weld.vercel.app/releases)
+records every tag from v0.1.7 through v0.1.16, all nine immutable GitHub
+prereleases, and all 63 assets with their exact byte counts, SHA-256 digests,
+and archive download links. v0.1.11 remains tag-only. Candidate C21 is
+`2947402efe6363bf3bb41aef55c70a2823580c68`; annotated tag object
+`188d8638b8d0cdf7ccaa73e2a0b07a2814f3782a` points directly to it. Publication
+P16 `67e89e7909a56f5bfad1e16bb73801c9cd41503e` and independently accepted U16
+`ce00d829f2097c071766b30cbcb4400e0a4c6be8` are C21's direct children.
+Integration bridge M16 `f5e46ed6c27bcf96c4b13821398a53813505c297`
+has ordered parents `[P16, U16]` and preserves P16's published download contract
+byte for byte. Q16 is M16's single direct archive-surface child and promotes
+the generation-2 ledger without changing that contract.
 
 ## Develop HRA v0
 
