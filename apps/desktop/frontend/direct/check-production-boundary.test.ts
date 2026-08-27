@@ -150,6 +150,19 @@ describe("HRA production Direct boundary", () => {
     expect((await boundaryFailure(contractLeak)).message).toContain("@hraness/direct");
   });
 
+  test("rejects Bombadil from production source and emitted assets", async () => {
+    const sourceLeak = await makeFrontend({
+      emitted: "export const production = true;\n",
+      source: 'import { always } from "@antithesishq/bombadil";\nvoid always;\n',
+    });
+    const emittedLeak = await makeFrontend({
+      emitted: 'const browserFuzzer = "@antithesishq/bombadil";\n',
+    });
+
+    expect((await boundaryFailure(sourceLeak)).message).toContain("@antithesishq/bombadil");
+    expect((await boundaryFailure(emittedLeak)).message).toContain("@antithesishq/bombadil");
+  });
+
   test("rejects distinctive Hugeicons module and compiled glyph markers", async () => {
     for (const marker of [
       "@hugeicons/core-free-icons",

@@ -87,6 +87,7 @@ function createAgentTasksDirectHarness(
 ): AgentTasksDirectHarness {
   let blockedNetworkRequests = 0;
   let disposed = false;
+  const completedPageRequests = new Set<string>();
   const { activity, clock: runtime, onDispose, store } = context;
   const transport = required(createExactScriptedTransport({
     activity,
@@ -434,8 +435,11 @@ function createAgentTasksDirectHarness(
     deferTask: () => unsupported("deferTask"),
     loadMore: (pageCursor, view) => {
       if (disposed) return;
+      const requestKey = encode({ cursor: pageCursor, view });
+      if (completedPageRequests.has(requestKey)) return;
+      let consumed = false;
       transact("load-more", (world) => {
-        const step = world.scripts.pages.shift();
+        const step = world.scripts.pages[0];
         if (step === undefined || step.cursor !== pageCursor || step.view !== view) {
           pushBounded(world.diagnostics.violations, `Unexpected page request ${view}:${pageCursor}.`);
           return;
@@ -445,10 +449,17 @@ function createAgentTasksDirectHarness(
           pushBounded(world.diagnostics.violations, `Cannot append a page to the ${view} ${state.kind} state.`);
           return;
         }
+        if (state.cursor !== pageCursor) {
+          pushBounded(world.diagnostics.violations, `Cannot append ${view}:${pageCursor} from cursor ${String(state.cursor)}.`);
+          return;
+        }
+        world.scripts.pages.shift();
         const known = new Set(state.tasks.map(({ key }) => key));
         state.tasks = [...state.tasks, ...step.tasks.filter(({ key }) => !known.has(key))];
         state.cursor = step.nextCursor;
+        consumed = true;
       });
+      if (consumed) completedPageRequests.add(requestKey);
     },
     rejectSubmission: (input) => execute({ kind: "rejectSubmission", ...input }),
     removeBlocker: () => unsupported("removeBlocker"),
