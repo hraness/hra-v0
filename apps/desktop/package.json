@@ -83,6 +83,8 @@
     "test:provider-thread-archive-startup-v57": "bun test ./runtime/test/provider-thread-archive-startup-v57.test.ts",
     "test:gateway": "bun test ./runtime/test/gateway.integration.test.ts",
     "test:direct": "bun test ./frontend/direct",
+    "fuzz:direct": "bun run ../../scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-desktop-Direct-Bombadil-fuzzing -- bun run fuzz:direct:uncoordinated",
+    "fuzz:direct:uncoordinated": "bun run frontend/direct/fuzz-browser.ts",
     "verify:direct": "bun run ../../scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-desktop-Direct-verification -- bun run verify:direct:uncoordinated",
     "verify:direct:uncoordinated": "bun run frontend/direct/verify-browser.ts",
     "baseline:reactive": "bun run runtime/reactive-baseline.ts",
@@ -104,6 +106,7 @@
     "streamdown": "catalog:"
   },
   "devDependencies": {
+    "@antithesishq/bombadil": "catalog:",
     "@hraness/direct": "catalog:",
     "@hraness/ui": "catalog:",
     "@hra-internal/design-kit": "workspace:*",

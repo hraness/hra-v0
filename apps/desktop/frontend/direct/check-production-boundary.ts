@@ -8,6 +8,7 @@ import {
 } from "@hraness/direct/tooling/bundle-boundary";
 
 const SOURCE_MARKERS = Object.freeze([
+  "@antithesishq/bombadil",
   "@hraness/direct",
   ...DIRECT_WIRE_MARKERS,
   "frontend/direct",
@@ -19,6 +20,7 @@ const SOURCE_MARKERS = Object.freeze([
   "Direct ready:",
 ]);
 const EMITTED_MARKERS = Object.freeze([
+  "@antithesishq/bombadil",
   ...DIRECT_WIRE_MARKERS,
   "__direct_scenario",
   "__direct_fixture",

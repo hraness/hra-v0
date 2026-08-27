@@ -52,7 +52,10 @@ function completeFixture(): Readonly<{
       ...metadata(),
       name: "hra",
       packageManager: "bun@1.3.14",
-      devDependencies: { "agent-browser": "catalog:" },
+      devDependencies: {
+        "@antithesishq/bombadil": "catalog:",
+        "agent-browser": "catalog:",
+      },
       scripts: {
         build: "bun run scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-production-build -- bun run build:uncoordinated",
         check: "bun run scripts/check-resource-scheduler.ts --mode=heavy --label=HRA-source-check -- bun run check:uncoordinated",
@@ -67,7 +70,8 @@ function completeFixture(): Readonly<{
       },
       workspaces: {
         catalog: {
-          "@hraness/direct": "github:hraness/direct#v0.7.0",
+          "@antithesishq/bombadil": "0.7.2",
+          "@hraness/direct": "github:hraness/direct#v0.7.4",
           "@hraness/vercel-delivery": "github:hraness/vercel-delivery#v0.1.2",
           "@hraness/web-discovery": "github:hraness/web-discovery#v0.1.0",
           "agent-browser": "0.32.3",
@@ -137,6 +141,7 @@ function completeFixture(): Readonly<{
     "scripts/check-standalone.ts",
     "scripts/direct/agent-browser.verify.json",
     "scripts/public-tree.manifest.json",
+    "scripts/run-direct-bombadil-fuzz.ts",
     "scripts/vercel-deploy-gate.ts",
     ...[...names.keys()].map((directory) => `${directory}/AGENTS.md`),
   ]);
@@ -251,7 +256,7 @@ describe("public repository structure", () => {
       presentPaths: fixture.presentPaths,
     });
     expect(errors).toContain(
-      "package.json: @hraness/direct must use immutable release github:hraness/direct#v0.7.0",
+      "package.json: @hraness/direct must use immutable release github:hraness/direct#v0.7.4",
     );
     expect(errors).toContain(
       "apps/web/package.json: shared delivery and discovery packages must use the catalog",

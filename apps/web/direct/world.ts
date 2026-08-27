@@ -392,6 +392,51 @@ export function parseAgentTasksDirectWorld(input: unknown): AgentTasksDirectWorl
       throw new Error("The selected task must have a detail fixture.");
     }
   }
+  const detailTaskKeys = new Set(world.details.map(({ task }) => task.key));
+  for (const view of taskWorkspaceViews) {
+    const state = world.views[view];
+    if (state.kind !== "ready") continue;
+    for (const task of state.tasks) {
+      if (!detailTaskKeys.has(task.key)) {
+        throw new Error(`${view} view task ${task.key} must have a detail fixture.`);
+      }
+    }
+  }
+  unique(
+    world.scripts.pages.map((step) => JSON.stringify([step.view, step.cursor])),
+    "Page script identities",
+  );
+  const pageCursors = new Map(
+    taskWorkspaceViews.flatMap((view) => {
+      const state = world.views[view];
+      return state.kind === "ready" ? [[view, state.cursor] as const] : [];
+    }),
+  );
+  for (const step of world.scripts.pages) {
+    const currentCursor = pageCursors.get(step.view);
+    if (currentCursor === undefined) {
+      throw new Error(`Page ${step.view}:${step.cursor} requires a ready view.`);
+    }
+    if (currentCursor !== step.cursor) {
+      throw new Error(
+        `Page ${step.view}:${step.cursor} must match the current ${step.view} cursor ${String(currentCursor)}.`,
+      );
+    }
+    unique(step.tasks.map(({ key }) => key), `Page ${step.view}:${step.cursor} task keys`);
+    for (const task of step.tasks) {
+      if (!detailTaskKeys.has(task.key)) {
+        throw new Error(`Page ${step.view}:${step.cursor} task ${task.key} must have a detail fixture.`);
+      }
+    }
+    pageCursors.set(step.view, step.nextCursor);
+  }
+  for (const [view, finalCursor] of pageCursors) {
+    if (finalCursor !== null) {
+      throw new Error(
+        `${view} view cursor ${finalCursor} must resolve to null through the exact page script.`,
+      );
+    }
+  }
   for (const step of world.scripts.commands) {
     if (step.outcome.kind !== "response") continue;
     const expected = step.request.kind === "createTask"
@@ -728,6 +773,23 @@ export const agentTasksExpiredClaimDetail = jsonClone(agentTasksDetailSchema.par
   truncatedCollections: [],
 }));
 
+export const agentTasksDeferredDetail = jsonClone(agentTasksDetailSchema.parse({
+  blockers: [],
+  children: [],
+  comments: [],
+  dependents: [],
+  description: "Run the bounded provider reconciliation load test after its scheduled availability time.",
+  events: [],
+  labels: ["reconciliation"],
+  parent: null,
+  recoveries: [],
+  references: [],
+  runs: [],
+  submission: null,
+  task: agentTasksDeferredTask,
+  truncatedCollections: [],
+}));
+
 const allCapabilities = {
   canAssign: true,
   canCancel: true,
@@ -764,7 +826,7 @@ const baseWorld = parseAgentTasksDirectWorld({
   counts,
   activeView: "all",
   views: {
-    all: { cursor: "cursor_fixture", kind: "ready", tasks: [agentTasksReviewTask, agentTasksExpiredClaimTask, agentTasksDeferredTask] },
+    all: { cursor: null, kind: "ready", tasks: [agentTasksReviewTask, agentTasksExpiredClaimTask, agentTasksDeferredTask] },
     ready: { cursor: null, kind: "ready", tasks: [] },
     blocked: { cursor: null, kind: "ready", tasks: [agentTasksReviewTask] },
     deferred: { cursor: null, kind: "ready", tasks: [agentTasksDeferredTask] },
@@ -773,7 +835,7 @@ const baseWorld = parseAgentTasksDirectWorld({
     review: { cursor: null, kind: "ready", tasks: [agentTasksReviewTask] },
   },
   selectedTaskKey: agentTasksReviewTask.key,
-  details: [agentTasksReviewDetail, agentTasksExpiredClaimDetail],
+  details: [agentTasksReviewDetail, agentTasksExpiredClaimDetail, agentTasksDeferredDetail],
   runner: {
     presence: {
       availableCapacity: 1,
