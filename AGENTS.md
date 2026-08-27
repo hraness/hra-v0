@@ -6,7 +6,7 @@
 - `scripts/` – public-boundary, standalone structure, agent-guide, asset, resource-scheduling, and Vercel deploy-selection checks.
 - `.agents/skills/` – portable repository orchestration and knowledge-base workflows.
 - `kb/` – the public-safe Git-backed Markdown vault for rationale, evidence, maintained synthesis, plans, and scoped agent context.
-- `.github/workflows/` – source, test, build, and structural package verification, with one narrowly scoped automatic GitHub read token for immutable public release evidence.
+- `.github/workflows/` – bounded archive policy and documentation verification.
 - `README.md` – product overview, repository map, development setup, and verification commands.
 - `SECURITY.md` and `SECURITY_ARCHITECTURE.md` – vulnerability reporting and the public product security model.
 - `CONTRIBUTING.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `TRADEMARKS.md` – contribution, licensing, attribution, and mark-use terms.
@@ -14,6 +14,7 @@
 
 # Guidelines
 
+- Treat this repository as a read-only historical archive. Its Vercel and Convex resources were retired on August 27, 2026. Never deploy, recreate, or reconnect HRA v0 provider resources from this source.
 - Treat this directory as the complete HRA Bun workspace. Every source dependency must resolve from this repository, the checked lockfile, or a named public upstream.
 - Follow `WRITING.md` for internal prose and `STYLE.md` for public prose, preserving facts, exact terms, literals, quotations, links, and necessary uncertainty. State compatibility and affiliation accurately, and keep operational credentials, provider mutation, and signing custody out of this repository.
 - Apply unreasonably robust programming when agent work is cheap. Prefer coherent cross-file correctness and focused deterministic evidence while treating production risk, provider coordination, rollout, and observation as real costs.
@@ -32,5 +33,5 @@
 - Keep the CLI a versioned API consumer. It must not import Convex server implementation or generated data-model types.
 - Keep `taskctl`, its configuration names, and its credential custody product-neutral.
 - Preserve third-party license and notice files beside vendored source or assets. Update `THIRD_PARTY_NOTICES.md` when a bundled dependency, runtime, font, or artwork changes.
-- Keep public GitHub workflows read-only. Pin third-party actions to full commit SHAs, persist no checkout credential, use no repository secrets, and upload no release artifact. The immutable remote-release step may use only the job's automatic `github.token` with `contents: read`, scoped to fixed HRA v0 API reads. CI may build only the isolated structural macOS package with an ephemeral nonrelease CMS identity. Production packaging requires separately provisioned local HRA signing custody; Developer ID signing and notarization are unavailable.
+- Keep public GitHub workflows read-only. Pin third-party actions to full commit SHAs, persist no checkout credential, use no repository secrets, and upload no release artifact. Archive CI verifies retained source policies and documentation without building, packaging, publishing, or contacting retired providers.
 - Run focused checks while editing. Run `bun run check:agent-guides` after guide changes and `bun run check` before handoff. Run `bun run check:complete` for production-build changes.

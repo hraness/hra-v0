@@ -33,6 +33,7 @@
 
 # Guidelines
 
+- Treat all hosted surfaces and provider coordinates in this directory as historical source. The HRA v0 Vercel and Convex resources were retired on August 27, 2026. Do not deploy or recreate them.
 - Keep route components focused on human supervision: work readiness, task state, agent identity, leases, and review.
 - Keep `/` public and indexable without mounting WorkOS or Convex. Keep `/app` behind the configured WorkOS proxy and preserve its server-rendered configuration failures before the authenticated control plane mounts.
 - Keep `/download` honest about candidate and published archived-prerelease status. Candidate contracts expose no download, checksum, or manifest URL. Published contracts link only to the exact `hraness/hra-v0` GitHub release named in `site.ts`. Disclose the self-managed CMS boundary, pinned ad-hoc nested-code boundary including the runtime/JIT gateway, missing Developer ID identity, and missing notarization before the action. Never embed signing custody or publication authority in the web app.

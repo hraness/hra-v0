@@ -1,6 +1,6 @@
 # Contents
 
-- `app/` – the public HRA v0 archive and download surfaces at `hra-weld.vercel.app`, authenticated legacy `/app` control plane, Suite prose bridge, and Convex authority adapter for the shared task surface.
+- `app/` – the historical public HRA v0 archive, download surfaces, authenticated `/app` control plane, Suite prose bridge, and Convex authority adapter.
 - `suite-account-*.ts` – HRA-owned receipt, profile, browser-session, OIDC, and canonical `account.hraness.com` contracts.
 - `direct/` – the isolated deterministic browser composition, scenarios, and evidence verifier.
 - `convex/` – schema, authentication, HTTP routes, and transactional domain functions.
@@ -19,7 +19,8 @@
 
 # Guidelines
 
-- Convex is authoritative for application-owned task state; UI projections come from validated queries and subscriptions.
+- Treat every provider identifier and provider-bound instruction in this workspace as historical evidence. The HRA v0 Vercel project and Convex project were permanently retired on August 27, 2026. Never deploy or recreate them.
+- Convex was authoritative for application-owned task state; UI projections came from validated queries and subscriptions.
 - Render hosted and Direct task surfaces through `@hraness/agent-tasks-ui`; keep Convex subscriptions and mutations in the web-owned adapter.
 - Render Direct through the shared `TaskWorkspace` and its backend-neutral props/action port. Do not mount WorkOS, Convex, generated APIs, or production provider adapters in the deterministic composition.
 - Keep `@hraness/direct` development-only and its Vite graph separate from the production Next.js graph. Run the explicit Direct boundary check before production delivery.
@@ -33,10 +34,10 @@
 - Resolve shared icon entry points to the HRA-local SVG adapter for the Next.js graph, and reject Hugeicons module identifiers or emitted markers during every production build.
 - Keep the authenticated control plane inside the persistent shared app shell. Workspace and Tasks/Access route state belongs in the query-addressed rail, and only the changing main stage animates.
 - Keep `/` public and indexable without WorkOS or Convex client providers. Keep `/app` authenticated when WorkOS is configured, and send sign-in, sign-up, callback, organization-switch, and internal control-plane navigation back to that route.
-- Keep hosted-environment credentials and provider-write configuration out of source control. `hra-weld.vercel.app` is the canonical HRA v0 archive origin, and the normal build must not mutate Convex or a hosting provider.
+- Keep hosted-environment credentials and provider-write configuration out of source control. `hra-weld.vercel.app` was the canonical HRA v0 origin and is retained in source only as a historical identifier.
 - Send only anonymous, cookieless `$pageview` events from exact canonical public routes. Keep the public PostHog token Production-only, and leave Preview and every authenticated, account, task, and control-plane route without analytics ingestion capability.
-- Wrap the HRA Next.js configuration with `@hraness/vercel-delivery` using the registered `hra-v0` project name. Preserve HRA security and private-cache headers ahead of the package-owned delivery and Preview response policy.
-- Permit remote Convex deployment only through the checked Vercel Production wrapper bound to `benevolent-akita-439`. Preview is an app-only client of its exact public endpoints and must reject every production credential, origin claim, or write capability.
+- Preserve the historical Vercel delivery wrapper as source evidence, but do not execute it against a provider.
+- Treat `benevolent-akita-439` as a retired Convex tombstone. Do not deploy to it or create a replacement with the same identity.
 - Run local initialization, development, and every acceptance Convex subprocess through `convex-local.ts`. Reject cloud, self-hosted, credential, remote-URL, and selector-argument authority from the ambient environment, `.env`, and `.env.local` before launching the checked web-local binary.
 - Keep `/download` as an exact public prerelease/source-build page. Retain authentication on near misses, and keep signing, notarization, artifact hosting, and release mutation authority outside the web application.
 - Keep Hraness suite identity additive to the WorkOS human. The OIDC cookie secret belongs only in the web host, the HRA receipt HMAC keyring belongs only in Convex, and missing authority must leave linking unavailable.

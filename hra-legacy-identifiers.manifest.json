@@ -2,11 +2,11 @@
   "entries": [
     {
       "category": "compatibility",
-      "matchingLinesSha256": "819d76334b507f99e003eda41842d128ce94b2e045de27aa548a4d29a2c5ca61",
+      "matchingLinesSha256": "0425a365e60b065e0cc5106bc285030b77566a9b3a0f15a09771fbe2154f1265",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 9
+        "oprte": 10
       },
       "path": "apps/desktop/README.md"
     },
@@ -2122,11 +2122,11 @@
     },
     {
       "category": "compatibility",
-      "matchingLinesSha256": "cb198512dddff1b789ab4b78250079cf6f0f5663b7cd1711f17f3536a5010916",
+      "matchingLinesSha256": "c1a80750f9c5e672f3bdafc5f02f93ab1666c0e5a194e410b687bf748d03da42",
       "occurrences": {
         "kitchen": 1,
         "operateStylized": 0,
-        "oprte": 3
+        "oprte": 2
       },
       "path": "apps/web/README.md"
     },

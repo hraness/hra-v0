@@ -207,18 +207,19 @@ describe("HRA public landing", () => {
   test("positions the repository around concrete outcomes and boundaries", async () => {
     const readme = await source("../../../README.md");
 
-    expect(readme).toContain("# HRA v0");
+    expect(readme).toContain("# HRA v0 (archived)");
     expect(readme).toContain("**The original metaharness for Codex.**");
     expect(readme).toContain("one durable system for planning work, delegating it, running it in parallel");
-    expect(readme).toContain("[Website](https://hra-weld.vercel.app)");
-    expect(readme).toContain("[![HRA](https://hra-weld.vercel.app/opengraph-image)](https://hra-weld.vercel.app)");
-    expect(readme).toContain("[Download for macOS](https://hra-weld.vercel.app/download)");
-    expect(readme).toContain("[Historical comparisons](https://hra-weld.vercel.app/alternatives)");
+    expect(readme).toContain("read-only historical archive");
+    expect(readme).toContain("Its Vercel site");
+    expect(readme).toContain("and Convex backend were shut down on August 27, 2026");
+    expect(readme).toContain("[Historical GitHub releases](https://github.com/hraness/hra-v0/releases)");
+    expect(readme).not.toContain("https://hra-weld.vercel.app");
     expect(readme).toContain("[Current HRA](https://hra.sh)");
     expect(readme).toContain("## Why HRA exists");
     expect(readme).toContain("Several authorized accounts, kept separate.");
     expect(readme).toContain("HRA does not combine subscriptions or bypass provider limits.");
     expect(readme).toContain("See [Security architecture](SECURITY_ARCHITECTURE.md)");
-    expect(readme).toContain("HRA v0 is archived.");
+    expect(readme).toContain("HRA v0 is read-only");
   });
 });
