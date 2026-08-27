@@ -40,8 +40,8 @@ that include the SDK include that license text.
 
 HRA consumes three separately released Hraness packages under the MIT License:
 
-- `@hraness/direct` v0.7.0 at commit
-  `849f3413bc56df8f50c2446076ff90280916a908` supplies the development-only
+- `@hraness/direct` v0.7.4 at commit
+  `1a34c92dc84985053aa671b7264a55d2a70227f1` supplies the development-only
   deterministic runtime and its browser-verification and bundle-boundary
   tooling.
 - `@hraness/web-discovery` v0.1.0 at commit

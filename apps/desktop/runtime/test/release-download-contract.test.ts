@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   applyReleaseGitHubReadAuthorization,
+  HRA_V0_RELEASE_PUBLICATION_COMMIT,
   parseHistoricalReleaseCandidateContract,
   parseReleaseDownloadContract,
   readReleaseDownloadContract,
@@ -765,7 +766,7 @@ describe("release and download convergence", () => {
     });
   });
 
-  test("binds v0.1.16 to the linear Q15-to-C20-to-readings-to-C21-to-P16-to-Q16 path", async () => {
+  test("binds v0.1.16 through the ordered P16/U16/M16 bridge to sole-child Q16", async () => {
     const repositoryRoot = await realpath(
       await mkdtemp(join(tmpdir(), "hra-v016-publication-")),
     );
@@ -957,6 +958,37 @@ describe("release and download convergence", () => {
     const publicationCommit = (
       await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
     ).trim();
+    await runSetupGit(repositoryRoot, [
+      "branch",
+      "publication",
+      publicationCommit,
+    ]);
+    await runSetupGit(repositoryRoot, [
+      "switch",
+      "-c",
+      "concurrent-main",
+      candidateCommit,
+    ]);
+    await writeFile(
+      join(repositoryRoot, "concurrent-main.txt"),
+      "concurrent PR #73 source\n",
+    );
+    await runSetupGit(repositoryRoot, ["add", "concurrent-main.txt"]);
+    await runSetupGit(repositoryRoot, ["commit", "-m", "concurrent main U16"]);
+    const concurrentMainCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await runSetupGit(repositoryRoot, ["switch", "publication"]);
+    await runSetupGit(repositoryRoot, [
+      "merge",
+      "--no-ff",
+      "concurrent-main",
+      "-m",
+      "integration bridge M16",
+    ]);
+    const integrationBridgeCommit = (
+      await runSetupGit(repositoryRoot, ["rev-parse", "HEAD"])
+    ).trim();
     const repository = await inspectReleaseSourceRepository({
       environment: {},
       repositoryRoot,
@@ -970,9 +1002,11 @@ describe("release and download convergence", () => {
         expectedC18Commit: c18Commit,
         expectedC19Commit: c19Commit,
         expectedC20Commit: c20Commit,
+        expectedConcurrentMainCommit: concurrentMainCommit,
         expectedHeadlongReadingCommit: headlongReadingCommit,
         expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         expectedQ15Commit: q15Commit,
+        publicationCommit,
       },
     );
     expect(verified.publication).toMatchObject({
@@ -981,21 +1015,56 @@ describe("release and download convergence", () => {
       publicationCommit,
       status: "exact_candidate_publication_transition",
     });
+    expect(verified).toMatchObject({
+      bridge: {
+        concurrentMainCommit,
+        integrationBridgeCommit,
+      },
+    });
     expect(await verifyReleaseSourceState(published, {
       candidateC16Commit: c16Commit,
       candidateC17Commit: c17Commit,
       candidateC18Commit: c18Commit,
       candidateC19Commit: c19Commit,
       candidateC20Commit: c20Commit,
+      concurrentMainCommit,
       candidateHeadlongReadingCommit: headlongReadingCommit,
       candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       candidateQ15Commit: q15Commit,
       environment: {},
+      publicationCommit,
       repositoryRoot,
     })).toMatchObject({
       availability: "published",
       status: "verified_published_source",
+      bridge: { integrationBridgeCommit },
     });
+
+    const generationOne = readReleaseHistoryContract();
+    const generationZero = parseReleaseHistoryContract({
+      ...generationOne,
+      generation: 0,
+      publicationCommit: HRA_V0_RELEASE_PUBLICATION_COMMIT,
+      tags: generationOne.tags.slice(0, -1),
+    });
+    await expectRejection(
+      verifyReleaseSourceState(published, {
+        candidateC16Commit: c16Commit,
+        candidateC17Commit: c17Commit,
+        candidateC18Commit: c18Commit,
+        candidateC19Commit: c19Commit,
+        candidateC20Commit: c20Commit,
+        concurrentMainCommit,
+        candidateHeadlongReadingCommit: headlongReadingCommit,
+        candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
+        candidateQ15Commit: q15Commit,
+        environment: {},
+        historyContract: generationZero,
+        publicationCommit,
+        repositoryRoot,
+      }),
+      "generation-1 overlay or generation-2 ledger",
+    );
 
     const generationTwo = generationTwoHistoryContract(
       published,
@@ -1023,6 +1092,7 @@ describe("release and download convergence", () => {
         expectedC18Commit: c18Commit,
         expectedC19Commit: c19Commit,
         expectedC20Commit: c20Commit,
+        expectedConcurrentMainCommit: concurrentMainCommit,
         expectedHeadlongReadingCommit: headlongReadingCommit,
         expectedNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         expectedQ15Commit: q15Commit,
@@ -1031,8 +1101,12 @@ describe("release and download convergence", () => {
       },
     );
     expect(surface.surface).toMatchObject({
-      publication: { candidateCommit, publicationCommit },
-      status: "verified_linear_publication_surface",
+      bridge: {
+        concurrentMainCommit,
+        integrationBridgeCommit,
+        publication: { candidateCommit, publicationCommit },
+      },
+      status: "verified_publication_integration_bridge_surface",
       surfaceCommit,
     });
     expect(await verifyReleaseSourceState(published, {
@@ -1041,6 +1115,7 @@ describe("release and download convergence", () => {
       candidateC18Commit: c18Commit,
       candidateC19Commit: c19Commit,
       candidateC20Commit: c20Commit,
+      concurrentMainCommit,
       candidateHeadlongReadingCommit: headlongReadingCommit,
       candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
       candidateQ15Commit: q15Commit,
@@ -1050,7 +1125,10 @@ describe("release and download convergence", () => {
     })).toMatchObject({
       availability: "published",
       status: "verified_published_source",
-      surface: { surfaceCommit },
+      surface: {
+        bridge: { integrationBridgeCommit },
+        surfaceCommit,
+      },
     });
     await expectRejection(
       verifyReleaseSourceState(published, {
@@ -1059,6 +1137,7 @@ describe("release and download convergence", () => {
         candidateC18Commit: c18Commit,
         candidateC19Commit: c19Commit,
         candidateC20Commit: c20Commit,
+        concurrentMainCommit,
         candidateHeadlongReadingCommit: headlongReadingCommit,
         candidateNotACodexTuiReadingCommit: notACodexTuiReadingCommit,
         candidateQ15Commit: q15Commit,
@@ -1066,7 +1145,7 @@ describe("release and download convergence", () => {
         historyContract: readReleaseHistoryContract(),
         repositoryRoot,
       }),
-      "only direct parent",
+      "differs from expected P16",
     );
 
     const providerEnvironment = {
@@ -1083,6 +1162,7 @@ describe("release and download convergence", () => {
     } as const;
     const inspectCanonicalSurface = (options: Readonly<{
       candidateCommit: string;
+      expectedConcurrentMainCommit: string;
       expectedC20Commit: string;
       expectedHeadlongReadingCommit: string;
       expectedNotACodexTuiReadingCommit: string;
@@ -1092,6 +1172,8 @@ describe("release and download convergence", () => {
     }>) => {
       expect(options).toEqual({
         candidateCommit,
+        expectedConcurrentMainCommit:
+          "ce00d829f2097c071766b30cbcb4400e0a4c6be8",
         expectedC20Commit:
           "0c2feb8fa39b1a5141a44930a6ed0b5a913f8256",
         expectedHeadlongReadingCommit:
@@ -1102,9 +1184,18 @@ describe("release and download convergence", () => {
         surfaceCommit,
         tag: published.release.tag,
       });
+      const providerBridge = {
+        ...surface.bridge,
+        concurrentMainCommit:
+          "ce00d829f2097c071766b30cbcb4400e0a4c6be8",
+      } as const;
       return Promise.resolve({
+        bridge: providerBridge,
         publication: surface.publication,
-        surface: surface.surface,
+        surface: {
+          ...surface.surface,
+          bridge: providerBridge,
+        },
         tag: surface.tag,
       });
     };
@@ -1118,8 +1209,9 @@ describe("release and download convergence", () => {
       generationTwo,
     )).toMatchObject({
       availability: "published",
+      integrationBridgeCommit,
       publicationCommit,
-      status: "verified_vercel_publication_surface_binding",
+      status: "verified_vercel_publication_integration_surface_binding",
       surfaceCommit,
     });
     await expectRejection(
@@ -1130,6 +1222,11 @@ describe("release and download convergence", () => {
         undefined,
         undefined,
         () => Promise.resolve({
+          bridge: {
+            ...surface.bridge,
+            concurrentMainCommit:
+              "ce00d829f2097c071766b30cbcb4400e0a4c6be8",
+          },
           publication: surface.publication,
           surface: {
             ...surface.surface,

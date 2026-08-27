@@ -28,6 +28,8 @@ import {
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P15_PUBLICATION_COMMIT,
+  HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
+  HRA_V0_P16_PUBLICATION_COMMIT,
   HRA_V0_PUBLICATION_SURFACE_FETCH_DEPTHS,
   HRA_V0_Q14_SURFACE_COMMIT,
   HRA_V0_Q15_SURFACE_COMMIT,
@@ -44,6 +46,7 @@ import {
   inspectReleaseTag,
   resolveReleaseCandidateCommit,
   resolveReleaseHotfixCandidateCommit,
+  resolveCurrentReleaseTopology,
 } from "../release-provenance";
 import type { ReleaseRepositoryEvidence } from "../release-provenance";
 
@@ -438,7 +441,7 @@ describe("hermetic release provenance", () => {
     })).toBe(candidateCommit);
   }, 10_000);
 
-  test("retains the C16-to-Q15 edge across sequential Q16 and C21 shallow fetches", async () => {
+  test("retains the P16/U16/M16 bridge and C16-to-Q15 edge across sequential shallow fetches", async () => {
     const canonicalRoot = await createRepository();
     const q15Commit = (await runSetupGit(
       canonicalRoot,
@@ -488,7 +491,35 @@ describe("hermetic release provenance", () => {
       "-m",
       "HRA v0.1.16",
     ]);
-    await commitFixture(canonicalRoot, "publication.txt", "publication P16");
+    const p16Commit = await commitFixture(
+      canonicalRoot,
+      "publication.txt",
+      "publication P16",
+    );
+    await runSetupGit(canonicalRoot, ["branch", "publication", p16Commit]);
+    await runSetupGit(canonicalRoot, [
+      "switch",
+      "-c",
+      "concurrent-main",
+      c21Commit,
+    ]);
+    const u16Commit = await commitFixture(
+      canonicalRoot,
+      "concurrent-main.txt",
+      "concurrent main U16",
+    );
+    await runSetupGit(canonicalRoot, ["switch", "publication"]);
+    await runSetupGit(canonicalRoot, [
+      "merge",
+      "--no-ff",
+      "concurrent-main",
+      "-m",
+      "integration bridge M16",
+    ]);
+    const m16Commit = (await runSetupGit(
+      canonicalRoot,
+      ["rev-parse", "HEAD"],
+    )).trim();
     const q16Commit = await commitFixture(
       canonicalRoot,
       "surface.txt",
@@ -536,6 +567,46 @@ describe("hermetic release provenance", () => {
       "canonical",
       `${tagRef}:${tagRef}`,
     ]);
+    expect((await runSetupGit(fetchRoot, [
+      "--git-dir",
+      gitDirectory,
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      q16Commit,
+    ])).trim().split(/\s+/u)).toEqual([q16Commit, m16Commit]);
+    expect((await runSetupGit(fetchRoot, [
+      "--git-dir",
+      gitDirectory,
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      m16Commit,
+    ])).trim().split(/\s+/u)).toEqual([
+      m16Commit,
+      p16Commit,
+      u16Commit,
+    ]);
+    expect((await runSetupGit(fetchRoot, [
+      "--git-dir",
+      gitDirectory,
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      p16Commit,
+    ])).trim().split(/\s+/u)).toEqual([p16Commit, c21Commit]);
+    expect((await runSetupGit(fetchRoot, [
+      "--git-dir",
+      gitDirectory,
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      u16Commit,
+    ])).trim().split(/\s+/u)).toEqual([u16Commit, c21Commit]);
     expect((await runSetupGit(fetchRoot, [
       "--git-dir",
       gitDirectory,
@@ -2146,6 +2217,12 @@ describe("hermetic release provenance", () => {
     expect(HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT).toBe(
       "cd3df81438cd54cfe997162116a92e4e9730f1f9",
     );
+    expect(HRA_V0_P16_CONCURRENT_MAIN_COMMIT).toBe(
+      "ce00d829f2097c071766b30cbcb4400e0a4c6be8",
+    );
+    expect(HRA_V0_P16_PUBLICATION_COMMIT).toBe(
+      "67e89e7909a56f5bfad1e16bb73801c9cd41503e",
+    );
   });
 
   test("accepts the ordered C/P and C/U to M bridge followed by one direct Q surface", async () => {
@@ -2188,6 +2265,174 @@ describe("hermetic release provenance", () => {
       surfaceCommit: topology.surfaceCommit,
     });
   });
+
+  test("resolves current-tip M16 before Q and binds generation-2 Q16 to its exact bridge", async () => {
+    const topology = await createPublicationIntegrationTopology();
+    await runSetupGit(topology.repositoryRoot, [
+      "switch",
+      "--detach",
+      topology.publicationCommit,
+    ]);
+    const publicationRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: topology.repositoryRoot,
+    });
+    expect(await resolveCurrentReleaseTopology(publicationRepository, {
+      candidateCommit: topology.candidateCommit,
+      expectedConcurrentMainCommit: topology.concurrentMainCommit,
+      generation: 1,
+      publicationCommit: topology.publicationCommit,
+    })).toMatchObject({
+      publication: { publicationCommit: topology.publicationCommit },
+      status: "verified_current_release_publication",
+    });
+    await runSetupGit(topology.repositoryRoot, [
+      "switch",
+      "--detach",
+      topology.integrationBridgeCommit,
+    ]);
+    const bridgeRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: topology.repositoryRoot,
+    });
+    expect(await resolveCurrentReleaseTopology(bridgeRepository, {
+      candidateCommit: topology.candidateCommit,
+      expectedConcurrentMainCommit: topology.concurrentMainCommit,
+      generation: 1,
+      publicationCommit: topology.publicationCommit,
+    })).toMatchObject({
+      bridge: {
+        concurrentMainCommit: topology.concurrentMainCommit,
+        integrationBridgeCommit: topology.integrationBridgeCommit,
+        publication: { publicationCommit: topology.publicationCommit },
+      },
+      status: "verified_current_release_publication_integration_bridge",
+    });
+
+    await runSetupGit(topology.repositoryRoot, [
+      "switch",
+      "--detach",
+      topology.surfaceCommit,
+    ]);
+    const surfaceRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: topology.repositoryRoot,
+    });
+    expect(await resolveCurrentReleaseTopology(surfaceRepository, {
+      candidateCommit: topology.candidateCommit,
+      expectedConcurrentMainCommit: topology.concurrentMainCommit,
+      expectedIntegrationBridgeCommit: topology.integrationBridgeCommit,
+      generation: 2,
+      publicationCommit: topology.publicationCommit,
+    })).toMatchObject({
+      bridge: { integrationBridgeCommit: topology.integrationBridgeCommit },
+      status: "verified_current_release_publication_integration_surface",
+      surface: { surfaceCommit: topology.surfaceCommit },
+    });
+  });
+
+  test("fails closed on wrong U/M, parent order, contract drift, and non-direct Q", async () => {
+    const exact = await createPublicationIntegrationTopology();
+    await runSetupGit(exact.repositoryRoot, [
+      "switch",
+      "--detach",
+      exact.integrationBridgeCommit,
+    ]);
+    const bridgeRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: exact.repositoryRoot,
+    });
+    await expectRejection(
+      resolveCurrentReleaseTopology(bridgeRepository, {
+        candidateCommit: exact.candidateCommit,
+        expectedConcurrentMainCommit: exact.concurrentMainCommit,
+        generation: 1,
+        publicationCommit: "f".repeat(40),
+      }),
+      "M16 first parent differs from expected P16",
+    );
+    await expectRejection(
+      resolveCurrentReleaseTopology(bridgeRepository, {
+        candidateCommit: exact.candidateCommit,
+        expectedConcurrentMainCommit: "f".repeat(40),
+        generation: 1,
+        publicationCommit: exact.publicationCommit,
+      }),
+      "M16 second parent differs from exact U16",
+    );
+
+    await runSetupGit(exact.repositoryRoot, [
+      "switch",
+      "--detach",
+      exact.surfaceCommit,
+    ]);
+    const surfaceRepository = await inspectReleaseSourceRepository({
+      environment: {},
+      repositoryRoot: exact.repositoryRoot,
+    });
+    await expectRejection(
+      resolveCurrentReleaseTopology(surfaceRepository, {
+        candidateCommit: exact.candidateCommit,
+        expectedConcurrentMainCommit: exact.concurrentMainCommit,
+        expectedIntegrationBridgeCommit: "f".repeat(40),
+        generation: 2,
+        publicationCommit: exact.publicationCommit,
+      }),
+      "Q16 direct parent differs from exact M16",
+    );
+
+    const reversed = await createPublicationIntegrationTopology({
+      reverseBridgeParents: true,
+    });
+    await expectRejection(
+      resolveCurrentReleaseTopology(reversed.repository, {
+        candidateCommit: reversed.candidateCommit,
+        expectedConcurrentMainCommit: reversed.concurrentMainCommit,
+        generation: 2,
+        publicationCommit: reversed.publicationCommit,
+      }),
+      "ordered parents [P16, U16]",
+    );
+
+    const bridgeDrift = await createPublicationIntegrationTopology({
+      bridgeContract: "candidate",
+    });
+    await expectRejection(
+      resolveCurrentReleaseTopology(bridgeDrift.repository, {
+        candidateCommit: bridgeDrift.candidateCommit,
+        expectedConcurrentMainCommit: bridgeDrift.concurrentMainCommit,
+        generation: 2,
+        publicationCommit: bridgeDrift.publicationCommit,
+      }),
+      "integration bridge must preserve the publication release contract exactly",
+    );
+
+    const surfaceDrift = await createPublicationIntegrationTopology({
+      surfaceContract: "candidate",
+    });
+    await expectRejection(
+      resolveCurrentReleaseTopology(surfaceDrift.repository, {
+        candidateCommit: surfaceDrift.candidateCommit,
+        expectedConcurrentMainCommit: surfaceDrift.concurrentMainCommit,
+        generation: 2,
+        publicationCommit: surfaceDrift.publicationCommit,
+      }),
+      "integration surface must preserve the publication release contract exactly",
+    );
+
+    const nonDirect = await createPublicationIntegrationTopology({
+      surfaceIntermediate: true,
+    });
+    await expectRejection(
+      resolveCurrentReleaseTopology(nonDirect.repository, {
+        candidateCommit: nonDirect.candidateCommit,
+        expectedConcurrentMainCommit: nonDirect.concurrentMainCommit,
+        generation: 2,
+        publicationCommit: nonDirect.publicationCommit,
+      }),
+      "Q16 parent must be exact M16",
+    );
+  }, 10_000);
 
   test("rejects U unless it is a sole child of C with C's exact release contract", async () => {
     const wrongParent = await createPublicationIntegrationTopology({

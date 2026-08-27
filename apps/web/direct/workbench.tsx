@@ -65,7 +65,7 @@ function Frame({
     agentTasksScenarioMetadata[activation.scenario]?.viewport ?? "wide",
   );
   const [query, setQuery] = useState("");
-  const onlyFrame = frameOnly();
+  const [onlyFrame] = useState(frameOnly);
   const dimensions = viewport === "wide"
     ? { width: 1_440, height: 1_000 }
     : viewport === "stacked"

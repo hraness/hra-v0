@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  agentTasksDeferredTask,
   agentTasksReviewTask,
   createAgentTasksDirectWorld,
   parseAgentTasksDirectWorld,
@@ -43,6 +44,110 @@ describe("Agent Tasks Direct world", () => {
     missingDetail.details = missingDetail.details.filter(({ task }) => task.key !== agentTasksReviewTask.key);
     expect(() => parseAgentTasksDirectWorld(missingDetail)).toThrow(
       "selected task must have a detail fixture",
+    );
+  });
+
+  test("rejects a rendered queue row without a deterministic detail", () => {
+    const world = createAgentTasksDirectWorld();
+    world.details = world.details.filter(({ task }) => task.key !== agentTasksDeferredTask.key);
+    expect(() => parseAgentTasksDirectWorld(world)).toThrow(
+      `all view task ${agentTasksDeferredTask.key} must have a detail fixture`,
+    );
+  });
+
+  test("rejects pagination controls and rows without exact deterministic backing", () => {
+    const missingStep = createAgentTasksDirectWorld();
+    if (missingStep.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    missingStep.views.all.cursor = "page:all:missing";
+    expect(() => parseAgentTasksDirectWorld(missingStep)).toThrow(
+      "all view cursor page:all:missing must resolve to null through the exact page script",
+    );
+
+    const missingDetail = createAgentTasksDirectWorld();
+    if (missingDetail.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    missingDetail.views.all.cursor = "page:all:1";
+    missingDetail.scripts.pages = [{
+      cursor: "page:all:1",
+      nextCursor: null,
+      tasks: [{ ...agentTasksReviewTask, key: "AT-00ZZ0ZZ" }],
+      view: "all",
+    }];
+    expect(() => parseAgentTasksDirectWorld(missingDetail)).toThrow(
+      "Page all:page:all:1 task AT-00ZZ0ZZ must have a detail fixture",
+    );
+
+    const duplicateRow = createAgentTasksDirectWorld();
+    if (duplicateRow.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    duplicateRow.views.all.cursor = "page:all:1";
+    duplicateRow.scripts.pages = [{
+      cursor: "page:all:1",
+      nextCursor: null,
+      tasks: [agentTasksReviewTask, structuredClone(agentTasksReviewTask)],
+      view: "all",
+    }];
+    expect(() => parseAgentTasksDirectWorld(duplicateRow)).toThrow(
+      "Page all:page:all:1 task keys must be unique",
+    );
+
+    const duplicateStep = createAgentTasksDirectWorld();
+    if (duplicateStep.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    duplicateStep.views.all.cursor = "page:all:1";
+    const page = {
+      cursor: "page:all:1",
+      nextCursor: null,
+      tasks: [],
+      view: "all" as const,
+    };
+    duplicateStep.scripts.pages = [page, structuredClone(page)];
+    expect(() => parseAgentTasksDirectWorld(duplicateStep)).toThrow(
+      "Page script identities must be unique",
+    );
+
+    const missingNextStep = createAgentTasksDirectWorld();
+    if (missingNextStep.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    missingNextStep.views.all.cursor = "page:all:1";
+    missingNextStep.scripts.pages = [{
+      cursor: "page:all:1",
+      nextCursor: "page:all:2",
+      tasks: [],
+      view: "all",
+    }];
+    expect(() => parseAgentTasksDirectWorld(missingNextStep)).toThrow(
+      "all view cursor page:all:2 must resolve to null through the exact page script",
+    );
+
+    const validChain = createAgentTasksDirectWorld();
+    if (validChain.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    validChain.views.all.cursor = "page:all:1";
+    validChain.scripts.pages = [{
+      cursor: "page:all:1",
+      nextCursor: "page:all:2",
+      tasks: [],
+      view: "all",
+    }, {
+      cursor: "page:all:2",
+      nextCursor: null,
+      tasks: [],
+      view: "all",
+    }];
+    expect(() => parseAgentTasksDirectWorld(validChain)).not.toThrow();
+
+    const orphanStep = createAgentTasksDirectWorld();
+    if (orphanStep.views.all.kind !== "ready") throw new Error("The all view must be ready.");
+    orphanStep.views.all.cursor = "page:all:1";
+    orphanStep.scripts.pages = [{
+      cursor: "page:ready:orphan",
+      nextCursor: null,
+      tasks: [],
+      view: "ready",
+    }, {
+      cursor: "page:all:1",
+      nextCursor: null,
+      tasks: [],
+      view: "all",
+    }];
+    expect(() => parseAgentTasksDirectWorld(orphanStep)).toThrow(
+      "Page ready:page:ready:orphan must match the current ready cursor null",
     );
   });
 

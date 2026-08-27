@@ -8,7 +8,6 @@ import { toPortableRunInteractionRequest } from "../app/task-run-boundary";
 import {
   AGENT_TASKS_DIRECT_TIME,
   agentTasksDeferredTask,
-  agentTasksExpiredClaimDetail,
   agentTasksExpiredClaimTask,
   agentTasksReviewTask,
   createAgentTasksDirectWorld,
@@ -751,7 +750,6 @@ const scenarioInputs = [
       world.activeView = "attention";
       world.views.attention = { cursor: null, kind: "ready", tasks: [agentTasksExpiredClaimTask] };
       world.selectedTaskKey = agentTasksExpiredClaimTask.key;
-      world.details = [structuredClone(agentTasksExpiredClaimDetail)];
     }),
     runtime,
   },

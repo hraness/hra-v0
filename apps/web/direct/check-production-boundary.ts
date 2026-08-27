@@ -8,6 +8,7 @@ import {
 } from "@hraness/direct/tooling/bundle-boundary";
 
 const SOURCE_MARKERS = Object.freeze([
+  "@antithesishq/bombadil",
   "@hraness/direct",
   ...DIRECT_WIRE_MARKERS,
   "hra.agent-tasks.direct/v1",
@@ -24,6 +25,7 @@ const SOURCE_MARKERS = Object.freeze([
   "data-agent-tasks-direct",
 ]);
 const EMITTED_MARKERS = Object.freeze([
+  "@antithesishq/bombadil",
   ...DIRECT_WIRE_MARKERS,
   "hra.agent-tasks.direct/v1",
   "__direct_scenario",

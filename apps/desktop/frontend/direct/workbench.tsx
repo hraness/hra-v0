@@ -126,7 +126,7 @@ function Frame({
     getHRAScenarioMetadata(activation.scenario)?.viewport ?? "wide",
   );
   const [query, setQuery] = useState("");
-  const onlyFrame = frameOnly();
+  const [onlyFrame] = useState(frameOnly);
   const dimensions = viewport === "wide"
     ? { width: 1_120, height: 720 }
     : { width: 720, height: 640 };

@@ -47,6 +47,8 @@ import {
   HRA_V0_P15_CONCURRENT_MAIN_COMMIT,
   HRA_V0_P15_INTEGRATION_BRIDGE_COMMIT,
   HRA_V0_P15_PUBLICATION_COMMIT,
+  HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
+  HRA_V0_P16_PUBLICATION_COMMIT,
   HRA_V0_Q14_SURFACE_COMMIT,
   HRA_V0_Q15_SURFACE_COMMIT,
   HRA_V0_R20_HEADLONG_READING_COMMIT,
@@ -60,20 +62,18 @@ import {
   inspectReleaseHotfixCandidateLineage,
   inspectReleasePublicationAtCommit,
   inspectReleasePublicationIntegrationSurface,
-  inspectReleasePublicationSurface,
   inspectReleasePublicationTransition,
   inspectReleaseSourceRepository,
   inspectReleaseTag,
   resolveReleaseCandidateCommit,
   resolveReleaseHotfixCandidateCommit,
+  resolveCurrentReleaseTopology,
   type ArchiveReleaseSurfaceEvidence,
   type CanonicalArchiveReleaseEvidence,
   type CanonicalReleasePublicationEvidence,
   type CanonicalReleasePublicationIntegrationSurfaceEvidence,
-  type CanonicalReleasePublicationSurfaceEvidence,
   type ReleasePublicationIntegrationBridgeEvidence,
   type ReleasePublicationIntegrationSurfaceEvidence,
-  type ReleasePublicationSurfaceEvidence,
   type ReleasePublicationEvidence,
   type ReleaseRepositoryEvidence,
   type ReleaseTagEvidence,
@@ -232,16 +232,23 @@ export interface HistoricalPublishedReleaseSourceEvidence
   readonly surface: ArchiveReleaseSurfaceEvidence;
 }
 
-export interface PublishedReleaseIntegrationSurfaceSourceEvidence
+export interface PublishedReleaseIntegrationBridgeSourceEvidence
   extends PublishedReleaseSourceEvidence {
   readonly bridge: ReleasePublicationIntegrationBridgeEvidence;
+}
+
+export interface PublishedReleaseIntegrationSurfaceSourceEvidence
+  extends PublishedReleaseIntegrationBridgeSourceEvidence {
   readonly surface: ReleasePublicationIntegrationSurfaceEvidence;
 }
 
-export interface PublishedReleaseSurfaceSourceEvidence
-  extends PublishedReleaseSourceEvidence {
-  readonly surface: ReleasePublicationSurfaceEvidence;
-}
+export type PublishedReleaseSurfaceSourceEvidence =
+  PublishedReleaseIntegrationSurfaceSourceEvidence;
+
+export type PublishedReleaseVerifiedSourceEvidence =
+  | PublishedReleaseSourceEvidence
+  | PublishedReleaseIntegrationBridgeSourceEvidence
+  | PublishedReleaseIntegrationSurfaceSourceEvidence;
 
 export type ReleaseSourceGateEvidence =
   | Readonly<{
@@ -249,7 +256,7 @@ export type ReleaseSourceGateEvidence =
       contract: ReleaseDownloadContract;
       status: "valid_candidate_contract";
     }>
-  | Readonly<PublishedReleaseSourceEvidence & {
+  | Readonly<PublishedReleaseVerifiedSourceEvidence & {
       availability: "published";
       status: "verified_published_source";
     }>;
@@ -684,13 +691,14 @@ export async function verifyVercelReleaseSourceState(
     inspectCanonicalReleasePublicationIntegrationSurface,
   inspectCanonicalSurface: (options: Readonly<{
     candidateCommit: string;
+    expectedConcurrentMainCommit: string;
     expectedC20Commit: string;
     expectedHeadlongReadingCommit: string;
     expectedNotACodexTuiReadingCommit: string;
     publicationCommit: string;
     surfaceCommit: string;
     tag: string;
-  }>) => Promise<CanonicalReleasePublicationSurfaceEvidence> =
+  }>) => Promise<CanonicalReleasePublicationIntegrationSurfaceEvidence> =
     inspectCanonicalReleasePublicationSurface,
   historyContract: ReleaseHistoryContract = readReleaseHistoryContract(),
 ): Promise<VercelReleaseSourceGateEvidence> {
@@ -762,6 +770,7 @@ export async function verifyVercelReleaseSourceState(
     );
     const canonical = await inspectCanonicalSurface({
       candidateCommit: publishedContract.release.source.commit,
+      expectedConcurrentMainCommit: HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
       expectedC20Commit: HRA_V0_C20_ZOMBIE_FENCE_COMMIT,
       expectedHeadlongReadingCommit: HRA_V0_R20_HEADLONG_READING_COMMIT,
       expectedNotACodexTuiReadingCommit:
@@ -776,19 +785,23 @@ export async function verifyVercelReleaseSourceState(
     );
     verifyPublishedTagBinding(publishedContract, canonical.tag);
     if (
-      canonical.surface.publication.publicationCommit !== publicationCommit
+      canonical.bridge.concurrentMainCommit
+        !== HRA_V0_P16_CONCURRENT_MAIN_COMMIT
+      || canonical.bridge.publication.publicationCommit !== publicationCommit
       || canonical.surface.surfaceCommit !== surfaceCommit
-      || canonical.surface.status !== "verified_linear_publication_surface"
+      || canonical.surface.status
+        !== "verified_publication_integration_bridge_surface"
     ) {
       throw new Error(
-        "The canonical Q16 publication surface differs from provider source.",
+        "The canonical Q16 integration surface differs from provider source.",
       );
     }
     return Object.freeze({
       availability: "published",
       contract: publishedContract,
+      integrationBridgeCommit: canonical.bridge.integrationBridgeCommit,
       publicationCommit,
-      status: "verified_vercel_publication_surface_binding",
+      status: "verified_vercel_publication_integration_surface_binding",
       surfaceCommit,
     });
   }
@@ -1033,6 +1046,14 @@ export async function verifyReleaseSourceState(
     ?? (publishedContract.release.version === "0.1.14"
       ? HRA_V0_RELEASE_PUBLICATION_COMMIT
       : HRA_V0_P15_PUBLICATION_COMMIT);
+  if (
+    publishedContract.release.version === "0.1.16"
+    && historyContract.generation === 0
+  ) {
+    throw new Error(
+      "Published v0.1.16 source requires the generation-1 overlay or generation-2 ledger.",
+    );
+  }
   const published = publishedContract.release.version === "0.1.14"
     ? await verifyArchivedReleaseSourceEvidence(
         publishedContract,
@@ -1040,12 +1061,14 @@ export async function verifyReleaseSourceState(
         publicationCommit,
       )
     : publishedContract.release.version === "0.1.16"
-      ? v16SurfacePublicationCommit !== undefined
-          && repository.commit !== v16SurfacePublicationCommit
+      ? historyContract.generation === 2
         ? await verifyPublishedReleaseSurfaceEvidence(
             publishedContract,
             repository,
             {
+              expectedConcurrentMainCommit:
+                options.concurrentMainCommit
+                ?? HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
               expectedC16Commit:
                 options.candidateC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
               expectedC17Commit:
@@ -1068,13 +1091,17 @@ export async function verifyReleaseSourceState(
               expectedQ15Commit:
                 options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
               historyContract,
-              publicationCommit: v16SurfacePublicationCommit,
+              publicationCommit: v16SurfacePublicationCommit
+                ?? historyContract.publicationCommit,
             },
           )
         : await verifyPublishedReleaseSourceEvidence(
             publishedContract,
             repository,
             {
+              expectedConcurrentMainCommit:
+                options.concurrentMainCommit
+                ?? HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
               expectedC16Commit:
                 options.candidateC16Commit ?? HRA_V0_C16_COMPATIBILITY_COMMIT,
               expectedC17Commit:
@@ -1096,6 +1123,8 @@ export async function verifyReleaseSourceState(
                 HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT,
               expectedQ15Commit:
                 options.candidateQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
+              publicationCommit:
+                options.publicationCommit ?? HRA_V0_P16_PUBLICATION_COMMIT,
             },
           )
       : repository.commit === publicationCommit
@@ -1160,7 +1189,7 @@ export async function verifyLocalReleaseCandidate(
 }
 
 export async function requirePublishedReleaseSource(): Promise<
-  PublishedReleaseSourceEvidence
+  PublishedReleaseVerifiedSourceEvidence
 > {
   const contract = await requirePublishedContract();
   const source = await verifyReleaseSourceState(contract);
@@ -1261,6 +1290,7 @@ export async function verifyPublishedReleaseSurfaceEvidence(
   contract: PublishedReleaseDownloadContract,
   repository: ReleaseRepositoryEvidence,
   expectations: Readonly<{
+    expectedConcurrentMainCommit?: string;
     expectedC16Commit?: string;
     expectedC17Commit?: string;
     expectedC18Commit?: string;
@@ -1283,11 +1313,23 @@ export async function verifyPublishedReleaseSurfaceEvidence(
       "The v0.1.16 publication surface requires the exact generation-2 P16 release ledger.",
     );
   }
-  const surface = await inspectReleasePublicationSurface(repository, {
+  const topology = await resolveCurrentReleaseTopology(repository, {
     candidateCommit: contract.release.source.commit,
+    expectedConcurrentMainCommit:
+      expectations.expectedConcurrentMainCommit
+      ?? HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
+    generation: 2,
     publicationCommit: expectations.publicationCommit,
   });
-  const publication = surface.publication;
+  if (
+    topology.status
+      !== "verified_current_release_publication_integration_surface"
+  ) {
+    throw new Error(
+      "The v0.1.16 generation-2 source is not the Q16 integration surface.",
+    );
+  }
+  const publication = topology.publication;
   verifyPublicationContractTransition(contract, publication);
   await inspectReleaseHotfixCandidateLineage(repository, {
     candidateCommit: contract.release.source.commit,
@@ -1317,10 +1359,11 @@ export async function verifyPublishedReleaseSurfaceEvidence(
   verifyPublishedTagBinding(contract, tag);
   verifyPublishedContractGenerationTwoHistoryBinding(contract, historyContract);
   return Object.freeze({
+    bridge: topology.bridge,
     contract,
     publication,
     repository,
-    surface,
+    surface: topology.surface,
     tag,
   });
 }
@@ -1341,15 +1384,31 @@ export async function verifyPublishedReleaseSourceEvidence(
     expectedC18Commit?: string;
     expectedC19Commit?: string;
     expectedC20Commit?: string;
+    expectedConcurrentMainCommit?: string;
     expectedHeadlongReadingCommit?: string;
     expectedNotACodexTuiReadingCommit?: string;
     expectedQ15Commit?: string;
+    publicationCommit?: string;
   }> = {},
-): Promise<PublishedReleaseSourceEvidence> {
-  const publication = await inspectReleasePublicationTransition(
-    repository,
-    contract.release.source.commit,
-  );
+): Promise<
+  PublishedReleaseSourceEvidence | PublishedReleaseIntegrationBridgeSourceEvidence
+> {
+  const topology = contract.release.version === "0.1.16"
+    ? await resolveCurrentReleaseTopology(repository, {
+        candidateCommit: contract.release.source.commit,
+        expectedConcurrentMainCommit:
+          expectations.expectedConcurrentMainCommit
+          ?? HRA_V0_P16_CONCURRENT_MAIN_COMMIT,
+        generation: 1,
+        publicationCommit:
+          expectations.publicationCommit ?? HRA_V0_P16_PUBLICATION_COMMIT,
+      })
+    : null;
+  const publication = topology?.publication
+    ?? await inspectReleasePublicationTransition(
+      repository,
+      contract.release.source.commit,
+    );
   verifyPublicationContractTransition(contract, publication);
   if (contract.release.version === "0.1.15") {
     await inspectReleaseCandidateLineage(repository, {
@@ -1407,7 +1466,16 @@ export async function verifyPublishedReleaseSourceEvidence(
   ) {
     throw new Error("The local annotated release tag differs from the published contract.");
   }
-  return Object.freeze({ contract, publication, repository, tag });
+  return Object.freeze({
+    ...(topology?.status
+        === "verified_current_release_publication_integration_bridge"
+      ? { bridge: topology.bridge }
+      : {}),
+    contract,
+    publication,
+    repository,
+    tag,
+  });
 }
 
 function verifyPublicationContractTransition(

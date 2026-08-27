@@ -52,6 +52,7 @@ const requiredRootPaths = [
   "scripts/check-standalone.ts",
   "scripts/direct/agent-browser.verify.json",
   "scripts/public-tree.manifest.json",
+  "scripts/run-direct-bombadil-fuzz.ts",
   "scripts/vercel-deploy-gate.ts",
 ] as const;
 
@@ -158,7 +159,7 @@ export function publicStructureErrors(options: Readonly<{
       errors.push("package.json: react-aria-components must remain pinned to 1.19.0");
     }
     const sharedPackagePins = {
-      "@hraness/direct": "github:hraness/direct#v0.7.0",
+      "@hraness/direct": "github:hraness/direct#v0.7.4",
       "@hraness/vercel-delivery": "github:hraness/vercel-delivery#v0.1.2",
       "@hraness/web-discovery": "github:hraness/web-discovery#v0.1.0",
     } as const;
@@ -191,11 +192,15 @@ export function publicStructureErrors(options: Readonly<{
     const devDependencies = root["devDependencies"];
     if (
       !isRecord(catalog)
+      || catalog["@antithesishq/bombadil"] !== "0.7.2"
       || catalog["agent-browser"] !== "0.32.3"
       || !isRecord(devDependencies)
+      || devDependencies["@antithesishq/bombadil"] !== "catalog:"
       || devDependencies["agent-browser"] !== "catalog:"
     ) {
-      errors.push("package.json: Direct verification requires pinned root agent-browser 0.32.3");
+      errors.push(
+        "package.json: Direct browser tooling requires pinned root Bombadil 0.7.2 and agent-browser 0.32.3",
+      );
     }
   }
 

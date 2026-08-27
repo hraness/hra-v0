@@ -9,6 +9,7 @@ import {
   type AgentTasksDirectSession,
 } from "./runtime";
 import {
+  agentTasksDeferredTask,
   agentTasksReviewTask,
 } from "./world";
 
@@ -92,6 +93,19 @@ describe("Agent Tasks deterministic workspace adapter", () => {
       tasks: [expect.objectContaining({ key: "AT-9XZ2KMN", isReady: true })],
     });
     expect(() => harness.assertScriptsDrained()).not.toThrow();
+    session.dispose();
+  });
+
+  test("selects every rendered base-world task with a deterministic detail", () => {
+    const session = openSession("tasks-rich-review");
+    expect(() => session.harness.actions.selectTask(agentTasksDeferredTask.key)).not.toThrow();
+    expect(session.harness.getProps().read).toMatchObject({
+      kind: "ready",
+      selection: {
+        detail: { task: { key: agentTasksDeferredTask.key } },
+        kind: "ready",
+      },
+    });
     session.dispose();
   });
 
@@ -291,8 +305,27 @@ describe("Agent Tasks deterministic workspace adapter", () => {
       "AT-45EF6GH",
       "AT-78JK9MN",
     ]);
+    harness.actions.loadMore("page:all:1", "all");
+    expect(harness.getSnapshot()).toMatchObject({
+      remainingScripts: { pages: 0 },
+      violations: 0,
+    });
     expect(world.views.ready).toEqual(readyBefore);
     expect(() => harness.assertScriptsDrained()).not.toThrow();
+    session.dispose();
+  });
+
+  test("preserves an exact page script after a divergent request", () => {
+    const session = openSession("tasks-pagination-scope");
+    session.harness.actions.loadMore("page:all:wrong", "all");
+    expect(session.harness.getSnapshot()).toMatchObject({
+      remainingScripts: { pages: 1 },
+      violations: 1,
+    });
+    expect(session.store.getSnapshot().world.views.all).toMatchObject({
+      cursor: "page:all:1",
+      tasks: [{ key: agentTasksReviewTask.key }],
+    });
     session.dispose();
   });
 

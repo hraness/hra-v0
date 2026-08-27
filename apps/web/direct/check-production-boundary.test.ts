@@ -57,6 +57,17 @@ describe("Agent Tasks production Direct boundary", () => {
     });
   });
 
+  test("rejects Bombadil from production source and emitted assets", async () => {
+    await withProduct({
+      "app/page.tsx": 'import { always } from "@antithesishq/bombadil"; void always;',
+      ".next/server/app/page.js": 'const browserFuzzer = "@antithesishq/bombadil";',
+    }, async (directory) => {
+      await expect(checkAgentTasksProductionBoundary(directory)).rejects.toThrow(
+        "@antithesishq/bombadil",
+      );
+    });
+  });
+
   test("rejects markers in secondary source roots and every textual emitted surface", async () => {
     await withProduct({
       "app/page.tsx": "export default function Page() { return null; }",

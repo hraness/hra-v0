@@ -33,9 +33,10 @@
       "packages/internal/*"
     ],
     "catalog": {
+      "@antithesishq/bombadil": "0.7.2",
       "@convex-dev/better-auth": "0.12.5",
       "@eslint/js": "^9.39.2",
-      "@hraness/direct": "github:hraness/direct#v0.7.0",
+      "@hraness/direct": "github:hraness/direct#v0.7.4",
       "@hraness/result": "github:hraness/result#v0.2.1",
       "@hraness/types": "github:hraness/types#v0.1.1",
       "@hraness/ui": "github:hraness/ui#v0.3.1",
@@ -90,6 +91,8 @@
     "dev:desktop": "bun run --cwd apps/desktop dev",
     "direct:web": "bun run --cwd apps/web dev:direct",
     "direct:desktop": "bun run --cwd apps/desktop dev:direct",
+    "fuzz:direct": "bun run scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-Direct-Bombadil-fuzzing -- bun run fuzz:direct:uncoordinated",
+    "fuzz:direct:uncoordinated": "bun run scripts/run-direct-bombadil-fuzz.ts",
     "build": "bun run scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-production-build -- bun run build:uncoordinated",
     "build:uncoordinated": "bun run --sequential --filter '@hraness/*' --filter '@hra-internal/*' build",
     "package:macos": "bun run --cwd apps/desktop package:macos",
@@ -141,6 +144,7 @@
     "check:complete:uncoordinated": "bun run check:uncoordinated && bun run build:uncoordinated"
   },
   "devDependencies": {
+    "@antithesishq/bombadil": "catalog:",
     "@hra-internal/eslint-config": "workspace:*",
     "@hra-internal/typescript-config": "workspace:*",
     "@types/bun": "catalog:",

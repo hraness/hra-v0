@@ -36,6 +36,8 @@
     "test:local:convex": "bun run ../../scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-local-Convex-acceptance -- bun run test:local:convex:uncoordinated",
     "test:local:convex:uncoordinated": "bun run tests/run-local-convex.ts",
     "test:property": "bun test ./app/*.property.test.ts ./convex/*.property.test.ts ./direct/*.property.test.ts",
+    "fuzz:direct": "bun run ../../scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-web-Direct-Bombadil-fuzzing -- bun run fuzz:direct:uncoordinated",
+    "fuzz:direct:uncoordinated": "bun run direct/fuzz-browser.ts",
     "verify:direct": "bun run ../../scripts/check-resource-scheduler.ts --mode=exclusive --label=HRA-web-Direct-verification -- bun run verify:direct:uncoordinated",
     "verify:direct:uncoordinated": "bun run direct/verify-browser.ts",
     "provider:create-convex-deploy-key": "bun run scripts/create-convex-deploy-key.ts",
@@ -61,6 +63,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@antithesishq/bombadil": "catalog:",
     "@hra-internal/design-kit": "workspace:*",
     "@hra-internal/eslint-config": "workspace:*",
     "@hra-internal/test": "workspace:*",

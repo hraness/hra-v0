@@ -98,9 +98,17 @@ export const HRA_V0_R20_HEADLONG_READING_COMMIT =
 export const HRA_V0_R20_NOT_A_CODEX_TUI_READING_COMMIT =
   "cd3df81438cd54cfe997162116a92e4e9730f1f9" as const;
 
+/** Concurrent C21 child integrated after the standalone P16 publication. */
+export const HRA_V0_P16_CONCURRENT_MAIN_COMMIT =
+  "ce00d829f2097c071766b30cbcb4400e0a4c6be8" as const;
+
+/** Exact contract-only P16 child of the tagged C21 candidate. */
+export const HRA_V0_P16_PUBLICATION_COMMIT =
+  "67e89e7909a56f5bfad1e16bb73801c9cd41503e" as const;
+
 /** Shallow depths that retain Q15 across the sequential Q16 and C21 fetches. */
 export const HRA_V0_PUBLICATION_SURFACE_FETCH_DEPTHS = Object.freeze({
-  surface: 11,
+  surface: 12,
   tag: 9,
 });
 
@@ -183,7 +191,7 @@ export interface CanonicalReleasePublicationEvidence {
   readonly tag: ReleaseTagEvidence;
 }
 
-/** Canonical remote evidence for the linear Q15-to-C21-to-P16-to-Q16 topology. */
+/** Canonical remote evidence for the legacy linear P16-to-Q16 topology. */
 export interface CanonicalReleasePublicationSurfaceEvidence
   extends CanonicalReleasePublicationEvidence {
   readonly surface: ReleasePublicationSurfaceEvidence;
@@ -207,6 +215,24 @@ export interface ReleasePublicationIntegrationSurfaceEvidence {
   readonly status: "verified_publication_integration_bridge_surface";
   readonly surfaceCommit: string;
 }
+
+/** The bounded current-tip publication topology used while v0.1.16 settles. */
+export type CurrentReleaseTopologyEvidence =
+  | Readonly<{
+      publication: ReleasePublicationEvidence;
+      status: "verified_current_release_publication";
+    }>
+  | Readonly<{
+      bridge: ReleasePublicationIntegrationBridgeEvidence;
+      publication: ReleasePublicationEvidence;
+      status: "verified_current_release_publication_integration_bridge";
+    }>
+  | Readonly<{
+      bridge: ReleasePublicationIntegrationBridgeEvidence;
+      publication: ReleasePublicationEvidence;
+      status: "verified_current_release_publication_integration_surface";
+      surface: ReleasePublicationIntegrationSurfaceEvidence;
+    }>;
 
 /**
  * Canonical remote evidence for the fixed C15/P15/U/M/Q topology. The
@@ -1474,6 +1500,185 @@ async function inspectReleasePublicationIntegrationSurfaceWithRunner(
 }
 
 /**
+ * Resolve the bounded v0.1.16 topology from the current source tip. During
+ * generation 1 the tip may be P16 itself or M16, whose ordered [P16, U16]
+ * parents identify the bridge without making M16 contain its own object ID.
+ * During generation 2 the tip must be Q16, its sole M16 child edge supplies
+ * the bridge object ID, and the release ledger supplies exact P16.
+ */
+export async function resolveCurrentReleaseTopology(
+  repository: ReleaseRepositoryEvidence,
+  options:
+    | Readonly<{
+        candidateCommit: string;
+        expectedConcurrentMainCommit: string;
+        generation: 1;
+        publicationCommit: string;
+      }>
+    | Readonly<{
+        candidateCommit: string;
+        expectedConcurrentMainCommit: string;
+        expectedIntegrationBridgeCommit?: string;
+        generation: 2;
+        publicationCommit: string;
+        surfaceCommit?: string;
+      }>,
+): Promise<CurrentReleaseTopologyEvidence> {
+  const runner = releaseGitRunner(
+    repository.repositoryRoot,
+    repository.gitDirectory,
+  );
+  return await resolveCurrentReleaseTopologyWithRunner(
+    runner,
+    options.generation === 2
+      ? options.surfaceCommit ?? repository.commit
+      : repository.commit,
+    options,
+  );
+}
+
+async function resolveCurrentReleaseTopologyWithRunner(
+  runner: ReleaseGitRunner,
+  currentCommitValue: string,
+  options:
+    | Readonly<{
+        candidateCommit: string;
+        expectedConcurrentMainCommit: string;
+        generation: 1;
+        publicationCommit: string;
+      }>
+    | Readonly<{
+        candidateCommit: string;
+        expectedConcurrentMainCommit: string;
+        expectedIntegrationBridgeCommit?: string;
+        generation: 2;
+        publicationCommit: string;
+        surfaceCommit?: string;
+      }>,
+): Promise<CurrentReleaseTopologyEvidence> {
+  const candidateCommit = requireObjectId(
+    options.candidateCommit,
+    "Published candidate commit",
+  );
+  const expectedConcurrentMainCommit = requireObjectId(
+    options.expectedConcurrentMainCommit,
+    "Expected concurrent main commit",
+  );
+  const currentCommit = requireObjectId(
+    currentCommitValue,
+    options.generation === 1
+      ? "Current publication topology commit"
+      : "Publication integration surface commit",
+  );
+  const currentAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    currentCommit,
+  ])).trim().split(/\s+/u);
+
+  if (options.generation === 1) {
+    const expectedPublicationCommit = requireObjectId(
+      options.publicationCommit,
+      "Published publication commit",
+    );
+    if (currentAncestry.length === 2) {
+      if (currentCommit !== expectedPublicationCommit) {
+        throw new Error(
+          "The generation-1 v0.1.16 source differs from expected P16.",
+        );
+      }
+      const publication = await inspectReleasePublicationWithRunner(
+        runner,
+        candidateCommit,
+        currentCommit,
+      );
+      return Object.freeze({
+        publication,
+        status: "verified_current_release_publication",
+      });
+    }
+    if (currentAncestry.length !== 3 || currentAncestry[0] !== currentCommit) {
+      throw new Error(
+        "The generation-1 v0.1.16 source must be exact P16 or an ordered two-parent M16 bridge.",
+      );
+    }
+    const publicationCommit = currentAncestry[1] ?? "";
+    const concurrentMainCommit = currentAncestry[2] ?? "";
+    if (publicationCommit !== expectedPublicationCommit) {
+      throw new Error("The M16 first parent differs from expected P16.");
+    }
+    if (concurrentMainCommit !== expectedConcurrentMainCommit) {
+      throw new Error("The M16 second parent differs from exact U16.");
+    }
+    const bridge = await inspectReleasePublicationIntegrationBridgeWithRunner(
+      runner,
+      candidateCommit,
+      publicationCommit,
+      concurrentMainCommit,
+      currentCommit,
+    );
+    return Object.freeze({
+      bridge,
+      publication: bridge.publication,
+      status: "verified_current_release_publication_integration_bridge",
+    });
+  }
+
+  const publicationCommit = requireObjectId(
+    options.publicationCommit,
+    "Published publication commit",
+  );
+  if (currentAncestry.length !== 2 || currentAncestry[0] !== currentCommit) {
+    throw new Error(
+      "The generation-2 Q16 surface must have M16 as its only direct parent.",
+    );
+  }
+  const integrationBridgeCommit = currentAncestry[1] ?? "";
+  if (
+    options.expectedIntegrationBridgeCommit !== undefined
+    && integrationBridgeCommit !== requireObjectId(
+      options.expectedIntegrationBridgeCommit,
+      "Expected publication integration bridge commit",
+    )
+  ) {
+    throw new Error("The Q16 direct parent differs from exact M16.");
+  }
+  const integrationBridgeAncestry = (await runner.run([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    integrationBridgeCommit,
+  ])).trim().split(/\s+/u);
+  if (
+    integrationBridgeAncestry.length !== 3
+    || integrationBridgeAncestry[0] !== integrationBridgeCommit
+    || integrationBridgeAncestry[1] !== publicationCommit
+    || integrationBridgeAncestry[2] !== expectedConcurrentMainCommit
+  ) {
+    throw new Error(
+      "The Q16 parent must be exact M16 with ordered parents [P16, U16].",
+    );
+  }
+  const surface = await inspectReleasePublicationIntegrationSurfaceWithRunner(
+    runner,
+    candidateCommit,
+    publicationCommit,
+    expectedConcurrentMainCommit,
+    integrationBridgeCommit,
+    currentCommit,
+  );
+  return Object.freeze({
+    bridge: surface.bridge,
+    publication: surface.bridge.publication,
+    status: "verified_current_release_publication_integration_surface",
+    surface,
+  });
+}
+
+/**
  * Bind a maintained archive surface to the immutable publication while
  * allowing exactly one reviewed repository-coordinate migration. Every other
  * byte of release-download.json remains fixed at P.
@@ -1916,13 +2121,14 @@ export async function inspectCanonicalReleasePublication(options: Readonly<{
 }
 
 /**
- * Fetch and verify the exact linear Q15-to-C20-to-accepted-readings-to-C21-to-
- * P16-to-Q16 publication topology from the canonical HRA v0 repository without
- * trusting a provider checkout.
+ * Fetch and verify the Q15-to-C21 candidate lineage and the exact dynamic
+ * C21/P16/U16/M16/Q16 integration topology from the canonical HRA v0
+ * repository without trusting a provider checkout.
  */
 export async function inspectCanonicalReleasePublicationSurface(
   options: Readonly<{
     candidateCommit: string;
+    expectedConcurrentMainCommit: string;
     expectedC16Commit?: string;
     expectedC17Commit?: string;
     expectedC18Commit?: string;
@@ -1935,7 +2141,7 @@ export async function inspectCanonicalReleasePublicationSurface(
     surfaceCommit: string;
     tag: string;
   }>,
-): Promise<CanonicalReleasePublicationSurfaceEvidence> {
+): Promise<CanonicalReleasePublicationIntegrationSurfaceEvidence> {
   const candidateCommit = requireObjectId(
     options.candidateCommit,
     "Published candidate commit",
@@ -1947,6 +2153,10 @@ export async function inspectCanonicalReleasePublicationSurface(
   const surfaceCommit = requireObjectId(
     options.surfaceCommit,
     "Publication surface commit",
+  );
+  const expectedConcurrentMainCommit = requireObjectId(
+    options.expectedConcurrentMainCommit,
+    "Expected concurrent main commit",
   );
   const expectedQ15Commit = requireObjectId(
     options.expectedQ15Commit ?? HRA_V0_Q15_SURFACE_COMMIT,
@@ -2016,12 +2226,17 @@ export async function inspectCanonicalReleasePublicationSurface(
       "canonical",
       `${tagRef}:${tagRef}`,
     ]);
-    const [surface, tag] = await Promise.all([
-      inspectReleasePublicationSurfaceWithRunner(
+    const [topology, tag] = await Promise.all([
+      resolveCurrentReleaseTopologyWithRunner(
         runner,
-        candidateCommit,
-        publicationCommit,
         surfaceCommit,
+        {
+          candidateCommit,
+          expectedConcurrentMainCommit,
+          generation: 2,
+          publicationCommit,
+          surfaceCommit,
+        },
       ),
       inspectReleaseTagWithRunner(runner, options.tag),
     ]);
@@ -2042,9 +2257,18 @@ export async function inspectCanonicalReleasePublicationSurface(
       expectedC16Commit,
       expectedQ15Commit,
     );
+    if (
+      topology.status
+        !== "verified_current_release_publication_integration_surface"
+    ) {
+      throw new Error(
+        "The canonical v0.1.16 source is not the generation-2 integration surface.",
+      );
+    }
     return Object.freeze({
-      publication: surface.publication,
-      surface,
+      bridge: topology.bridge,
+      publication: topology.publication,
+      surface: topology.surface,
       tag,
     });
   } finally {
