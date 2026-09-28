@@ -6,9 +6,8 @@
 > and Convex backend were shut down on August 27, 2026. Do not deploy or
 > install HRA v0.
 >
-> The current HRA is a CLI maintained at
-> [github.com/hraness/hra](https://github.com/hraness/hra), with documentation
-> at [hra.sh](https://hra.sh).
+> HRA and its successor Oompa are retired. [xcb](https://xcb.sh) replaces
+> both. Source: [hraness/xcb](https://github.com/hraness/xcb).
 
 The source, tags, GitHub prereleases, checksums, and release assets remain
 available only as historical reference. v0.1.16 build 17 was the final HRA v0
@@ -18,7 +17,7 @@ release.
 one durable system for planning work, delegating it, running it in parallel,
 and bringing it back for review.
 
-[Historical GitHub releases](https://github.com/hraness/hra-v0/releases) · [Current HRA](https://hra.sh)
+[Historical GitHub releases](https://github.com/hraness/hra-v0/releases) · [xcb, the successor](https://xcb.sh)
 
 > The final checked release contract recorded HRA 0.1.16 build 17 for Apple
 > Silicon Macs. Its outer app, native host, and custody-authorizing helpers used
@@ -100,8 +99,7 @@ the source describe the retired system. They are not deployment instructions.
 ## Project and license
 
 HRA v0 is read-only and receives no fixes, releases, or operational support.
-Development continues in the separate
-[current HRA repository](https://github.com/hraness/hra). HRA v0 was an independent project and was not
+Its successor is [xcb](https://github.com/hraness/xcb). HRA v0 was an independent project and was not
 affiliated with, endorsed by, or sponsored by OpenAI. “OpenAI” and “Codex” are
 used only to identify the product HRA interoperates with.
 
