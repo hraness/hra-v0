@@ -215,7 +215,8 @@ describe("HRA public landing", () => {
     expect(readme).toContain("and Convex backend were shut down on August 27, 2026");
     expect(readme).toContain("[Historical GitHub releases](https://github.com/hraness/hra-v0/releases)");
     expect(readme).not.toContain("https://hra-weld.vercel.app");
-    expect(readme).toContain("[Current HRA](https://hra.sh)");
+    expect(readme).toContain("[xcb, the successor](https://xcb.sh)");
+    expect(readme).not.toContain("[Current HRA](https://hra.sh)");
     expect(readme).toContain("## Why HRA exists");
     expect(readme).toContain("Several authorized accounts, kept separate.");
     expect(readme).toContain("HRA does not combine subscriptions or bypass provider limits.");

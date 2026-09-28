@@ -8,10 +8,10 @@ supported, and the hosted Vercel and Convex services were retired on August
 
 ## Supported versions
 
-No HRA v0 version is supported. Reports that affect the current HRA CLI belong
-in the separate [current repository](https://github.com/hraness/hra). Do not
-assume a report against this archived desktop or web code applies to the
-current CLI.
+No HRA v0 version is supported. HRA and its successor Oompa are retired.
+Reports that affect their successor, xcb, belong in its
+[security policy](https://github.com/hraness/xcb/security/policy). Do not
+assume a report against this archived desktop or web code applies to xcb.
 
 ## Disclosure
 
